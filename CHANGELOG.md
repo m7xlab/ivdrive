@@ -23,3 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Skoda Authentication token refresh infinite loops.
 - Resolved issue where identical sequential step-chart segments caused frontend memory ballooning. Backend now collapses continuous ranges accurately.
 - Addressed Docker port conflicts that interfered with parallel deployments.
+
+## [1.0.1] - 2026-03-01
+### Fixed
+- Disabled `pool_pre_ping` in `asyncpg` SQLAlchemy engine configuration to completely resolve an architectural bug causing `500 Internal Server Error (MissingGreenlet)` crashes when multiple users concurrently registered vehicles and initiated background API polling.
