@@ -124,7 +124,8 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         model=v.model,
         model_year=v.model_year,
         collection_enabled=v.collection_enabled,
-        collection_interval_seconds=v.collection_interval_seconds,
+        active_interval_seconds=v.active_interval_seconds,
+        parked_interval_seconds=v.parked_interval_seconds,
         image_url=v.image_url,
         body_type=v.body_type,
         trim_level=v.trim_level,
@@ -186,7 +187,8 @@ async def create_vehicle(
         display_name=body.display_name,
         connector_config_encrypted=encrypt_field(connector_config),
         collection_enabled=True,
-        collection_interval_seconds=body.collection_interval_seconds,
+        active_interval_seconds=body.active_interval_seconds,
+        parked_interval_seconds=body.parked_interval_seconds,
     )
     db.add(vehicle)
     await db.flush()
@@ -222,7 +224,7 @@ async def create_vehicle(
     vehicle.connector_session = cs
 
     await publish_vehicle_linked(
-        str(vehicle.id), vehicle.collection_interval_seconds
+        str(vehicle.id), vehicle.parked_interval_seconds
     )
 
     return _vehicle_to_response(vehicle)
@@ -253,7 +255,7 @@ async def update_vehicle(
 
     await publish_vehicle_updated(
         str(vehicle.id),
-        vehicle.collection_interval_seconds,
+        vehicle.parked_interval_seconds,
         vehicle.collection_enabled,
     )
     return _vehicle_to_response(vehicle)

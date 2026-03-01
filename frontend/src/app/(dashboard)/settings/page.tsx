@@ -27,7 +27,8 @@ interface SettingsVehicle {
   model: string | null;
   model_year: number | null;
   collection_enabled: boolean;
-  collection_interval_seconds: number;
+  active_interval_seconds: number;
+  parked_interval_seconds: number;
   connector_status: string | null;
   last_fetch_at: string | null;
   created_at: string;
@@ -98,7 +99,8 @@ export default function SettingsPage() {
   const [vehicleDeleting, setVehicleDeleting] = useState<string | null>(null);
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
   const [editingInterval, setEditingInterval] = useState<string | null>(null);
-  const [intervalValue, setIntervalValue] = useState(300);
+  const [activeInterval, setActiveInterval] = useState(300);
+  const [parkedInterval, setParkedInterval] = useState(1800);
 
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [geofencesLoading, setGeofencesLoading] = useState(true);
@@ -137,12 +139,12 @@ export default function SettingsPage() {
 
   const handleSaveInterval = async (id: string) => {
     try {
-      await api.updateVehicle(id, { collection_interval_seconds: intervalValue });
+      await api.updateVehicle(id, { active_interval_seconds: activeInterval, parked_interval_seconds: parkedInterval });
       await loadVehicles();
       setEditingInterval(null);
-      showToast("success", "Collection interval updated");
+      showToast("success", "Polling intervals updated");
     } catch (err) {
-      showToast("error", err instanceof Error ? err.message : "Failed to update interval");
+      showToast("error", err instanceof Error ? err.message : "Failed to update intervals");
     }
   };
 
@@ -231,24 +233,36 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                {/* Collection interval */}
+                {/* Smart Polling intervals */}
                 <div className="flex items-center gap-3 pl-11">
                   <Timer size={12} className="text-iv-muted flex-shrink-0" />
                   {editingInterval === v.id ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <input type="range" min={180} max={3600} step={60} value={intervalValue}
-                        onChange={(e) => setIntervalValue(Number(e.target.value))}
-                        className="flex-1 accent-iv-green" />
-                      <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(intervalValue)}</span>
-                      <button onClick={() => handleSaveInterval(v.id)}
-                        className="text-xs text-iv-green hover:underline">Save</button>
-                      <button onClick={() => setEditingInterval(null)}
-                        className="text-xs text-iv-muted hover:underline">Cancel</button>
+                    <div className="flex flex-col gap-2 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28">Active Telemetry</span>
+                        <input type="range" min={60} max={1800} step={60} value={activeInterval}
+                          onChange={(e) => setActiveInterval(Number(e.target.value))}
+                          className="flex-1 accent-iv-green" />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(activeInterval)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28">Parked Check</span>
+                        <input type="range" min={300} max={7200} step={300} value={parkedInterval}
+                          onChange={(e) => setParkedInterval(Number(e.target.value))}
+                          className="flex-1 accent-iv-cyan" />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(parkedInterval)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <button onClick={() => handleSaveInterval(v.id)}
+                          className="text-xs text-iv-green hover:underline">Save</button>
+                        <button onClick={() => setEditingInterval(null)}
+                          className="text-xs text-iv-muted hover:underline">Cancel</button>
+                      </div>
                     </div>
                   ) : (
-                    <button onClick={() => { setEditingInterval(v.id); setIntervalValue(v.collection_interval_seconds); }}
+                    <button onClick={() => { setEditingInterval(v.id); setActiveInterval(v.active_interval_seconds); setParkedInterval(v.parked_interval_seconds); }}
                       className="text-xs text-iv-muted hover:text-iv-text transition-colors">
-                      Interval: {intervalLabel(v.collection_interval_seconds)} <span className="text-iv-cyan/60 ml-1">Edit</span>
+                      Active: {intervalLabel(v.active_interval_seconds)} · Parked: {intervalLabel(v.parked_interval_seconds)} <span className="text-iv-cyan/60 ml-1">Edit</span>
                     </button>
                   )}
                 </div>

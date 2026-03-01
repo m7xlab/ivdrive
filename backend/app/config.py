@@ -35,7 +35,8 @@ class Settings(BaseSettings):
         "address badge birthdate cars driversLicense dealers email "
         "mileage mbb nationalIdentifier openid phone profession profile vin"
     )
-    default_collection_interval_seconds: int = 300
+    default_parked_interval_seconds: int = 1800
+    default_active_interval_seconds: int = 300
     collector_debug: bool = False
 
     # Try parent dir so pytest/uvicorn run from backend/ still find iVDrive/.env

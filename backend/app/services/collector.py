@@ -73,7 +73,7 @@ class DataCollector:
 
         for vehicle in vehicles:
             if vehicle.connector_session and vehicle.connector_session.access_token_encrypted:
-                self.register_vehicle(vehicle.id, vehicle.collection_interval_seconds)
+                self.register_vehicle(vehicle.id, vehicle.parked_interval_seconds)
                 registered += 1
 
         self._scheduler.start()
@@ -121,9 +121,9 @@ class DataCollector:
                 continue
             job_id = f"collect_{vehicle.id}"
             current = self._get_job_interval_seconds(job_id)
-            if current == vehicle.collection_interval_seconds:
+            if current == vehicle.parked_interval_seconds:
                 continue
-            self.register_vehicle(vehicle.id, vehicle.collection_interval_seconds)
+            self.register_vehicle(vehicle.id, vehicle.parked_interval_seconds)
             updated += 1
         if updated:
             logger.info("Synced %d vehicles from DB (intervals re-applied)", updated)
@@ -162,14 +162,14 @@ class DataCollector:
         vehicle_id = UUID(vehicle_id_str)
 
         if event_type == "vehicle_linked":
-            interval = data.get("interval", settings.default_collection_interval_seconds)
+            interval = data.get("interval", settings.default_parked_interval_seconds)
             self.register_vehicle(vehicle_id, interval)
             logger.info("Event: registered vehicle %s (interval=%ds)", vehicle_id, interval)
             asyncio.ensure_future(self._fetch_vehicle_metadata(vehicle_id))
 
         elif event_type == "vehicle_updated":
             enabled = data.get("enabled", True)
-            interval = data.get("interval", settings.default_collection_interval_seconds)
+            interval = data.get("interval", settings.default_parked_interval_seconds)
             if enabled:
                 self.register_vehicle(vehicle_id, interval)
                 logger.info("Event: updated vehicle %s (interval=%ds)", vehicle_id, interval)
@@ -387,6 +387,20 @@ class DataCollector:
 
                 # Final decision: is the car "active"?
                 car_active = is_moving or is_charging or is_ac_on
+
+                # ── Smart Polling: dynamic interval rescheduling ──
+                job_id = f"collect_{user_vehicle_id}"
+                if car_active:
+                    desired_interval = vehicle.active_interval_seconds
+                else:
+                    desired_interval = vehicle.parked_interval_seconds
+                current_interval = self._get_job_interval_seconds(job_id)
+                if current_interval and current_interval != desired_interval:
+                    self._scheduler.reschedule_job(job_id, trigger='interval', seconds=desired_interval)
+                    logger.info(
+                        "Smart poll: rescheduled vehicle %s from %ds → %ds (active=%s)",
+                        user_vehicle_id, current_interval, desired_interval, car_active,
+                    )
 
                 if not car_active and not full_fetch_stale:
                     # Car is online but idle. Save lightweight data only.

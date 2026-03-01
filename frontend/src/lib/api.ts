@@ -169,7 +169,8 @@ export const api = {
     skoda_username: string;
     skoda_password: string;
     skoda_spin?: string;
-    collection_interval_seconds?: number;
+    active_interval_seconds?: number;
+    parked_interval_seconds?: number;
   }) {
     const res = await apiFetch("/api/v1/vehicles/", {
       method: "POST",
@@ -185,7 +186,8 @@ export const api = {
     data: {
       display_name?: string;
       collection_enabled?: boolean;
-      collection_interval_seconds?: number;
+      active_interval_seconds?: number;
+      parked_interval_seconds?: number;
     }
   ) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`, {

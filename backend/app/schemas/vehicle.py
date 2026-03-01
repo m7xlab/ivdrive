@@ -10,7 +10,8 @@ class VehicleCreate(BaseModel):
     skoda_username: str
     skoda_password: str
     skoda_spin: str | None = None
-    collection_interval_seconds: int = Field(default=300, ge=60, le=86400)
+    active_interval_seconds: int = Field(default=300, ge=60, le=86400)
+    parked_interval_seconds: int = Field(default=1800, ge=60, le=86400)
 
 
 class VehicleResponse(BaseModel):
@@ -20,7 +21,8 @@ class VehicleResponse(BaseModel):
     model: str | None
     model_year: str | None
     collection_enabled: bool
-    collection_interval_seconds: int
+    active_interval_seconds: int
+    parked_interval_seconds: int
     image_url: str | None = None
     body_type: str | None = None
     trim_level: str | None = None
@@ -42,7 +44,8 @@ class VehicleResponse(BaseModel):
 class VehicleUpdate(BaseModel):
     display_name: str | None = None
     collection_enabled: bool | None = None
-    collection_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
+    active_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
+    parked_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
 
 
 class VehicleStatusResponse(BaseModel):

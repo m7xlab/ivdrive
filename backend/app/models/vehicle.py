@@ -24,7 +24,8 @@ class UserVehicle(TimestampMixin, Base):
     license_plate_encrypted: Mapped[str | None] = mapped_column(Text)
     connector_config_encrypted: Mapped[str | None] = mapped_column(Text)
     collection_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    collection_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    active_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    parked_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
 
     image_url: Mapped[str | None] = mapped_column(Text)
     body_type: Mapped[str | None] = mapped_column(String(50))

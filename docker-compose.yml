@@ -1,4 +1,4 @@
-version: "3.9"
+name: ivprod
 
 networks:
   bridge:
@@ -88,7 +88,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "7432:5432"
+      - "8432:5432"
     restart: unless-stopped
 
   valkey:

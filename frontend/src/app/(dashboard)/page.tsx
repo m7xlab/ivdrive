@@ -13,7 +13,8 @@ interface Vehicle {
   model: string | null;
   model_year: string | null;
   collection_enabled: boolean;
-  collection_interval_seconds: number;
+  active_interval_seconds: number;
+  parked_interval_seconds: number;
   image_url: string | null;
   connector_status: string | null;
   created_at: string;
@@ -263,7 +264,8 @@ function AddVehicleModal({
   const [skodaUsername, setSkodaUsername] = useState("");
   const [skodaPassword, setSkodaPassword] = useState("");
   const [skodaSpin, setSkodaSpin] = useState("");
-  const [interval, setInterval] = useState(300);
+  const [activeInterval, setActiveInterval] = useState(300);
+  const [parkedInterval, setParkedInterval] = useState(1800);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,7 +281,8 @@ function AddVehicleModal({
         skoda_username: skodaUsername,
         skoda_password: skodaPassword,
         skoda_spin: skodaSpin || undefined,
-        collection_interval_seconds: interval,
+        active_interval_seconds: activeInterval,
+        parked_interval_seconds: parkedInterval,
       });
       onSuccess();
     } catch (err) {
@@ -358,21 +361,41 @@ function AddVehicleModal({
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-iv-text">
               <Timer size={14} className="text-iv-muted" />
-              Collection Interval
-              <span className="ml-auto text-xs text-iv-cyan font-mono">{intervalLabel(interval)}</span>
+              Active Telemetry Rate
+              <span className="ml-auto text-xs text-iv-cyan font-mono">{intervalLabel(activeInterval)}</span>
             </label>
             <input
               type="range"
-              min={180}
-              max={3600}
+              min={60}
+              max={1800}
               step={60}
-              value={interval}
-              onChange={(e) => setInterval(Number(e.target.value))}
+              value={activeInterval}
+              onChange={(e) => setActiveInterval(Number(e.target.value))}
               className="w-full accent-iv-green"
             />
             <div className="flex justify-between text-xs text-iv-muted mt-1">
-              <span>3 min</span>
-              <span>60 min</span>
+              <span>1 min</span>
+              <span>30 min</span>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-iv-text">
+              <Timer size={14} className="text-iv-muted" />
+              Parked Check Rate
+              <span className="ml-auto text-xs text-iv-cyan font-mono">{intervalLabel(parkedInterval)}</span>
+            </label>
+            <input
+              type="range"
+              min={300}
+              max={7200}
+              step={300}
+              value={parkedInterval}
+              onChange={(e) => setParkedInterval(Number(e.target.value))}
+              className="w-full accent-iv-cyan"
+            />
+            <div className="flex justify-between text-xs text-iv-muted mt-1">
+              <span>5 min</span>
+              <span>2 hours</span>
             </div>
           </div>
 

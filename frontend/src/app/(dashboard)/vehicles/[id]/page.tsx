@@ -80,7 +80,8 @@ interface Vehicle {
   model: string;
   model_year: number;
   collection_enabled: boolean;
-  collection_interval_seconds: number;
+  active_interval_seconds: number;
+  parked_interval_seconds: number;
   image_url: string | null;
   body_type: string | null;
   trim_level: string | null;
