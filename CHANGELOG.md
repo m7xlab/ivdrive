@@ -5,6 +5,21 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-03-02
+### Added
+- **Manual WLTP Override**: New input field in "Add Vehicle" and "Vehicle Settings" to manually set WLTP Range (km), bypassing Skoda API omissions.
+- **Efficiency Priority Data Logic**: Refactored the engine to prioritize user-set WLTP values over model-based fallbacks or drive data.
+- **Enhanced Data Capture**: Removed artificial filtering from Efficiency and Range charts. The system now records and displays data from the very first second of a state change (Motion, Charging, or AC), ensuring the most comprehensive telemetry possible.
+- **Smart Polling v2.1 (Collector Stabilization)**: Added a "post-activity" buffer in `collector.py`. The system now forces 3 extra high-frequency polls after the car stops moving/charging to ensure final odometer readings and GPS coordinates are captured before dropping to parked mode.
+- **GDPR Compliance**: Implemented "Delete My Account" with `ON DELETE CASCADE` for total data erasure across all telemetry tables.
+
+### Changed
+- **Workspace Cleanup**: Moved 15+ legacy test and update scripts into `_deprecated_scripts/` to clean the backend root.
+
+### Fixed
+- **Efficiency Engine**: Resolved "empty chart" issues for vehicles where the Skoda API failed to provide WLTP data by implementing a robust multi-source fallback system.
+- **Metadata Fetching**: Optimized the `DataCollector` to perform synchronous metadata refreshes upon vehicle registration or manual refresh requests.
+
 ## [1.0.4] - 2026-03-02
 ### Added
 - **Two-Factor Authentication (2FA)**: Implemented TOTP-based security (Google Authenticator, Authy).

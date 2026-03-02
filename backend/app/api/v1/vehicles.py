@@ -55,7 +55,7 @@ from app.schemas.telemetry import (
 )
 from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
-from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_updated
+from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
 from app.services.skoda_auth import SkodaAuthClient
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,7 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         collection_enabled=v.collection_enabled,
         active_interval_seconds=v.active_interval_seconds,
         parked_interval_seconds=v.parked_interval_seconds,
+        wltp_range_km=v.wltp_range_km,
         image_url=v.image_url,
         body_type=v.body_type,
         trim_level=v.trim_level,
@@ -189,6 +190,7 @@ async def create_vehicle(
         collection_enabled=True,
         active_interval_seconds=body.active_interval_seconds,
         parked_interval_seconds=body.parked_interval_seconds,
+        wltp_range_km=body.wltp_range_km,
     )
     db.add(vehicle)
     await db.flush()
@@ -252,6 +254,7 @@ async def update_vehicle(
     for field, value in update_data.items():
         setattr(vehicle, field, value)
     await db.commit()
+    await db.refresh(vehicle)
 
     await publish_vehicle_updated(
         str(vehicle.id),
@@ -272,6 +275,19 @@ async def delete_vehicle(
     await db.delete(vehicle)
     await db.commit()
     await publish_vehicle_deleted(vid)
+
+
+@router.post("/{vehicle_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
+async def refresh_vehicle(
+    vehicle_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger a one-time out-of-band full telemetry fetch for the vehicle,
+    regardless of the current Smart Polling state or interval."""
+    await _get_user_vehicle(vehicle_id, user, db)
+    await publish_vehicle_refresh(str(vehicle_id))
+    return {"status": "queued", "message": "Manual refresh triggered successfully"}
 
 
 @router.get("/{vehicle_id}/status", response_model=VehicleStatusResponse)
@@ -886,8 +902,14 @@ async def get_overview_wltp(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """WLTP range in km for reference line (from drives or vehicle specifications)."""
+    """WLTP range in km for reference line (from user setting, drives, or specifications)."""
     vehicle = await _get_user_vehicle(vehicle_id, user, db)
+
+    # 1. User setting (Priority)
+    if vehicle.wltp_range_km:
+        return WLTPResponse(wltp_range_km=vehicle.wltp_range_km)
+
+    # 2. Latest drive entry
     stmt = (
         select(Drive.wltp_range)
         .where(Drive.user_vehicle_id == vehicle.id, Drive.wltp_range.isnot(None))
@@ -896,17 +918,32 @@ async def get_overview_wltp(
     )
     row = (await db.execute(stmt)).scalar_one_or_none()
     if row is not None:
-        _log_statistics_query("overview/wltp", vehicle_id, result_count=1, extra={"source": "drives"}, sql=_stmt_to_sql(stmt))
         return WLTPResponse(wltp_range_km=float(row))
+    
+    # 3. Fallback to specifications
     spec = vehicle.specifications or {}
     wltp = spec.get("wltpRange") or spec.get("wltp_range")
     if wltp is not None:
         try:
-            _log_statistics_query("overview/wltp", vehicle_id, result_count=1, extra={"source": "specifications"})
             return WLTPResponse(wltp_range_km=float(wltp))
         except (TypeError, ValueError):
             pass
-    _log_statistics_query("overview/wltp", vehicle_id, result_count=0)
+            
+    # 4. Model-based fallbacks
+    model_str = (vehicle.model or "").upper()
+    trim_str = (vehicle.trim_level or "").upper()
+    
+    if "ENYAQ" in model_str:
+        if "80X" in trim_str or "RS" in trim_str or "VRS" in trim_str:
+            wltp = 520.0
+        elif "80" in trim_str:
+            wltp = 540.0
+        elif "60" in trim_str:
+            wltp = 410.0
+        else:
+            wltp = 500.0
+        return WLTPResponse(wltp_range_km=wltp)
+
     return WLTPResponse(wltp_range_km=None)
 
 

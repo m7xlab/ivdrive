@@ -59,6 +59,7 @@ class DataCollector:
     def __init__(self) -> None:
         self._scheduler = AsyncIOScheduler()
         self._background_tasks: set = set()
+        self._stale_active_counters: dict[UUID, int] = {}  # Tracks extra polls after car stops being "active"
 
     async def start(self) -> None:
         registered = 0
@@ -181,6 +182,15 @@ class DataCollector:
             self.unregister_vehicle(vehicle_id)
             logger.info("Event: removed vehicle %s", vehicle_id)
 
+        elif event_type == "vehicle_refresh":
+            logger.info("Event: manual refresh requested for vehicle %s", vehicle_id)
+            try:
+                await self._fetch_vehicle_metadata(vehicle_id)
+            except Exception:
+                logger.error("Metadata fetch failed", exc_info=True)
+            
+            asyncio.ensure_future(self.collect_vehicle(vehicle_id))
+
     async def _fetch_vehicle_metadata(self, user_vehicle_id: UUID) -> None:
         """One-time fetch of garage data and renders to populate vehicle metadata."""
         async with async_session() as session:
@@ -204,6 +214,7 @@ class DataCollector:
 
             try:
                 garage_data = await _safe(api.get_garage_vehicle(vin), "garage_vehicle", user_vehicle_id)
+                
                 spec = dict(vehicle.specifications) if vehicle.specifications else {}
                 if garage_data:
                     garage_spec = garage_data.get("specification", {}) or {}
@@ -364,7 +375,24 @@ class DataCollector:
 
                 car_active = is_moving or is_charging or is_ac_on
 
-                # ── Step 3: Dynamic interval rescheduling ───────────────────
+                # ── Step 3: Stabilization (Smart Polling v2.1) ───────────────
+                # When car stops being active, we continue "Active" polling for a few cycles
+                # to ensure we capture the final odometer/position/state for analytics.
+                STABILIZATION_CYCLES = 3 # ~3 extra polls before dropping to parked interval
+
+                if car_active:
+                    self._stale_active_counters[user_vehicle_id] = 0
+                else:
+                    count = self._stale_active_counters.get(user_vehicle_id, 0)
+                    if count < STABILIZATION_CYCLES:
+                        car_active = True # Force active mode
+                        self._stale_active_counters[user_vehicle_id] = count + 1
+                        logger.info(
+                            "Smart poll: vehicle %s stabilizing (%d/%d extra active polls)",
+                            user_vehicle_id, count + 1, STABILIZATION_CYCLES
+                        )
+
+                # ── Step 4: Dynamic interval rescheduling ───────────────────
                 job_id = f"collect_{user_vehicle_id}"
                 desired_interval = vehicle.active_interval_seconds if car_active else vehicle.parked_interval_seconds
                 current_interval = self._get_job_interval_seconds(job_id)

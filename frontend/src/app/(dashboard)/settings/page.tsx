@@ -29,6 +29,7 @@ interface SettingsVehicle {
   collection_enabled: boolean;
   active_interval_seconds: number;
   parked_interval_seconds: number;
+  wltp_range_km: number | null;
   connector_status: string | null;
   last_fetch_at: string | null;
   created_at: string;
@@ -101,6 +102,7 @@ export default function SettingsPage() {
   const [editingInterval, setEditingInterval] = useState<string | null>(null);
   const [activeInterval, setActiveInterval] = useState(300);
   const [parkedInterval, setParkedInterval] = useState(1800);
+  const [wltpRange, setWltpRange] = useState<string>("");
 
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [geofencesLoading, setGeofencesLoading] = useState(true);
@@ -112,6 +114,10 @@ export default function SettingsPage() {
   const [gfAddress, setGfAddress] = useState("");
   const [gfSaving, setGfSaving] = useState(false);
   const [gfDeleting, setGfDeleting] = useState<string | null>(null);
+
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
+  const [accountDeleting, setAccountDeleting] = useState(false);
 
   const [is2FASettingLoading, setIs2FASettingLoading] = useState(false);
   const [show2FASetup, setShow2FASetup] = useState(false);
@@ -147,12 +153,17 @@ export default function SettingsPage() {
 
   const handleSaveInterval = async (id: string) => {
     try {
-      await api.updateVehicle(id, { active_interval_seconds: activeInterval, parked_interval_seconds: parkedInterval });
+      const parsedWltp = wltpRange !== "" ? parseFloat(wltpRange) : null;
+      await api.updateVehicle(id, {
+        active_interval_seconds: activeInterval,
+        parked_interval_seconds: parkedInterval,
+        wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? parsedWltp : null,
+      });
       await loadVehicles();
       setEditingInterval(null);
-      showToast("success", "Polling intervals updated");
+      showToast("success", "Vehicle settings updated");
     } catch (err) {
-      showToast("error", err instanceof Error ? err.message : "Failed to update intervals");
+      showToast("error", err instanceof Error ? err.message : "Failed to update vehicle settings");
     }
   };
 
@@ -243,6 +254,18 @@ export default function SettingsPage() {
     finally { setGfDeleting(null); }
   };
 
+  const handleDeleteAccount = async () => {
+    if (deleteAccountConfirmText !== "DELETE" && deleteAccountConfirmText !== user?.email) return;
+    setAccountDeleting(true);
+    try {
+      await api.deleteAccount();
+      window.location.href = "/";
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to delete account");
+      setAccountDeleting(false);
+    }
+  };
+
   const intervalLabel = (s: number) => {
     if (s < 60) return `${s}s`;
     const m = Math.floor(s / 60);
@@ -310,6 +333,20 @@ export default function SettingsPage() {
                           className="flex-1 accent-iv-cyan" />
                         <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(parkedInterval)}</span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28">WLTP Range (km)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={2000}
+                          step={1}
+                          value={wltpRange}
+                          onChange={(e) => setWltpRange(e.target.value)}
+                          placeholder="e.g. 510"
+                          className="flex-1 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50"
+                        />
+                        <span className="text-xs text-iv-muted font-mono w-14 text-right">km</span>
+                      </div>
                       <div className="flex items-center gap-2 mt-1">
                         <button onClick={() => handleSaveInterval(v.id)}
                           className="text-xs text-iv-green hover:underline">Save</button>
@@ -318,9 +355,16 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ) : (
-                    <button onClick={() => { setEditingInterval(v.id); setActiveInterval(v.active_interval_seconds); setParkedInterval(v.parked_interval_seconds); }}
+                    <button onClick={() => {
+                      setEditingInterval(v.id);
+                      setActiveInterval(v.active_interval_seconds);
+                      setParkedInterval(v.parked_interval_seconds);
+                      setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
+                    }}
                       className="text-xs text-iv-muted hover:text-iv-text transition-colors">
-                      Active: {intervalLabel(v.active_interval_seconds)} · Parked: {intervalLabel(v.parked_interval_seconds)} <span className="text-iv-cyan/60 ml-1">Edit</span>
+                      Active: {intervalLabel(v.active_interval_seconds)} · Parked: {intervalLabel(v.parked_interval_seconds)}
+                      {v.wltp_range_km != null ? ` · WLTP: ${v.wltp_range_km} km` : ""}
+                      {" "}<span className="text-iv-cyan/60 ml-1">Edit</span>
                     </button>
                   )}
                 </div>
@@ -607,6 +651,18 @@ export default function SettingsPage() {
             Logout
           </button>
         </div>
+        
+        <div className="mt-6 border-t border-iv-border pt-6 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-iv-danger">Delete Account</p>
+            <p className="text-xs text-iv-muted mt-0.5">Permanently delete your account and all collected data</p>
+          </div>
+          <button onClick={() => setShowDeleteAccountModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-iv-danger px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-iv-danger/90">
+            <Trash2 size={16} />
+            Delete Account
+          </button>
+        </div>
       </SectionCard>
 
       {/* Delete confirmation modal */}
@@ -626,6 +682,39 @@ export default function SettingsPage() {
               <button onClick={() => handleDeleteVehicle(deleteModalId)}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90">
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Account Modal */}
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !accountDeleting && setShowDeleteAccountModal(false)} />
+          <div className="glass relative w-full max-w-sm rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-iv-danger mb-2">Delete Account</h2>
+            <p className="text-sm text-iv-text mb-4">
+              This action is <span className="font-bold">irreversible</span>. All your vehicles, telemetry data, and settings will be permanently deleted.
+            </p>
+            <p className="text-sm text-iv-muted mb-2">
+              Please type <span className="font-bold text-iv-text">DELETE</span> or your email address <span className="font-bold text-iv-text">{user?.email}</span> to confirm.
+            </p>
+            <input 
+              type="text" 
+              value={deleteAccountConfirmText}
+              onChange={(e) => setDeleteAccountConfirmText(e.target.value)}
+              placeholder="Confirm deletion"
+              className={inputClasses + " mb-6"}
+            />
+            <div className="flex gap-3">
+              <button onClick={() => { setShowDeleteAccountModal(false); setDeleteAccountConfirmText(""); }} disabled={accountDeleting}
+                className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
+                Cancel
+              </button>
+              <button onClick={handleDeleteAccount} disabled={accountDeleting || (deleteAccountConfirmText !== "DELETE" && deleteAccountConfirmText !== user?.email)}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90 disabled:opacity-50 disabled:cursor-not-allowed">
+                {accountDeleting ? <Loader2 size={14} className="animate-spin" /> : "Delete Account"}
               </button>
             </div>
           </div>

@@ -26,6 +26,7 @@ class UserVehicle(TimestampMixin, Base):
     collection_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     active_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     parked_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
+    wltp_range_km: Mapped[float | None] = mapped_column(Float)
 
     image_url: Mapped[str | None] = mapped_column(Text)
     body_type: Mapped[str | None] = mapped_column(String(50))

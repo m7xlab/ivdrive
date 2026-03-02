@@ -259,6 +259,12 @@ export const api = {
     return res.json();
   },
 
+    async deleteAccount() {
+    const res = await apiFetch("/api/v1/auth/me", { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete account");
+    clearTokens();
+  },
+
   logout() {
     clearTokens();
   },
@@ -289,6 +295,7 @@ export const api = {
     skoda_spin?: string;
     active_interval_seconds?: number;
     parked_interval_seconds?: number;
+    wltp_range_km?: number | null;
   }) {
     const res = await apiFetch("/api/v1/vehicles/", {
       method: "POST",
@@ -306,6 +313,7 @@ export const api = {
       collection_enabled?: boolean;
       active_interval_seconds?: number;
       parked_interval_seconds?: number;
+      wltp_range_km?: number | null;
     }
   ) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`, {
@@ -319,6 +327,12 @@ export const api = {
   async deleteVehicle(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed to delete vehicle");
+  },
+
+  async refreshVehicle(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/refresh`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to trigger refresh");
+    return res.json();
   },
 
   async getBatteryHistory(

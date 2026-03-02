@@ -64,3 +64,7 @@ async def publish_vehicle_updated(vehicle_id: str, interval: int, enabled: bool)
 
 async def publish_vehicle_deleted(vehicle_id: str) -> None:
     await publish_event("vehicle_deleted", {"vehicle_id": vehicle_id})
+
+
+async def publish_vehicle_refresh(vehicle_id: str) -> None:
+    await publish_event("vehicle_refresh", {"vehicle_id": vehicle_id})

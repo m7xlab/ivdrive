@@ -264,6 +264,7 @@ function AddVehicleModal({
   const [skodaUsername, setSkodaUsername] = useState("");
   const [skodaPassword, setSkodaPassword] = useState("");
   const [skodaSpin, setSkodaSpin] = useState("");
+  const [wltpRangeKm, setWltpRangeKm] = useState("");
   const [activeInterval, setActiveInterval] = useState(300);
   const [parkedInterval, setParkedInterval] = useState(1800);
   const [submitting, setSubmitting] = useState(false);
@@ -283,6 +284,7 @@ function AddVehicleModal({
         skoda_spin: skodaSpin || undefined,
         active_interval_seconds: activeInterval,
         parked_interval_seconds: parkedInterval,
+        wltp_range_km: wltpRangeKm ? parseFloat(wltpRangeKm) : null,
       });
       onSuccess();
     } catch (err) {
@@ -356,6 +358,13 @@ function AddVehicleModal({
             value={skodaSpin}
             onChange={setSkodaSpin}
             placeholder="Optional 4-digit S-PIN"
+          />
+          <FormField
+            label="WLTP Range (km)"
+            type="number"
+            value={wltpRangeKm}
+            onChange={setWltpRangeKm}
+            placeholder="e.g. 510 — used for Efficiency % chart"
           />
 
           <div>

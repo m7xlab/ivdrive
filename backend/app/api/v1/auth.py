@@ -359,6 +359,19 @@ async def update_me(
     return user
 
 
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Account deletion executed for user_id={user.id}")
+    await db.delete(user)
+    await db.commit()
+    return None
+
 @router.put("/me/password", status_code=status.HTTP_200_OK)
 async def change_password(
     body: PasswordChangeRequest,

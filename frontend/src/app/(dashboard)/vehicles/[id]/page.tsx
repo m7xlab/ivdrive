@@ -41,6 +41,7 @@ import {
   Circle,
   MoreHorizontal,
   AlertTriangle,
+  RefreshCcw,
 } from "lucide-react";
 import {
   AreaChart,
@@ -323,6 +324,9 @@ export default function VehicleDetailPage() {
   const [statPeriod, setStatPeriod] = useState<"day" | "week" | "month" | "year">("day");
   
 
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshToast, setRefreshToast] = useState<{ status: "success" | "error"; message: string } | null>(null);
+
   const [cmdLoading, setCmdLoading] = useState<string | null>(null);
   const [cmdResult, setCmdResult] = useState<{ status: "success" | "error"; message: string } | null>(null);
   const [climateTemp, setClimateTemp] = useState("21");
@@ -365,6 +369,20 @@ export default function VehicleDetailPage() {
     } catch (err) {
       setCmdResult({ status: "error", message: err instanceof Error ? err.message : "Command failed" });
     } finally { setCmdLoading(null); }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshLoading(true);
+    setRefreshToast(null);
+    try {
+      await api.refreshVehicle(vehicleId);
+      setRefreshToast({ status: "success", message: "Refresh queued — telemetry fetch will run shortly" });
+    } catch (err) {
+      setRefreshToast({ status: "error", message: err instanceof Error ? err.message : "Refresh failed" });
+    } finally {
+      setRefreshLoading(false);
+      setTimeout(() => setRefreshToast(null), 5000);
+    }
   };
 
   const handleDelete = async () => {
@@ -427,12 +445,39 @@ export default function VehicleDetailPage() {
             )}
           </div>
         </div>
-        <button onClick={() => setShowDeleteModal(true)}
-          className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-danger hover:border-iv-danger/40 hover:bg-iv-danger/10 transition-all">
-          <Trash2 size={16} />
-          Delete
-        </button>
+        <div className="flex items-center gap-2 mt-1">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshLoading}
+            title="Trigger a one-time full telemetry fetch"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-green hover:border-iv-green/40 hover:bg-iv-green/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {refreshLoading
+              ? <Loader2 size={16} className="animate-spin" />
+              : <RefreshCcw size={16} />}
+            Refresh
+          </button>
+          <button onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-danger hover:border-iv-danger/40 hover:bg-iv-danger/10 transition-all">
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
       </div>
+
+      {/* Refresh toast notification */}
+      {refreshToast && (
+        <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${
+          refreshToast.status === "success"
+            ? "bg-iv-green/10 text-iv-green border border-iv-green/20"
+            : "bg-iv-danger/10 text-iv-danger border border-iv-danger/20"
+        }`}>
+          {refreshToast.status === "success"
+            ? <CheckCircle2 size={16} />
+            : <XCircle size={16} />}
+          {refreshToast.message}
+        </div>
+      )}
 
       {/* Hero: map (Last Known Position) + car image */}
       {(imgSrc || status.latest_position) && (

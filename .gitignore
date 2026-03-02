@@ -11,3 +11,4 @@ release-notes.md
 .DS_Store
 # Local / dev-only docs (never commit or ship)
 _local_docs/
+_deprecated_scripts/
