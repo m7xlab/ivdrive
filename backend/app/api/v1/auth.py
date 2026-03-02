@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
 from app.models.user import User
+from app.models.invite import InviteRequest
 from app.schemas.auth import (
     LoginRequest,
     PasswordChangeRequest,
@@ -14,6 +15,8 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdateRequest,
 )
+from app.schemas.invite import InviteRequestCreate
+from app.config import settings
 from app.security import (
     JWTError,
     create_access_token,
@@ -28,6 +31,38 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    # 1. Check if invite-only registration is enabled
+    if settings.service_registration == "invite_only":
+        if not body.invite_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invite token required for registration",
+            )
+        
+        # Validate token
+        res = await db.execute(
+            select(InviteRequest)
+            .where(InviteRequest.token == body.invite_token)
+            .where(InviteRequest.status == "approved")
+        )
+        invite = res.scalar_one_or_none()
+        if not invite:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired invite token",
+            )
+        
+        # Verify email matches (optional security layer)
+        if invite.email != body.email:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Registration email must match the invitation email",
+            )
+
+        # Mark invite as used
+        invite.status = "used"
+
+    # 2. Proceed with user creation
     result = await db.execute(select(User).where(User.email == body.email))
     if result.scalar_one_or_none() is not None:
         raise HTTPException(
@@ -44,6 +79,25 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
     await db.refresh(user)
     return user
+
+
+@router.post("/invite-request", status_code=status.HTTP_202_ACCEPTED)
+async def request_invite(body: InviteRequestCreate, db: AsyncSession = Depends(get_db)):
+    # Check if user already exists
+    res_u = await db.execute(select(User).where(User.email == body.email))
+    if res_u.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User already registered")
+
+    # Check if request already exists
+    res_i = await db.execute(select(InviteRequest).where(InviteRequest.email == body.email))
+    if res_i.scalar_one_or_none():
+        return {"message": "Invite request already received. We will notify you."}
+
+    # Add new request
+    invite = InviteRequest(email=body.email)
+    db.add(invite)
+    await db.commit()
+    return {"message": "Invite request submitted successfully"}
 
 
 @router.post("/login", response_model=TokenResponse)
