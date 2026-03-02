@@ -113,6 +113,13 @@ export default function SettingsPage() {
   const [gfSaving, setGfSaving] = useState(false);
   const [gfDeleting, setGfDeleting] = useState<string | null>(null);
 
+  const [is2FASettingLoading, setIs2FASettingLoading] = useState(false);
+  const [show2FASetup, setShow2FASetup] = useState(false);
+  const [twoFactorData, setTwoFactorData] = useState<{ secret: string; provisioning_uri: string; qr_code_base64: string } | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorPassword, setTwoFactorPassword] = useState("");
+  const [show2FADisable, setShow2FADisable] = useState(false);
+
   useEffect(() => { if (user) setDisplayName(user.display_name || ""); }, [user]);
 
   const loadVehicles = useCallback(async () => {
@@ -176,6 +183,51 @@ export default function SettingsPage() {
       await loadGeofences(); showToast("success", "Geofence created");
     } catch (err) { showToast("error", err instanceof Error ? err.message : "Failed to create geofence"); }
     finally { setGfSaving(false); }
+  };
+
+  const handleSetup2FA = async () => {
+    setIs2FASettingLoading(true);
+    try {
+      const data = await api.setup2FA();
+      setTwoFactorData(data);
+      setShow2FASetup(true);
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to load 2FA setup");
+    } finally {
+      setIs2FASettingLoading(false);
+    }
+  };
+
+  const handleEnable2FA = async () => {
+    if (!twoFactorCode) return;
+    setIs2FASettingLoading(true);
+    try {
+      await api.enable2FA(twoFactorCode);
+      showToast("success", "2FA enabled successfully");
+      setShow2FASetup(false);
+      setTwoFactorCode("");
+      await refreshUser();
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Invalid code");
+    } finally {
+      setIs2FASettingLoading(false);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (!twoFactorPassword) return;
+    setIs2FASettingLoading(true);
+    try {
+      await api.disable2FA(twoFactorPassword);
+      showToast("success", "2FA disabled successfully");
+      setShow2FADisable(false);
+      setTwoFactorPassword("");
+      await refreshUser();
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Invalid password");
+    } finally {
+      setIs2FASettingLoading(false);
+    }
   };
 
   const handleDeleteGeofence = async (id: string) => {
@@ -311,6 +363,110 @@ export default function SettingsPage() {
               {passwordSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Changing...</span> : "Change Password"}
             </button>
           </div>
+        </div>
+      </SectionCard>
+
+      {/* Two-Factor Authentication */}
+      <SectionCard icon={Shield} title="Two-Factor Authentication (2FA)">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-iv-text">Status: {user?.is_totp_enabled ? "Enabled" : "Disabled"}</p>
+              <p className="text-xs text-iv-muted mt-0.5">
+                Protect your account with an additional security layer using a mobile authenticator app.
+              </p>
+            </div>
+            {user?.is_totp_enabled ? (
+              <button
+                onClick={() => setShow2FADisable(true)}
+                className="rounded-lg bg-iv-danger/10 px-4 py-2 text-sm font-medium text-iv-danger transition-colors hover:bg-iv-danger/20"
+              >
+                Disable 2FA
+              </button>
+            ) : (
+              <button
+                onClick={handleSetup2FA}
+                disabled={is2FASettingLoading}
+                className={btnPrimaryClasses}
+              >
+                {is2FASettingLoading ? <Loader2 size={16} className="animate-spin" /> : "Enable 2FA"}
+              </button>
+            )}
+          </div>
+
+          {show2FASetup && twoFactorData && (
+            <div className="rounded-lg bg-iv-surface border border-iv-border p-4 space-y-4">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <p className="text-sm text-iv-text">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+                <div className="bg-white p-2 rounded-lg">
+                  <img src={twoFactorData.qr_code_base64} alt="2FA QR Code" className="w-48 h-48" />
+                </div>
+                <div className="w-full">
+                  <p className="text-xs text-iv-muted mb-2">Or enter this secret manually:</p>
+                  <code className="block bg-black/20 p-2 rounded text-iv-cyan text-sm font-mono break-all">
+                    {twoFactorData.secret}
+                  </code>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-iv-muted mb-1.5">Verification Code</label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={twoFactorCode}
+                  onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Enter 6-digit code"
+                  className={inputClasses}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShow2FASetup(false)}
+                  className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEnable2FA}
+                  disabled={is2FASettingLoading || twoFactorCode.length !== 6}
+                  className={btnPrimaryClasses}
+                >
+                  {is2FASettingLoading ? "Enabling..." : "Verify & Enable"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {show2FADisable && (
+            <div className="rounded-lg bg-iv-surface border border-iv-border p-4 space-y-4">
+              <p className="text-sm text-iv-text">To disable 2FA, please enter your password to confirm.</p>
+              <div>
+                <label className="block text-xs font-medium text-iv-muted mb-1.5">Current Password</label>
+                <input
+                  type="password"
+                  value={twoFactorPassword}
+                  onChange={(e) => setTwoFactorPassword(e.target.value)}
+                  placeholder="Password"
+                  className={inputClasses}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShow2FADisable(false)}
+                  className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDisable2FA}
+                  disabled={is2FASettingLoading || !twoFactorPassword}
+                  className="rounded-lg bg-iv-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-iv-danger/90"
+                >
+                  {is2FASettingLoading ? "Disabling..." : "Confirm & Disable"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </SectionCard>
 

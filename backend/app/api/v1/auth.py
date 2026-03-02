@@ -1,3 +1,9 @@
+import base64
+import io
+import uuid
+
+import pyotp
+import qrcode
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,10 +14,15 @@ from app.models.user import User
 from app.models.invite import InviteRequest
 from app.schemas.auth import (
     LoginRequest,
+    LoginResponse,
     PasswordChangeRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
+    TwoFactorDisableRequest,
+    TwoFactorLoginRequest,
+    TwoFactorSetupResponse,
+    TwoFactorVerifyRequest,
     UserResponse,
     UserUpdateRequest,
 )
@@ -19,14 +30,31 @@ from app.schemas.invite import InviteRequestCreate
 from app.config import settings
 from app.security import (
     JWTError,
+    create_2fa_token,
     create_access_token,
     create_refresh_token,
     decode_token,
     get_password_hash,
     verify_password,
 )
+from app.services.crypto import decrypt_field, encrypt_field
 
 router = APIRouter()
+
+
+# ── helpers ──────────────────────────────────────────────────────────
+
+
+def _generate_qr_base64(provisioning_uri: str) -> str:
+    """Return a base64-encoded PNG data URI of the provisioning URI QR code."""
+    img = qrcode.make(provisioning_uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64_data = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64_data}"
+
+
+# ── registration ─────────────────────────────────────────────────────
 
 
 @router.get("/registration-mode")
@@ -44,7 +72,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invite token required for registration",
             )
-        
+
         # Validate token
         res = await db.execute(
             select(InviteRequest)
@@ -57,10 +85,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or expired invite token",
             )
-        
+
         # Verify email matches (optional security layer)
         if invite.email != body.email:
-             raise HTTPException(
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Registration email must match the invitation email",
             )
@@ -106,7 +134,10 @@ async def request_invite(body: InviteRequestCreate, db: AsyncSession = Depends(g
     return {"message": "Invite request submitted successfully"}
 
 
-@router.post("/login", response_model=TokenResponse)
+# ── login / token ────────────────────────────────────────────────────
+
+
+@router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -121,6 +152,59 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
+        )
+
+    # If 2FA is enabled, issue a short-lived challenge token instead of full tokens.
+    if user.is_totp_enabled:
+        return LoginResponse(
+            requires_2fa=True,
+            tfa_token=create_2fa_token(str(user.id)),
+        )
+
+    return LoginResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=create_refresh_token(str(user.id)),
+    )
+
+
+@router.post("/login/verify-2fa", response_model=TokenResponse)
+async def verify_2fa_login(body: TwoFactorLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Accept a temporary 2FA token + TOTP code and return full access tokens."""
+    try:
+        payload = decode_token(body.tfa_token)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired 2FA token",
+        )
+
+    if payload.get("type") != "2fa":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type",
+        )
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    if not user.is_totp_enabled or not user.totp_secret_enc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is not enabled for this user")
+
+    secret = decrypt_field(user.totp_secret_enc)
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(body.code, valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid TOTP code",
         )
 
     return TokenResponse(
@@ -163,6 +247,9 @@ async def logout(body: RefreshRequest):
     return {"detail": "Successfully logged out"}
 
 
+# ── user profile ─────────────────────────────────────────────────────
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_active_user)):
     return user
@@ -196,3 +283,90 @@ async def change_password(
     user.password_hash = get_password_hash(body.new_password)
     await db.flush()
     return {"detail": "Password updated successfully"}
+
+
+# ── 2FA management (authenticated) ──────────────────────────────────
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def setup_2fa(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a new TOTP secret and return provisioning URI + QR code.
+
+    Can be called multiple times before enabling — each call regenerates the secret.
+    The secret is only persisted once /2fa/enable succeeds.
+    """
+    if user.is_totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA is already enabled. Disable it first to reconfigure.",
+        )
+
+    secret = pyotp.random_base32()
+    provisioning_uri = pyotp.TOTP(secret).provisioning_uri(
+        name=user.email,
+        issuer_name="iVDrive",
+    )
+
+    # Persist the secret (encrypted) so /2fa/enable can verify the first code.
+    user.totp_secret_enc = encrypt_field(secret)
+    await db.flush()
+
+    return TwoFactorSetupResponse(
+        secret=secret,
+        provisioning_uri=provisioning_uri,
+        qr_code_base64=_generate_qr_base64(provisioning_uri),
+    )
+
+
+@router.post("/2fa/enable", status_code=status.HTTP_200_OK)
+async def enable_2fa(
+    body: TwoFactorVerifyRequest,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify the initial TOTP code and enable 2FA for the user."""
+    if user.is_totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is already enabled")
+
+    if not user.totp_secret_enc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Call /auth/2fa/setup first",
+        )
+
+    secret = decrypt_field(user.totp_secret_enc)
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(body.code, valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TOTP code. Please try again.",
+        )
+
+    user.is_totp_enabled = True
+    await db.flush()
+    return {"detail": "2FA has been enabled successfully"}
+
+
+@router.post("/2fa/disable", status_code=status.HTTP_200_OK)
+async def disable_2fa(
+    body: TwoFactorDisableRequest,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disable 2FA. Requires current password for confirmation."""
+    if not user.is_totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is not enabled")
+
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect password",
+        )
+
+    user.is_totp_enabled = False
+    user.totp_secret_enc = None
+    await db.flush()
+    return {"detail": "2FA has been disabled"}
