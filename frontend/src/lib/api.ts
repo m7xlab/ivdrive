@@ -93,9 +93,59 @@ export const api = {
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Login failed");
+    const data = await res.json();
+    if (!data.requires_2fa) {
+      setTokens(data);
+    }
+    return data;
+  },
+
+  async verify2FA(token2FA: string, code: string) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/login/verify-2fa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ "2fa_token": token2FA, code }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "2FA verification failed");
     const tokens: TokenPair = await res.json();
     setTokens(tokens);
     return tokens;
+  },
+
+  async verifyRecoveryCode(token2FA: string, recoveryCode: string) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/login/verify-recovery-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ "2fa_token": token2FA, recovery_code: recoveryCode }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Recovery code verification failed");
+    const tokens: TokenPair = await res.json();
+    setTokens(tokens);
+    return tokens;
+  },
+
+  async setup2FA() {
+    const res = await apiFetch("/api/v1/auth/2fa/setup", { method: "POST" });
+    if (!res.ok) throw new Error("Failed to start 2FA setup");
+    return res.json();
+  },
+
+  async enable2FA(data: { code: string; secret: string; recovery_codes: string[] }) {
+    const res = await apiFetch("/api/v1/auth/2fa/enable", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to enable 2FA");
+    return res.json();
+  },
+
+  async disable2FA(password: string) {
+    const res = await apiFetch("/api/v1/auth/2fa/disable", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to disable 2FA");
+    return res.json();
   },
 
   async register(email: string, password: string, displayName?: string, inviteToken?: string) {

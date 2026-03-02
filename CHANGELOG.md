@@ -5,6 +5,18 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-03-02
+### Added
+- **Two-Factor Authentication (2FA)**: Implemented TOTP-based security (Google Authenticator, Authy).
+- **QR Code Setup**: Native QR code generation in Settings for seamless 2FA activation.
+- **Secure Login Flow**: Two-step authentication process with short-lived challenge tokens.
+- **Enhanced Data Persistence**: New database initialization script (`init_db.py`) for fresh environment setups.
+
+### Fixed
+- **Managed Beta Documentation**: Updated README and docs to reflect current Invite-Only status and self-hosting best practices.
+- **QR Rendering**: Fixed base64 Data URI formatting to ensure QR codes render correctly across all browsers.
+- **Infrastructure**: Explicitly mapped `SERVICE_REGISTRATION` and SMTP environment variables in Docker Compose.
+
 ## [1.0.3] - 2026-03-02
 ### Added
 - **Invite-Only Registration**: Implemented a "Request for Invite" system to prevent unauthorized signups.

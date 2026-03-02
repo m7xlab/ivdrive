@@ -14,3 +14,5 @@ python-multipart>=0.0.18
 email-validator>=2.1.0
 valkey>=6.1.0
 nordpool>=0.3.5
+pyotp>=2.9.0
+qrcode[pil]>=7.4

@@ -22,6 +22,13 @@ def get_password_hash(password: str) -> str:
     ).decode("utf-8")
 
 
+def create_2fa_token(subject: str) -> str:
+    """Short-lived token (5 min) issued after password OK but before TOTP verification."""
+    expire = datetime.now(UTC) + timedelta(minutes=5)
+    to_encode = {"sub": subject, "exp": expire, "type": "2fa"}
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
 def create_access_token(subject: str, extra: dict | None = None) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode = {"sub": subject, "exp": expire, "type": "access"}
@@ -45,6 +52,7 @@ __all__ = [
     "JWTError",
     "verify_password",
     "get_password_hash",
+    "create_2fa_token",
     "create_access_token",
     "create_refresh_token",
     "decode_token",

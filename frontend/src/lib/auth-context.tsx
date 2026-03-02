@@ -22,7 +22,9 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<any>;
+  verify2FA: (token2FA: string, code: string) => Promise<void>;
+  verifyRecoveryCode: (token2FA: string, code: string) => Promise<void>;
   register: (
     email: string,
     password: string,
@@ -60,7 +62,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshUser]);
 
   const login = async (email: string, password: string) => {
-    await api.login(email, password);
+    const res = await api.login(email, password);
+    if (res.requires_2fa) {
+      return res; // Return the 2FA token to the login page
+    }
+    await refreshUser();
+    router.push("/");
+    return res;
+  };
+
+  const verify2FA = async (token2FA: string, code: string) => {
+    await api.verify2FA(token2FA, code);
+    await refreshUser();
+    router.push("/");
+  };
+
+  const verifyRecoveryCode = async (token2FA: string, code: string) => {
+    await api.verifyRecoveryCode(token2FA, code);
     await refreshUser();
     router.push("/");
   };
@@ -85,7 +103,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, refreshUser }}
+      value={{
+        user,
+        loading,
+        login,
+        verify2FA,
+        verifyRecoveryCode,
+        register,
+        logout,
+        refreshUser,
+      }}
     >
       {children}
     </AuthContext.Provider>
