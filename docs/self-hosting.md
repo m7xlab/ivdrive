@@ -15,6 +15,10 @@ This guide is for running the full iVDrive stack (API, collector, frontend, data
    ```
 
 2. **Configure environment**
+   - Create the local data directories:
+     ```bash
+     mkdir -p data/postgresql data/valkeydata
+     ```
    - Copy `.env.example` to `.env`.
    - Set the required variables:
      - `POSTGRES_PASSWORD` — Database password.
@@ -28,10 +32,23 @@ This guide is for running the full iVDrive stack (API, collector, frontend, data
    docker compose up -d
    ```
 
-4. **Open the app**
-   - Web UI: http://localhost:3035 (or the host/port you use).
-   - API: http://localhost:8000.
-   - Register and add your vehicle with your Škoda Connect credentials.
+4. **Initialize Database**
+   Ensure the database and tables are created correctly:
+   ```bash
+   docker compose exec ivdrive-api env PYTHONPATH=/app python -m app.scripts.init_db
+   docker compose exec ivdrive-api env PYTHONPATH=/app alembic stamp head
+   ```
+
+5. **Register & Promote Admin User**
+   - Go to http://localhost:3035 (or your chosen host/port) and **Register** your account.
+   - Once registered, promote yourself to superuser to access the admin panel:
+     ```bash
+     docker compose exec ivdrive-api env PYTHONPATH=/app python -m app.scripts.promote_user --email your@email.com
+     ```
+
+6. **Open the app**
+   - Add your vehicle with your Škoda Connect credentials.
+   - Access the Admin Dashboard via the sidebar (if promoted).
 
 ## Services
 
