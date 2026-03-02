@@ -82,9 +82,12 @@ Screenshots from the live app at [ivdrive.eu](https://ivdrive.eu). Light and dar
 ### Use iVDrive online (no setup)
 
 1. Go to **[https://ivdrive.eu](https://ivdrive.eu)**.
-2. **Register** and log in.
-3. **Add your vehicle** with your Škoda Connect credentials.
-4. Your data will sync and appear in the dashboard — trips, charging, statistics, and more.
+2. Open the **Register** page and fill in the form.
+3. Wait for the email with your invite to be sent.
+4. Click the link in the email to verify your email.
+5. Register a new account with your email and password.
+6. **Add your vehicle** with requested credentials.
+7. Your data will sync and appear in the dashboard — trips, charging, statistics, and more.
 
 ### Self-host (optional, for advanced users)
 
