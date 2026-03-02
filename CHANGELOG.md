@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Manual WLTP Override**: New input field in "Add Vehicle" and "Vehicle Settings" to manually set WLTP Range (km), bypassing Skoda API omissions.
 - **Efficiency Priority Data Logic**: Refactored the engine to prioritize user-set WLTP values over model-based fallbacks or drive data.
 - **Enhanced Data Capture**: Removed artificial filtering from Efficiency and Range charts. The system now records and displays data from the very first second of a state change (Motion, Charging, or AC), ensuring the most comprehensive telemetry possible.
-- **Smart Polling v2.1 (Collector Stabilization)**: Added a "post-activity" buffer in `collector.py`. The system now forces 3 extra high-frequency polls after the car stops moving/charging to ensure final odometer readings and GPS coordinates are captured before dropping to parked mode.
+- **Smart Polling v2.1 (Collector Stabilization)**: Added a "post-activity" buffer in `collector.py`. The system now forces 3 extra high-frequency polls after the car stops moving/charging to ensure final odometer readings and GPS coordinates are captured.
+- **Stability Patches**: Resolved a potential memory leak in the `DataCollector` and improved background task tracking for manual refreshes.
 - **GDPR Compliance**: Implemented "Delete My Account" with `ON DELETE CASCADE` for total data erasure across all telemetry tables.
 
 ### Changed

@@ -366,11 +366,12 @@ async def delete_me(
     db: AsyncSession = Depends(get_db),
 ):
     import logging
+    from fastapi import Response
     logger = logging.getLogger(__name__)
     logger.info(f"Account deletion executed for user_id={user.id}")
     await db.delete(user)
     await db.commit()
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.put("/me/password", status_code=status.HTTP_200_OK)
 async def change_password(

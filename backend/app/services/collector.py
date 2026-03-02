@@ -189,7 +189,9 @@ class DataCollector:
             except Exception:
                 logger.error("Metadata fetch failed", exc_info=True)
             
-            asyncio.ensure_future(self.collect_vehicle(vehicle_id))
+            task = asyncio.create_task(self.collect_vehicle(vehicle_id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._handle_task_result)
 
     async def _fetch_vehicle_metadata(self, user_vehicle_id: UUID) -> None:
         """One-time fetch of garage data and renders to populate vehicle metadata."""
@@ -391,6 +393,9 @@ class DataCollector:
                             "Smart poll: vehicle %s stabilizing (%d/%d extra active polls)",
                             user_vehicle_id, count + 1, STABILIZATION_CYCLES
                         )
+                    else:
+                        # Optimization: Cleanup counter when stabilization is complete
+                        self._stale_active_counters.pop(user_vehicle_id, None)
 
                 # ── Step 4: Dynamic interval rescheduling ───────────────────
                 job_id = f"collect_{user_vehicle_id}"
