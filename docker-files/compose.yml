@@ -9,7 +9,7 @@ networks:
 
 services:
   ivdrive-api:
-    image: m7xlab/ivdrive-api:${IVDRIVE_VERSION:-v1.0.6}
+    image: m7xlab/ivdrive-api:${IVDRIVE_VERSION:-v1.0.7}
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       VALKEY_URL: "valkey://:${VALKEY_PASSWORD}@valkey:6379/0"
@@ -36,7 +36,7 @@ services:
     restart: unless-stopped
 
   ivdrive-web:
-    image: m7xlab/ivdrive-web:${IVDRIVE_VERSION:-v1.0.6}
+    image: m7xlab/ivdrive-web:${IVDRIVE_VERSION:-v1.0.7}
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
     networks:
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
 
   ivdrive-collector:
-    image: m7xlab/ivdrive-collector:${IVDRIVE_VERSION:-v1.0.6}
+    image: m7xlab/ivdrive-collector:${IVDRIVE_VERSION:-v1.0.7}
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       VALKEY_URL: "valkey://:${VALKEY_PASSWORD}@valkey:6379/0"
