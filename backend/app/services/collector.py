@@ -127,7 +127,10 @@ class DataCollector:
                 continue
             job_id = f"collect_{vehicle.id}"
             current = self._get_job_interval_seconds(job_id)
-            if current in (vehicle.parked_interval_seconds, vehicle.active_interval_seconds):
+            # v2.3.2: If the job already exists with a valid interval (either parked or active),
+            # leave it alone. Re-registering with parked_interval_seconds here would reset 
+            # any active polling back to parked every 90 seconds.
+            if current is not None:
                 continue
             self.register_vehicle(vehicle.id, vehicle.parked_interval_seconds)
             updated += 1
@@ -401,20 +404,20 @@ class DataCollector:
                 STABILIZATION_CYCLES = 3 # ~3 extra polls before dropping to parked interval
 
                 if car_active:
-                    self._stale_active_counters[user_vehicle_id] = 0
+                    # Car is genuinely active, reset the stabilization countdown
+                    self._stale_active_counters[user_vehicle_id] = STABILIZATION_CYCLES
                 else:
+                    # Car is inactive, check if we are still stabilizing from a previous active state
                     count = self._stale_active_counters.get(user_vehicle_id, 0)
-                    if count < STABILIZATION_CYCLES:
+                    if count > 0:
                         car_active = True # Force active mode
-                        self._stale_active_counters[user_vehicle_id] = count + 1
+                        self._stale_active_counters[user_vehicle_id] = count - 1
                         logger.info(
-                            "Smart poll: vehicle %s stabilizing (%d/%d extra active polls)",
-                            user_vehicle_id, count + 1, STABILIZATION_CYCLES
+                            "Smart poll: vehicle %s stabilizing (%d extra active polls remaining)",
+                            user_vehicle_id, count - 1
                         )
-                    else:
-                        # Optimization: Cleanup counter when stabilization is complete
-                        self._stale_active_counters.pop(user_vehicle_id, None)
-                        logger.info("Smart poll: stabilization complete for vehicle %s, returning to parked", user_vehicle_id)
+                        if count - 1 == 0:
+                            logger.info("Smart poll: stabilization complete for vehicle %s, will return to parked next cycle", user_vehicle_id)
 
                 # ── Step 4: Dynamic interval rescheduling ───────────────────
                 # v2.3: When activity is first detected (Parked → Active transition), the

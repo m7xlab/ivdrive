@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { DayPicker, type DateRange } from "react-day-picker";
 import * as Popover from "@radix-ui/react-popover";
 import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
@@ -29,6 +29,14 @@ const PRESETS = [
 export function DateRangePicker({ value, onChange, className }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [range, setRange] = useState<DateRange | undefined>({ from: value.from, to: value.to });
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => {
     setRange({ from: value.from, to: value.to });
@@ -70,24 +78,35 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
 
       <Popover.Portal>
         <Popover.Content
-          align="end"
+          align={isMobile ? "center" : "end"}
           sideOffset={8}
+          avoidCollisions
+          collisionPadding={12}
           className={cn(
             "z-50 rounded-xl border border-iv-border bg-iv-charcoal p-4 shadow-xl shadow-black/20",
-            "animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+            "max-h-[90dvh] overflow-y-auto",
+            "animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+            isMobile && "w-[calc(100vw-24px)] max-w-sm"
           )}
         >
-          <div className="flex gap-4">
-            {/* Presets sidebar */}
-            <div className="flex flex-col gap-1 border-r border-iv-border pr-4 min-w-[120px]">
-              <span className="text-xs font-semibold text-iv-muted uppercase tracking-wider mb-2">Quick Select</span>
+          <div className={cn("flex gap-4", isMobile && "flex-col")}>
+            {/* Presets — sidebar on desktop, scrollable row on mobile */}
+            <div className={cn(
+              isMobile
+                ? "flex flex-row flex-wrap gap-1 pb-3 border-b border-iv-border"
+                : "flex flex-col gap-1 border-r border-iv-border pr-4 min-w-[120px]"
+            )}>
+              {!isMobile && (
+                <span className="text-xs font-semibold text-iv-muted uppercase tracking-wider mb-2">Quick Select</span>
+              )}
               {PRESETS.map((p) => (
                 <button
                   key={p.label}
                   onClick={() => handlePreset(p)}
                   className={cn(
                     "rounded-md px-3 py-1.5 text-sm text-left transition-colors",
-                    "text-iv-text hover:bg-iv-surface hover:text-iv-cyan"
+                    "text-iv-text hover:bg-iv-surface hover:text-iv-cyan",
+                    isMobile && "border border-iv-border/50 text-xs py-1"
                   )}
                 >
                   {p.label}
@@ -95,12 +114,12 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
               ))}
             </div>
 
-            {/* Two-month calendar */}
+            {/* Calendar — 1 month on mobile, 2 on desktop */}
             <DayPicker
               mode="range"
               selected={range}
               onSelect={handleSelect}
-              numberOfMonths={2}
+              numberOfMonths={isMobile ? 1 : 2}
               showOutsideDays
               classNames={{
                 months: "flex gap-4",

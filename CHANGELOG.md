@@ -5,6 +5,19 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-03-03
+### Added
+- **Mobile-First Adaptive UI (v1.0.8)**: Complete refactor of the dashboard shell and statistics views for phone screens.
+- **Bottom Navigation Bar**: Replaced the fixed sidebar with a native-feel bottom navigation bar for mobile users (Tesla/App style).
+- **Responsive Statistics Dashboards**: Refactored horizontal data tables (Trips, Charging Stats, Car Overview) into adaptive vertical cards for small screens.
+- **Hero Section Optimization**: Re-engineered the Map-Car overlay with smart vertical/horizontal gradients that adapt based on device orientation.
+
+### Fixed
+- **Smart Polling v2.3.2 (The Infinite Stabilization Loop)**: Fixed a critical logic flaw where the stabilization counter (intended for post-drive capture) was incorrectly resetting to 0 for parked vehicles. This fix resolves the issue where cars would poll every 5 minutes for "ghost activity" before skipping 10 minutes.
+- **Interval Synchronization**: Optimized the `_sync_vehicles_from_db` daemon to prevent it from resetting "Active" polling jobs back to "Parked" during the 90-second background sync.
+- **Charging Stats Layout**: Fixed "squeezed" metrics in the Charging Power & Rate dashboard by implementing a responsive dual-view `StatTable`.
+- **Hero UI Clarity**: Removed "foggy" backdrop blurs from the map transition and boosted z-index for Leaflet controls, ensuring a sharp, high-definition look on all devices.
+
 ## [1.0.7] - 2026-03-03
 ### Fixed
 - **Smart Polling v2.3.1 (Ghost Polling)**: Refined the `car_active` logic to correctly handle the "Online but Idle" state. Stabilization cycles no longer force active polling for stationary vehicles that happen to be reachable via the Skoda API.

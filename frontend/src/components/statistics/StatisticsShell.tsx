@@ -53,8 +53,8 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
   return (
     <div className="space-y-6">
       <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6">
-          <Tabs.List className="flex flex-wrap gap-2 rounded-xl bg-iv-surface p-1.5 border border-iv-border">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <Tabs.List className="flex flex-nowrap gap-2 rounded-xl bg-iv-surface p-1.5 border border-iv-border w-full md:w-auto overflow-x-auto no-scrollbar">
             {TABS.map((t) => (
               <Tabs.Trigger
                 key={t.id}
@@ -71,7 +71,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             ))}
           </Tabs.List>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 justify-center md:justify-start self-start md:self-auto">
             <span className="text-xs font-medium text-iv-text-muted uppercase tracking-wider whitespace-nowrap hidden sm:inline-block">
               Period
             </span>

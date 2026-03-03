@@ -407,9 +407,9 @@ export default function VehicleDetailPage() {
   const imgSrc = vehicle.image_url || status.image_url;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-start gap-4">
+      <div className="flex flex-wrap items-start gap-3">
         <Link href="/"
           className="mt-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-iv-border bg-iv-surface text-iv-muted transition-colors hover:text-iv-text hover:border-iv-green/40">
           <ArrowLeft size={18} />
@@ -445,7 +445,7 @@ export default function VehicleDetailPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 mt-1 ml-auto">
           <button
             onClick={handleRefresh}
             disabled={refreshLoading}
@@ -455,12 +455,12 @@ export default function VehicleDetailPage() {
             {refreshLoading
               ? <Loader2 size={16} className="animate-spin" />
               : <RefreshCcw size={16} />}
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </button>
           <button onClick={() => setShowDeleteModal(true)}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-danger hover:border-iv-danger/40 hover:bg-iv-danger/10 transition-all">
             <Trash2 size={16} />
-            Delete
+            <span className="hidden sm:inline">Delete</span>
           </button>
         </div>
       </div>
@@ -480,18 +480,38 @@ export default function VehicleDetailPage() {
       )}
 
       {/* Hero: map (Last Known Position) + car image */}
+      {/* Mobile: flex-col → Map on top, Car below, vertical fade at boundary */}
+      {/* Desktop (md+): flex-row → Map on left, Car on right, horizontal fade at boundary */}
       {(imgSrc || status.latest_position) && (
         <div className="glass rounded-2xl overflow-hidden bg-[var(--iv-charcoal)] border border-[var(--iv-border)]">
-          <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[300px]">
-            {/* Map: Last Known Position */}
+          <div className="relative flex flex-col md:flex-row md:min-h-[300px]">
+
+            {/* ── Map panel (top on mobile / left on desktop) ── */}
             {status.latest_position ? (
-              <div className="relative flex flex-col min-h-[240px] lg:min-h-0 order-2 lg:order-1 bg-[var(--iv-charcoal)]">
-                <div className="flex-1 relative overflow-hidden bg-[var(--iv-charcoal)]">
-                  <LocationMap 
-                    latitude={status.latest_position.latitude} 
-                    longitude={status.latest_position.longitude} 
+              <div className="relative flex-1 min-h-[260px] md:min-h-[300px] bg-[var(--iv-charcoal)]">
+                {/* Map fills the entire panel */}
+                <div className="absolute inset-0">
+                  <LocationMap
+                    latitude={status.latest_position.latitude}
+                    longitude={status.latest_position.longitude}
                   />
                 </div>
+
+                {/* ── Vertical fade (mobile only) ──
+                    Fades the bottom edge of the map downward into the car section */}
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-[400] h-12 md:hidden"
+                  style={{ background: "linear-gradient(to bottom, transparent, var(--iv-charcoal))" }}
+                />
+
+                {/* ── Horizontal fade (desktop only) ──
+                    Fades the right edge of the map into the car section */}
+                <div
+                  className="pointer-events-none absolute inset-y-0 right-0 z-[400] hidden w-16 md:block"
+                  style={{ background: "linear-gradient(to right, transparent, var(--iv-charcoal))" }}
+                />
+
+                {/* Open in Maps button */}
                 <div className="absolute top-3 left-3 z-[401]">
                   <a
                     href={`https://www.google.com/maps?q=${status.latest_position.latitude},${status.latest_position.longitude}`}
@@ -503,21 +523,23 @@ export default function VehicleDetailPage() {
                     Open in Maps
                   </a>
                 </div>
-                <div className="absolute bottom-3 left-3 z-[401] hidden lg:block">
+
+                {/* Coordinates Label */}
+                <div className="absolute bottom-3 left-3 z-[401]">
                   <span className="text-xs font-mono text-iv-muted truncate bg-iv-charcoal/90 px-2 py-1.5 rounded-md backdrop-blur-md shadow-sm border border-iv-border/50">
                     {status.latest_position.latitude.toFixed(5)}, {status.latest_position.longitude.toFixed(5)}
                   </span>
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 px-4 min-h-[200px] lg:min-h-0 text-iv-muted/50 order-2 lg:order-1">
+              <div className="flex flex-1 flex-col items-center justify-center py-8 px-4 min-h-[200px] md:min-h-[300px] text-iv-muted/50">
                 <MapPin size={40} strokeWidth={1.5} />
                 <p className="mt-2 text-sm">No position data yet</p>
               </div>
             )}
 
-            {/* Car image */}
-            <div className="flex flex-col items-center justify-center p-6 min-h-[240px] lg:min-h-0 relative z-10 order-1 lg:order-2 bg-[var(--iv-charcoal)]">
+            {/* ── Car image panel (bottom on mobile / right on desktop) ── */}
+            <div className="relative z-20 flex flex-col items-center justify-center p-6 min-h-[200px] md:min-h-[300px] bg-[var(--iv-charcoal)] flex-1 md:flex-none md:w-[45%]">
               {imgSrc ? (
                 <img src={imgSrc} alt={vehicle.display_name} className="max-h-60 object-contain drop-shadow-2xl" />
               ) : (
@@ -558,10 +580,10 @@ export default function VehicleDetailPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-xl bg-iv-surface p-1 overflow-x-auto">
+      <div className="flex flex-nowrap gap-1 rounded-xl bg-iv-surface p-1 overflow-x-auto no-scrollbar md:justify-center">
         {tabs.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex items-center gap-1.5 flex-shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 flex-shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
               tab === t.key ? "bg-iv-green/15 text-iv-green shadow-sm" : "text-iv-muted hover:text-iv-text"
             }`}>
             <t.icon size={14} />
@@ -868,19 +890,19 @@ export default function VehicleDetailPage() {
             </div>
           </div>
 
-          <div className="glass rounded-2xl p-8 flex flex-col sm:flex-row items-center justify-between border border-iv-border">
-            <div className="text-center sm:text-left mb-6 sm:mb-0">
+          <div className="glass rounded-2xl p-5 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 border border-iv-border">
+            <div className="text-center sm:text-left">
               <h2 className="text-xl font-bold text-iv-text mb-2 flex items-center justify-center sm:justify-start gap-2">
                 <BarChart3 className="w-6 h-6 text-iv-cyan" />
                 Advanced BI Analytics Hub
               </h2>
-              <p className="text-iv-text-muted max-w-md">
+              <p className="text-iv-text-muted max-w-md text-sm">
                 Access interactive charts, period-over-period comparisons, charging economics, and winter penalty curves.
               </p>
             </div>
             <Link 
               href={`/vehicles/${vehicleId}/statistics`}
-              className="inline-flex items-center gap-2 bg-iv-cyan text-white px-6 py-3 rounded-xl font-medium hover:bg-iv-cyan/90 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 bg-iv-cyan text-white px-6 py-3 rounded-xl font-medium hover:bg-iv-cyan/90 transition-colors shrink-0"
             >
               Launch Statistics
               <ArrowRight className="w-4 h-4" />

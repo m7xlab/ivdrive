@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar, BottomNav } from "@/components/sidebar";
 
 export default function DashboardLayout({
   children,
@@ -35,7 +35,10 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-iv-black">
       <Sidebar />
-      <main className="ml-[240px] min-h-screen flex-1 p-6">{children}</main>
+      <main className="min-h-screen flex-1 overflow-x-hidden p-4 pb-24 md:ml-[240px] md:p-6 md:pb-6">
+        {children}
+      </main>
+      <BottomNav />
     </div>
   );
 }

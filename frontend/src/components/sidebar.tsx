@@ -194,9 +194,9 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      {/* ── Sidebar (desktop only) ──────────────────────────────────────── */}
       <aside
-        className={`fixed left-0 top-0 h-screen bg-iv-charcoal/80 backdrop-blur-xl border-r border-iv-border flex flex-col z-50 transition-all duration-300 ${
+        className={`fixed left-0 top-0 h-screen bg-iv-charcoal/80 backdrop-blur-xl border-r border-iv-border hidden md:flex flex-col z-50 transition-all duration-300 ${
           collapsed ? "w-[72px]" : "w-[240px]"
         }`}
       >
@@ -381,5 +381,53 @@ export function Sidebar() {
         </div>
       </aside>
     </>
+  );
+}
+
+// ── Bottom Navigation Bar (mobile only) ───────────────────────────────────────
+
+export function BottomNav() {
+  const pathname = usePathname();
+  const { user, logout } = useAuth();
+
+  const visibleItems = navItems.filter(
+    (item) => !("superuserOnly" in item && item.superuserOnly) || user?.is_superuser
+  );
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden items-stretch bg-iv-charcoal/95 backdrop-blur-xl border-t border-iv-border">
+      {visibleItems.map((item) => {
+        const isActive =
+          item.href === "/"
+            ? pathname === "/" || pathname.startsWith("/vehicles")
+            : pathname.startsWith(item.href);
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-3 text-[10px] font-semibold tracking-wide transition-colors ${
+              isActive
+                ? "text-iv-green"
+                : "text-iv-muted hover:text-iv-text"
+            }`}
+          >
+            {isActive && (
+              <span className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full bg-iv-green" />
+            )}
+            <item.icon size={22} />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
+
+      {/* Logout button as rightmost item */}
+      <button
+        onClick={logout}
+        className="flex flex-1 flex-col items-center justify-center gap-1 py-3 text-[10px] font-semibold tracking-wide text-iv-muted hover:text-iv-danger transition-colors"
+      >
+        <LogOut size={22} />
+        <span>Logout</span>
+      </button>
+    </nav>
   );
 }

@@ -315,51 +315,69 @@ export default function SettingsPage() {
             </div>
           ) : (
             vehicles.map((v) => (
-              <div key={v.id} className="rounded-lg bg-iv-surface border border-iv-border p-3 space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-iv-green/10">
+              <div key={v.id} className="rounded-lg bg-iv-surface border border-iv-border p-3 space-y-3">
+
+                {/* ── Top row: icon · name+badge · remove ── */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-iv-green/10 mt-0.5">
                     <Car size={14} className="text-iv-green" />
                   </div>
+
+                  {/* Name + badge block */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-iv-text truncate">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-sm font-medium text-iv-text break-words">
                         {v.display_name || `${v.manufacturer || ""} ${v.model || ""}`.trim() || "Vehicle"}
                       </p>
                       <ConnectorStatusBadge status={v.connector_status} />
                     </div>
-                    <p className="text-xs text-iv-muted">
-                      Added {new Date(v.created_at).toLocaleDateString()}
-                      {v.last_fetch_at && ` · Last fetch ${new Date(v.last_fetch_at).toLocaleString()}`}
-                    </p>
+                    {/* Dates – stacked on mobile, inline on sm+ */}
+                    <div className="mt-1 grid grid-cols-1 gap-0.5 sm:block">
+                      <span className="text-xs text-iv-muted">
+                        Added {new Date(v.created_at).toLocaleDateString()}
+                      </span>
+                      {v.last_fetch_at && (
+                        <span className="text-xs text-iv-muted sm:before:content-['·'] sm:before:mx-1">
+                          Last fetch {new Date(v.last_fetch_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <button onClick={() => setDeleteModalId(v.id)} disabled={vehicleDeleting === v.id}
-                    className="flex h-8 items-center gap-1.5 flex-shrink-0 rounded-lg px-2 text-xs font-medium text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50">
-                    {vehicleDeleting === v.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    Remove
+
+                  {/* Remove button – icon-only on mobile, icon+label on sm+ */}
+                  <button
+                    onClick={() => setDeleteModalId(v.id)}
+                    disabled={vehicleDeleting === v.id}
+                    className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50"
+                  >
+                    {vehicleDeleting === v.id
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Trash2 size={14} />}
+                    <span className="hidden sm:inline">Remove</span>
                   </button>
                 </div>
 
-                {/* Smart Polling intervals */}
-                <div className="flex items-center gap-3 pl-11">
-                  <Timer size={12} className="text-iv-muted flex-shrink-0" />
+                {/* ── Intervals row ── */}
+                <div className="flex items-start gap-2 pl-0 sm:pl-11">
+                  <Timer size={12} className="text-iv-muted flex-shrink-0 mt-0.5" />
                   {editingInterval === v.id ? (
                     <div className="flex flex-col gap-2 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-iv-muted w-28">Active Telemetry</span>
+                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Active Telemetry</span>
                         <input type="range" min={60} max={1800} step={60} value={activeInterval}
                           onChange={(e) => setActiveInterval(Number(e.target.value))}
-                          className="flex-1 accent-iv-green" />
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(activeInterval)}</span>
+                          className="flex-1 accent-iv-green min-w-0" />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(activeInterval)}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-iv-muted w-28">Parked Check</span>
+                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Parked Check</span>
                         <input type="range" min={300} max={7200} step={300} value={parkedInterval}
                           onChange={(e) => setParkedInterval(Number(e.target.value))}
-                          className="flex-1 accent-iv-cyan" />
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">{intervalLabel(parkedInterval)}</span>
+                          className="flex-1 accent-iv-cyan min-w-0" />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(parkedInterval)}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-iv-muted w-28">WLTP Range (km)</span>
+                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">WLTP Range (km)</span>
                         <input
                           type="number"
                           min={1}
@@ -368,9 +386,9 @@ export default function SettingsPage() {
                           value={wltpRange}
                           onChange={(e) => setWltpRange(e.target.value)}
                           placeholder="e.g. 510"
-                          className="flex-1 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50"
+                          className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50"
                         />
-                        <span className="text-xs text-iv-muted font-mono w-14 text-right">km</span>
+                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">km</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         <button onClick={() => handleSaveInterval(v.id)}
@@ -380,16 +398,28 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ) : (
-                    <button onClick={() => {
-                      setEditingInterval(v.id);
-                      setActiveInterval(v.active_interval_seconds);
-                      setParkedInterval(v.parked_interval_seconds);
-                      setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
-                    }}
-                      className="text-xs text-iv-muted hover:text-iv-text transition-colors">
-                      Active: {intervalLabel(v.active_interval_seconds)} · Parked: {intervalLabel(v.parked_interval_seconds)}
-                      {v.wltp_range_km != null ? ` · WLTP: ${v.wltp_range_km} km` : ""}
-                      {" "}<span className="text-iv-cyan/60 ml-1">Edit</span>
+                    <button
+                      onClick={() => {
+                        setEditingInterval(v.id);
+                        setActiveInterval(v.active_interval_seconds);
+                        setParkedInterval(v.parked_interval_seconds);
+                        setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
+                      }}
+                      className="text-xs text-iv-muted hover:text-iv-text transition-colors text-left"
+                    >
+                      {/* Stack interval pills vertically on mobile, inline on sm+ */}
+                      <span className="grid grid-cols-1 gap-0.5 sm:block">
+                        <span>Active: {intervalLabel(v.active_interval_seconds)}</span>
+                        <span className="sm:before:content-['·'] sm:before:mx-1">
+                          Parked: {intervalLabel(v.parked_interval_seconds)}
+                        </span>
+                        {v.wltp_range_km != null && (
+                          <span className="sm:before:content-['·'] sm:before:mx-1">
+                            WLTP: {v.wltp_range_km} km
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-iv-cyan/60 mt-1 block sm:mt-0 sm:ml-1 sm:inline">Edit</span>
                     </button>
                   )}
                 </div>

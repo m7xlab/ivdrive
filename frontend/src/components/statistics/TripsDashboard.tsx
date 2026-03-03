@@ -100,38 +100,64 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
         {trips.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-iv-muted">No trips in the selected period.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-iv-border text-left text-iv-muted">
-                  <th className="px-4 py-2 font-medium">Start Date</th>
-                  <th className="px-4 py-2 font-medium">Start</th>
-                  <th className="px-4 py-2 font-medium">Destination</th>
-                  <th className="px-4 py-2 font-medium">Duration</th>
-                  <th className="px-4 py-2 font-medium">Length (km)</th>
-                  <th className="px-4 py-2 font-medium">Odometer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trips.map((t) => (
-                  <tr key={t.id} className="border-b border-iv-border/50 last:border-0">
-                    <td className="px-4 py-2">
+          <>
+            {/* Mobile card view */}
+            <div className="block sm:hidden divide-y divide-iv-border/50">
+              {trips.map((t) => (
+                <div key={t.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-iv-muted">
                       {format(parseISO(t.start_date.replace("Z", "+00:00")), "yyyy-MM-dd HH:mm")}
-                    </td>
-                    <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
-                      {formatLocation(t.start_lat, t.start_lon)}
-                    </td>
-                    <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
-                      {formatLocation(t.end_lat, t.end_lon)}
-                    </td>
-                    <td className="px-4 py-2">{formatDuration(t.start_date, t.end_date)}</td>
-                    <td className="px-4 py-2">{distanceKm(t).toFixed(1)}</td>
-                    <td className="px-4 py-2">{t.end_odometer != null ? t.end_odometer.toLocaleString() : "—"}</td>
+                    </span>
+                    <span className="text-sm font-bold text-iv-cyan shrink-0">{distanceKm(t).toFixed(1)} km</span>
+                  </div>
+                  <div className="grid grid-cols-[5.5rem_1fr] gap-y-1 text-xs">
+                    <span className="text-iv-muted">Duration</span>
+                    <span className="text-iv-text">{formatDuration(t.start_date, t.end_date)}</span>
+                    <span className="text-iv-muted">Odometer</span>
+                    <span className="text-iv-text">{t.end_odometer != null ? t.end_odometer.toLocaleString() : "—"}</span>
+                    <span className="text-iv-muted">From</span>
+                    <span className="font-mono text-[10px] text-iv-text truncate">{formatLocation(t.start_lat, t.start_lon)}</span>
+                    <span className="text-iv-muted">To</span>
+                    <span className="font-mono text-[10px] text-iv-text truncate">{formatLocation(t.end_lat, t.end_lon)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop table view */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-iv-border text-left text-iv-muted">
+                    <th className="px-4 py-2 font-medium">Start Date</th>
+                    <th className="px-4 py-2 font-medium">Start</th>
+                    <th className="px-4 py-2 font-medium">Destination</th>
+                    <th className="px-4 py-2 font-medium">Duration</th>
+                    <th className="px-4 py-2 font-medium">Length (km)</th>
+                    <th className="px-4 py-2 font-medium">Odometer</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {trips.map((t) => (
+                    <tr key={t.id} className="border-b border-iv-border/50 last:border-0">
+                      <td className="px-4 py-2">
+                        {format(parseISO(t.start_date.replace("Z", "+00:00")), "yyyy-MM-dd HH:mm")}
+                      </td>
+                      <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
+                        {formatLocation(t.start_lat, t.start_lon)}
+                      </td>
+                      <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
+                        {formatLocation(t.end_lat, t.end_lon)}
+                      </td>
+                      <td className="px-4 py-2">{formatDuration(t.start_date, t.end_date)}</td>
+                      <td className="px-4 py-2">{distanceKm(t).toFixed(1)}</td>
+                      <td className="px-4 py-2">{t.end_odometer != null ? t.end_odometer.toLocaleString() : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -141,30 +167,47 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
             <Route className="h-5 w-5 text-iv-muted" />
             <h3 className="font-medium">Top 10 longest trips</h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[320px] text-sm">
-              <thead>
-                <tr className="border-b border-iv-border text-left text-iv-muted">
-                  <th className="px-4 py-2 font-medium">Start Date</th>
-                  <th className="px-4 py-2 font-medium">Length (km)</th>
-                  <th className="px-4 py-2 font-medium">Destination (coords)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {top10Longest.map((t) => (
-                  <tr key={t.id} className="border-b border-iv-border/50 last:border-0">
-                    <td className="px-4 py-2">
+          <>
+            {/* Mobile card view */}
+            <div className="block sm:hidden divide-y divide-iv-border/50">
+              {top10Longest.map((t) => (
+                <div key={t.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-iv-muted truncate">
                       {format(parseISO(t.start_date.replace("Z", "+00:00")), "yyyy-MM-dd HH:mm")}
-                    </td>
-                    <td className="px-4 py-2">{distanceKm(t).toFixed(1)}</td>
-                    <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
-                      {formatLocation(t.end_lat, t.end_lon)}
-                    </td>
+                    </p>
+                    <p className="font-mono text-[10px] text-iv-muted truncate">{formatLocation(t.end_lat, t.end_lon)}</p>
+                  </div>
+                  <span className="text-sm font-bold text-iv-cyan shrink-0">{distanceKm(t).toFixed(1)} km</span>
+                </div>
+              ))}
+            </div>
+            {/* Desktop table view */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full min-w-[320px] text-sm">
+                <thead>
+                  <tr className="border-b border-iv-border text-left text-iv-muted">
+                    <th className="px-4 py-2 font-medium">Start Date</th>
+                    <th className="px-4 py-2 font-medium">Length (km)</th>
+                    <th className="px-4 py-2 font-medium">Destination (coords)</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {top10Longest.map((t) => (
+                    <tr key={t.id} className="border-b border-iv-border/50 last:border-0">
+                      <td className="px-4 py-2">
+                        {format(parseISO(t.start_date.replace("Z", "+00:00")), "yyyy-MM-dd HH:mm")}
+                      </td>
+                      <td className="px-4 py-2">{distanceKm(t).toFixed(1)}</td>
+                      <td className="max-w-[180px] truncate px-4 py-2 text-iv-muted">
+                        {formatLocation(t.end_lat, t.end_lon)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         </div>
       )}
     </div>

@@ -123,7 +123,7 @@ function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, l
   if (!data || data.length === 0) return null;
   return (
     <div className="w-full mt-4 bg-iv-charcoal/50 rounded border border-iv-border text-[11px] font-mono">
-      <div className="grid grid-cols-6 border-b border-iv-border/50 py-1.5 px-3 text-iv-cyan font-semibold">
+      <div className="hidden sm:grid grid-cols-6 border-b border-iv-border/50 py-1.5 px-3 text-iv-cyan font-semibold">
         <div className="col-span-2">Name</div>
         <div className="text-right">Mean</div>
         <div className="text-right">Last *</div>
@@ -138,16 +138,45 @@ function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, l
          const max = Math.max(...valid);
          const min = Math.min(...valid);
          return (
-           <div key={key} className="grid grid-cols-6 py-1.5 px-3 hover:bg-iv-surface/50 border-b border-iv-border/20 last:border-0 items-center">
-             <div className="col-span-2 flex items-center gap-2">
-               <div className="w-2.5 h-1 rounded-full" style={{ backgroundColor: color }} />
-               <span className="text-iv-text font-sans text-xs font-medium truncate">{label}</span>
+           <React.Fragment key={key}>
+             {/* Desktop: Grid Row */}
+             <div className="hidden sm:grid grid-cols-6 py-1.5 px-3 hover:bg-iv-surface/50 border-b border-iv-border/20 last:border-0 items-center">
+               <div className="col-span-2 flex items-center gap-2">
+                 <div className="w-2.5 h-1 rounded-full" style={{ backgroundColor: color }} />
+                 <span className="text-iv-text font-sans text-xs font-medium truncate">{label}</span>
+               </div>
+               <div className="text-right text-iv-muted">{mean.toFixed(decimals)} {unit}</div>
+               <div className="text-right text-iv-muted">{last.toFixed(decimals)} {unit}</div>
+               <div className="text-right text-iv-muted">{max.toFixed(decimals)} {unit}</div>
+               <div className="text-right text-iv-muted">{min.toFixed(decimals)} {unit}</div>
              </div>
-             <div className="text-right text-iv-muted">{mean.toFixed(decimals)} {unit}</div>
-             <div className="text-right text-iv-muted">{last.toFixed(decimals)} {unit}</div>
-             <div className="text-right text-iv-muted">{max.toFixed(decimals)} {unit}</div>
-             <div className="text-right text-iv-muted">{min.toFixed(decimals)} {unit}</div>
-           </div>
+             
+             {/* Mobile: Stacked Row */}
+             <div className="sm:hidden flex flex-col gap-1 p-3 border-b border-iv-border/20 last:border-0">
+               <div className="flex items-center gap-2 mb-1">
+                 <div className="w-2.5 h-1 rounded-full" style={{ backgroundColor: color }} />
+                 <span className="text-iv-text font-sans text-xs font-bold">{label}</span>
+               </div>
+               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                 <div className="flex justify-between">
+                   <span className="text-iv-muted uppercase text-[9px]">Mean:</span>
+                   <span className="text-iv-text">{mean.toFixed(decimals)} {unit}</span>
+                 </div>
+                 <div className="flex justify-between">
+                   <span className="text-iv-muted uppercase text-[9px]">Last:</span>
+                   <span className="text-iv-text">{last.toFixed(decimals)} {unit}</span>
+                 </div>
+                 <div className="flex justify-between">
+                   <span className="text-iv-muted uppercase text-[9px]">Max:</span>
+                   <span className="text-iv-text">{max.toFixed(decimals)} {unit}</span>
+                 </div>
+                 <div className="flex justify-between">
+                   <span className="text-iv-muted uppercase text-[9px]">Min:</span>
+                   <span className="text-iv-text">{min.toFixed(decimals)} {unit}</span>
+                 </div>
+               </div>
+             </div>
+           </React.Fragment>
          );
       })}
     </div>

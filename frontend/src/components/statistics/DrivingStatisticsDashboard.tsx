@@ -10,7 +10,7 @@ export interface DrivingStatisticsDashboardProps {
   vehicleId: string;
   dateRange: TimelineRange;
   /** Timeline preset to derive period: today/7days -> day, month -> month, year -> year */
-  period: "day" | "week" | "month" | "year";
+  period?: "day" | "week" | "month" | "year";
 }
 
 interface StatisticsRow {
@@ -55,7 +55,7 @@ function formatPeriodLabel(iso: string, period: string): string {
 export function DrivingStatisticsDashboard({
   vehicleId,
   dateRange,
-  period,
+  period = "day",
 }: DrivingStatisticsDashboardProps) {
   const [rows, setRows] = useState<StatisticsRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,36 +101,65 @@ export function DrivingStatisticsDashboard({
         {rows.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-iv-muted">No data for the selected period.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-iv-border text-left text-iv-muted">
-                  <th className="px-4 py-2 font-medium">Period</th>
-                  <th className="px-4 py-2 font-medium"># Drives</th>
-                  <th className="px-4 py-2 font-medium">Time driven</th>
-                  <th className="px-4 py-2 font-medium">Distance (km)</th>
-                  <th className="px-4 py-2 font-medium">Median dist. (km)</th>
-                  <th className="px-4 py-2 font-medium"># Charges</th>
-                  <th className="px-4 py-2 font-medium">Time charging</th>
-                  <th className="px-4 py-2 font-medium">Energy (kWh)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.period} className="border-b border-iv-border/50 last:border-0">
-                    <td className="px-4 py-2">{formatPeriodLabel(r.period, period)}</td>
-                    <td className="px-4 py-2">{r.drives_count}</td>
-                    <td className="px-4 py-2">{formatDuration(r.time_driven_seconds)}</td>
-                    <td className="px-4 py-2">{r.total_distance_km.toFixed(1)}</td>
-                    <td className="px-4 py-2">{r.median_distance_km != null ? r.median_distance_km.toFixed(1) : "—"}</td>
-                    <td className="px-4 py-2">{r.charging_sessions_count}</td>
-                    <td className="px-4 py-2">{formatDuration(r.time_charging_seconds)}</td>
-                    <td className="px-4 py-2">{r.total_energy_kwh.toFixed(2)}</td>
+          <>
+            {/* Mobile card view */}
+            <div className="block sm:hidden divide-y divide-iv-border/50">
+              {rows.map((r) => (
+                <div key={r.period} className="px-4 py-3">
+                  <p className="text-xs font-semibold text-iv-cyan mb-2">
+                    {formatPeriodLabel(r.period, period)}
+                  </p>
+                  <div className="grid grid-cols-[6.5rem_1fr] gap-y-1 text-xs">
+                    <span className="text-iv-muted">Drives</span>
+                    <span className="text-iv-text">{r.drives_count}</span>
+                    <span className="text-iv-muted">Time driven</span>
+                    <span className="text-iv-text">{formatDuration(r.time_driven_seconds)}</span>
+                    <span className="text-iv-muted">Distance</span>
+                    <span className="text-iv-text">{r.total_distance_km.toFixed(1)} km</span>
+                    <span className="text-iv-muted">Median dist.</span>
+                    <span className="text-iv-text">{r.median_distance_km != null ? r.median_distance_km.toFixed(1) : "—"} km</span>
+                    <span className="text-iv-muted">Charges</span>
+                    <span className="text-iv-text">{r.charging_sessions_count}</span>
+                    <span className="text-iv-muted">Time charging</span>
+                    <span className="text-iv-text">{formatDuration(r.time_charging_seconds)}</span>
+                    <span className="text-iv-muted">Energy</span>
+                    <span className="text-iv-text">{r.total_energy_kwh.toFixed(2)} kWh</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop table view */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-iv-border text-left text-iv-muted">
+                    <th className="px-4 py-2 font-medium">Period</th>
+                    <th className="px-4 py-2 font-medium"># Drives</th>
+                    <th className="px-4 py-2 font-medium">Time driven</th>
+                    <th className="px-4 py-2 font-medium">Distance (km)</th>
+                    <th className="px-4 py-2 font-medium">Median dist. (km)</th>
+                    <th className="px-4 py-2 font-medium"># Charges</th>
+                    <th className="px-4 py-2 font-medium">Time charging</th>
+                    <th className="px-4 py-2 font-medium">Energy (kWh)</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.period} className="border-b border-iv-border/50 last:border-0">
+                      <td className="px-4 py-2">{formatPeriodLabel(r.period, period)}</td>
+                      <td className="px-4 py-2">{r.drives_count}</td>
+                      <td className="px-4 py-2">{formatDuration(r.time_driven_seconds)}</td>
+                      <td className="px-4 py-2">{r.total_distance_km.toFixed(1)}</td>
+                      <td className="px-4 py-2">{r.median_distance_km != null ? r.median_distance_km.toFixed(1) : "—"}</td>
+                      <td className="px-4 py-2">{r.charging_sessions_count}</td>
+                      <td className="px-4 py-2">{formatDuration(r.time_charging_seconds)}</td>
+                      <td className="px-4 py-2">{r.total_energy_kwh.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

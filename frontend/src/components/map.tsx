@@ -54,6 +54,15 @@ export default function LocationMap({ latitude, longitude }: MapProps) {
         <ZoomControl position="bottomleft" />
         <Marker position={[latitude, longitude]} />
       </MapContainer>
+
+      {/* Ensure zoom controls sit above the gradient overlays */}
+      <style>{`
+        .leaflet-control-zoom {
+          z-index: 1000 !important;
+          margin-bottom: 1rem !important;
+          margin-left: 0.75rem !important;
+        }
+      `}</style>
       
       {/* Gradient overlay to smoothly blend with the car image section */}
       <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-[var(--iv-charcoal)] to-transparent pointer-events-none z-[400] hidden lg:block" />
