@@ -69,6 +69,10 @@ The frontend proxies `/api/*` to the backend so you can serve everything from on
 
 Screenshots from the live app at [ivdrive.eu](https://ivdrive.eu). Light and dark theme available — see [assets/screenshots/](assets/screenshots/).
 
+**App navigation (animated):**
+
+![iVDrive navigation](assets/ivdrive_nav.gif)
+
 | Login | Add vehicle | Vehicle overview |
 |-------|-------------|------------------|
 | [![Login](assets/screenshots/login_light_theme.png)](assets/screenshots/login_light_theme.png) | [![Add vehicle](assets/screenshots/add_vehicle_light_theme.png)](assets/screenshots/add_vehicle_light_theme.png) | [![Overview](assets/screenshots/overview_light_theme.png)](assets/screenshots/overview_light_theme.png) |
