@@ -983,9 +983,12 @@ export default function VehicleDetailPage() {
         const acPercent = totalSessionsCount > 0 ? Math.round((acCount / totalSessionsCount) * 100) : 0;
         const dcPercent = totalSessionsCount > 0 ? 100 - acPercent : 0;
 
-        // Cost Estimation (Simple €0.25/kWh assumption)
-        // Apply the same finalKwh estimation fallback to Running Cost
-        const estCost = finalKwh * 0.25; // €0.25 per kWh avg
+        // --- 3. Dynamic Cost Calculation ---
+        const totalActualCost = recentSessions.reduce((acc, s) => acc + (s as any).actual_cost_eur || 0, 0);
+        const weightedAvgCost = totalChargedKwh > 0 ? totalActualCost / totalChargedKwh : 0.25;
+        const finalCostPerKwh = weightedAvgCost > 0 ? weightedAvgCost : 0.25;
+
+        const estCost = finalKwh * finalCostPerKwh;
         const costPer100km = totalKm > 0 ? (estCost / totalKm) * 100 : 0;
 
         return (
@@ -1068,7 +1071,9 @@ export default function VehicleDetailPage() {
                 <div className="mt-3 text-xs font-medium text-iv-muted">
                   ~ <span className="text-iv-text font-semibold">€{costPer100km.toFixed(2)}</span> / 100km
                 </div>
-                <div className="mt-1 text-[10px] text-iv-muted opacity-60">Based on avg €0.25/kWh</div>
+                <div className="mt-1 text-[10px] text-iv-muted opacity-60">
+                  Based on avg €{finalCostPerKwh.toFixed(2)}/kWh
+                </div>
               </div>
 
               {/* Card 4: Weather Impact (Cold vs Warm) */}
