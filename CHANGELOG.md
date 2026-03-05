@@ -5,6 +5,18 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-03-05
+### Added
+- **Analyst-Grade Statistics View (12-Block View)**: A major overhaul of the vehicle detail page, introducing 12 specialized data blocks for deep telemetry analysis.
+- **Efficiency Pulse**: Real-time kWh/100km tracking with dynamic trend arrows comparing current performance against the last 30 days.
+- **Charging Mix Dashboard**: New donut chart visualizing the ratio of AC vs. DC charging sessions.
+- **Running Cost Analysis**: Automated estimation of monthly operating costs and a breakdown of €/100km.
+- **Cold Weather Impact**: Dedicated "Winter Penalty" metric showing the percentage increase in consumption due to low temperatures.
+- **Trip Type Categorization**: Automatic breakdown of driving habits into Short, Commute, and Long Haul categories.
+- **Phantom Drain Tracker**: Estimated battery percentage and kWh loss while the vehicle is parked.
+- **Total Energy Throughput**: Lifetime and period-based kWh consumption tracking.
+- **Diesel Savings Tracker**: Real-time calculation of savings compared to an equivalent diesel vehicle (7L/100km benchmark).
+
 ## [1.0.8] - 2026-03-03
 ### Added
 - **Mobile-First Adaptive UI (v1.0.8)**: Complete refactor of the dashboard shell and statistics views for phone screens.
