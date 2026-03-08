@@ -39,6 +39,8 @@ services:
       context: ./frontend
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
+      SITE_ANALYTICS_URL: "${SITE_ANALYTICS_URL:-}"
+      SITE_ANALYTICS_KEY: "${SITE_ANALYTICS_KEY:-}"
     networks:
       - backend
     ports:

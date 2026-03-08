@@ -5,6 +5,15 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.13] - 2026-03-08
+### Added
+- **Umami Analytics Integration**: Added support for website analytics via Umami. The tracking script is injected server-side using Next.js `<Script strategy="afterInteractive">`. Controlled entirely via environment variables — no code changes needed to enable/disable.
+
+### Configuration
+- `SITE_ANALYTICS_URL` — Umami script URL (e.g. `https://your-umami-domain.com/script.js`)
+- `SITE_ANALYTICS_KEY` — Umami Website ID from the dashboard
+- Both vars must be set for the script to render. If either is missing, analytics are silently skipped.
+
 ## [1.0.12] - 2026-03-07
 ### Added
 - **All-Time Time Budget**: New `/analytics/time-budget` backend endpoint aggregates `vehicle_states` and `charging_states` entirely in the database. Returns lifetime totals (Parked, Driving, Charging, Ignition, Offline) without requiring a date range — frontend fetches once on mount.
