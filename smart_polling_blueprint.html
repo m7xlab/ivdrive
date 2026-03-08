@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iVDrive Smart Polling v2.3 Logic</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --skoda-green: #4BA82E;
+            --dark-bg: #0A0A0B;
+            --card-bg: #141417;
+            --accent: #00FF94;
+        }
+        body {
+            background-color: var(--dark-bg);
+            color: #E2E2E7;
+            font-family: 'Outfit', sans-serif;
+            overflow-x: hidden;
+        }
+        h1, h2, .font-display {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .glass {
+            background: rgba(20, 20, 23, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .badge-parked { background: rgba(100, 100, 110, 0.2); color: #A0A0AB; border: 1px solid rgba(100, 100, 110, 0.3); }
+        .badge-active { background: rgba(75, 168, 46, 0.2); color: var(--skoda-green); border: 1px solid rgba(75, 168, 46, 0.3); }
+        
+        /* Flow Arrows Animation */
+        .arrow-line {
+            position: relative;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.1);
+            width: 100%;
+        }
+        .arrow-pulse {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 30px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            animation: flow 2s infinite linear;
+        }
+        @keyframes flow {
+            0% { left: -10%; }
+            100% { left: 110%; }
+        }
+
+        .car-glow {
+            filter: drop-shadow(0 0 15px rgba(75, 168, 46, 0.3));
+        }
+        
+        .grid-bg {
+            background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .step-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .step-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--skoda-green);
+            background: rgba(75, 168, 46, 0.03);
+        }
+    </style>
+</head>
+<body class="grid-bg min-h-screen p-6 md:p-12">
+
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <header class="mb-16 text-center">
+            <div class="inline-block mb-4 px-4 py-1 rounded-full border border-green-500/30 bg-green-500/10 text-green-400 text-xs font-bold tracking-widest uppercase">
+                Technical Blueprint
+            </div>
+            <h1 class="text-5xl md:text-7xl font-bold mb-6 tracking-tight">Smart Polling <span class="text-green-500">v2.3</span></h1>
+            <p class="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
+                How iVDrive monitors your vehicle efficiently while respecting battery life and API limits.
+            </p>
+        </header>
+
+        <!-- The Flow visualization -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12 relative">
+            
+            <!-- State 1: Sleep/Parked -->
+            <div class="glass p-8 step-card">
+                <div class="flex justify-between items-start mb-6">
+                    <span class="status-badge badge-parked">Parked State</span>
+                    <span class="text-xs text-gray-500">~10-30 min interval</span>
+                </div>
+                <h3 class="text-2xl font-bold mb-4">Lightweight Probe</h3>
+                <p class="text-gray-400 text-sm leading-relaxed mb-6">
+                    Collector makes exactly <strong>one</strong> API call to check connectivity. If nothing changed, 0 rows are written to the database.
+                </p>
+                <div class="space-y-3">
+                    <div class="flex items-center text-xs text-gray-500">
+                        <div class="w-2 h-2 rounded-full bg-gray-600 mr-2"></div>
+                        Connection Status Only
+                    </div>
+                    <div class="flex items-center text-xs text-gray-500">
+                        <div class="w-2 h-2 rounded-full bg-gray-600 mr-2"></div>
+                        No Telemetry Fetch
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transition -->
+            <div class="flex flex-col justify-center items-center">
+                <div class="text-xs font-bold text-green-500 mb-2 uppercase tracking-tighter">Detection</div>
+                <div class="arrow-line rounded-full overflow-hidden">
+                    <div class="arrow-pulse"></div>
+                </div>
+                <div class="mt-4 glass px-4 py-2 text-[10px] uppercase font-bold text-center border-green-500/20">
+                    Online? Moving?<br>Charging? AC?
+                </div>
+            </div>
+
+            <!-- State 2: Active -->
+            <div class="glass p-8 step-card border-green-500/20">
+                <div class="flex justify-between items-start mb-6">
+                    <span class="status-badge badge-active">Active State</span>
+                    <span class="text-xs text-green-500">~1-5 min interval</span>
+                </div>
+                <h3 class="text-2xl font-bold mb-4">Full Telemetry</h3>
+                <p class="text-gray-400 text-sm leading-relaxed mb-6">
+                    The car is awake. Collector triggers <strong>full fetch</strong> across all 8+ endpoints. High-resolution data for analytics.
+                </p>
+                <div class="space-y-3">
+                    <div class="flex items-center text-xs text-green-400">
+                        <div class="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                        Position & Odometer
+                    </div>
+                    <div class="flex items-center text-xs text-green-400">
+                        <div class="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                        Battery Health & HVAC
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stabilization Logic -->
+        <div class="glass p-8 md:p-12 mb-12 overflow-hidden relative">
+            <div class="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+                <svg width="200" height="200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-green-500"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            
+            <div class="max-w-2xl">
+                <h2 class="text-3xl font-bold mb-6 italic">The "Stabilization" Buffer</h2>
+                <p class="text-gray-300 mb-8 leading-relaxed">
+                    When your car stops, iVDrive doesn't just "go to sleep" immediately. We keep the collector in **Active Mode** for exactly <span class="text-white font-bold">3 more cycles</span>.
+                </p>
+                
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="bg-white/5 p-4 rounded-xl border border-white/10 text-center">
+                        <div class="text-2xl font-bold mb-1">#1</div>
+                        <div class="text-[10px] uppercase text-gray-500">Final Position</div>
+                    </div>
+                    <div class="bg-white/5 p-4 rounded-xl border border-white/10 text-center">
+                        <div class="text-2xl font-bold mb-1">#2</div>
+                        <div class="text-[10px] uppercase text-gray-500">Lock Status</div>
+                    </div>
+                    <div class="bg-white/5 p-4 rounded-xl border border-white/10 text-center border-green-500/40 bg-green-500/5">
+                        <div class="text-2xl font-bold mb-1 text-green-400">#3</div>
+                        <div class="text-[10px] uppercase text-green-500">Deep Sleep</div>
+                    </div>
+                </div>
+                <p class="mt-6 text-sm text-gray-500 italic">
+                    This ensures we never miss the final odometer reading or the "Parked Location" after you turn off the ignition.
+                </p>
+            </div>
+        </div>
+
+        <!-- Manual Override -->
+        <div class="text-center py-12 border-t border-white/5">
+            <h3 class="text-xl font-bold mb-4 uppercase tracking-widest text-gray-500">Manual Refresh</h3>
+            <p class="text-gray-400 text-sm max-w-xl mx-auto">
+                Clicking the <strong>Refresh Button</strong> in the UI bypasses all the logic above. It forces an immediate, full-data fetch from the Skoda API, waking up the collector regardless of the current interval.
+            </p>
+        </div>
+
+        <footer class="mt-12 text-center text-gray-600 text-xs">
+            Generated by iVDrive Team ® &bull; 2026
+        </footer>
+    </div>
+
+</body>
+</html>
