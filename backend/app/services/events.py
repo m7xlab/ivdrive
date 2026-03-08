@@ -67,4 +67,14 @@ async def publish_vehicle_deleted(vehicle_id: str) -> None:
 
 
 async def publish_vehicle_refresh(vehicle_id: str) -> None:
-    await publish_event("vehicle_refresh", {"vehicle_id": vehicle_id})
+    """Queue a manual refresh request via a persistent Valkey List.
+
+    Uses RPUSH instead of pub/sub so the request survives listener crashes
+    and is processed within ~5 seconds by the collector's queue-drain job.
+    """
+    client = await get_valkey_client()
+    try:
+        await client.rpush("ivdrive:manual_refresh", vehicle_id)
+        logger.info("Queued manual refresh for vehicle %s", vehicle_id)
+    finally:
+        await client.aclose()

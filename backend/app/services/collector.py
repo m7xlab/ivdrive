@@ -21,7 +21,7 @@ from app.models.telemetry import (
 
 from app.models.vehicle import ConnectorSession, UserVehicle
 from app.services.crypto import decrypt_field, encrypt_field
-from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client
+from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
 from app.services.analytics import process_completed_trips_and_charges
 from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
 from app.services.skoda_api import SkodaAPIClient
@@ -55,6 +55,9 @@ def _extract_render_url(data: dict, preferred_view: str) -> str | None:
     return fallback_url
 
 
+MANUAL_REFRESH_QUEUE = "ivdrive:manual_refresh"
+
+
 class DataCollector:
     def __init__(self) -> None:
         self._scheduler = AsyncIOScheduler()
@@ -65,6 +68,8 @@ class DataCollector:
         # identical rows while the car sits parked overnight).
         # None = unknown (first poll after startup → always write the initial record).
         self._last_connection_state: dict[UUID, bool | None] = {}
+        # Strong reference to the pub/sub listener task so it cannot be GC'd.
+        self._listen_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         registered = 0
@@ -97,7 +102,56 @@ class DataCollector:
             replace_existing=True,
         )
 
-        asyncio.ensure_future(self._listen_events())
+        self._listen_task = asyncio.ensure_future(self._listen_events())
+
+        # Watchdog: restarts the pub/sub listener if it ever dies unexpectedly.
+        self._scheduler.add_job(
+            self._watchdog_listen_task,
+            "interval",
+            seconds=30,
+            id="watchdog_listen_task",
+            replace_existing=True,
+        )
+
+        # Manual refresh queue: drains ivdrive:manual_refresh every 5 seconds.
+        # Independent of pub/sub — survives _listen_events crashes.
+        self._scheduler.add_job(
+            self._process_manual_refresh_queue,
+            "interval",
+            seconds=5,
+            id="manual_refresh_queue",
+            replace_existing=True,
+        )
+
+    async def _watchdog_listen_task(self) -> None:
+        """Restart the pub/sub listener task if it has died unexpectedly."""
+        if self._listen_task is None or self._listen_task.done():
+            logger.warning("Watchdog: _listen_events task is dead, restarting.")
+            self._listen_task = asyncio.ensure_future(self._listen_events())
+
+    async def _process_manual_refresh_queue(self) -> None:
+        """Drain the manual refresh Valkey queue and trigger force-collect for each vehicle.
+
+        Uses a persistent Valkey List (RPUSH/LPOP) instead of pub/sub so that
+        refresh requests survive pub/sub listener crashes and collector reconnects.
+        Max latency: 5 seconds (the scheduler interval).
+        """
+        client = await get_valkey_client()
+        try:
+            while True:
+                vehicle_id_str = await client.lpop(MANUAL_REFRESH_QUEUE)
+                if not vehicle_id_str:
+                    break
+                try:
+                    vehicle_id = UUID(vehicle_id_str)
+                    logger.info("Manual refresh queue: triggering force-collect for vehicle %s", vehicle_id)
+                    task = asyncio.create_task(self.collect_vehicle(vehicle_id, force=True))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._handle_task_result)
+                except Exception:
+                    logger.exception("Manual refresh queue: failed to process vehicle %s", vehicle_id_str)
+        finally:
+            await client.aclose()
 
     def _get_job_interval_seconds(self, job_id: str) -> int | None:
         """Return the interval in seconds of an existing interval job, or None."""
@@ -190,16 +244,9 @@ class DataCollector:
             self.unregister_vehicle(vehicle_id)
             logger.info("Event: removed vehicle %s", vehicle_id)
 
-        elif event_type == "vehicle_refresh":
-            logger.info("Event: manual refresh requested for vehicle %s", vehicle_id)
-            try:
-                await self._fetch_vehicle_metadata(vehicle_id)
-            except Exception:
-                logger.error("Metadata fetch failed", exc_info=True)
-            
-            task = asyncio.create_task(self.collect_vehicle(vehicle_id, force=True))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._handle_task_result)
+        # vehicle_refresh is no longer handled via pub/sub.
+        # Manual refresh requests are now queued in Valkey List (ivdrive:manual_refresh)
+        # and processed by _process_manual_refresh_queue every 5 seconds.
 
     async def _fetch_vehicle_metadata(self, user_vehicle_id: UUID) -> None:
         """One-time fetch of garage data and renders to populate vehicle metadata."""
