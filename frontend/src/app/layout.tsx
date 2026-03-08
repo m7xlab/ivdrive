@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-provider";
@@ -34,14 +33,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} antialiased`}>
+      <head>
         {analyticsUrl && analyticsKey && (
-          <Script
+          // eslint-disable-next-line @next/next/no-before-interactive-script-component
+          <script
+            defer
             src={analyticsUrl}
             data-website-id={analyticsKey}
-            strategy="afterInteractive"
           />
         )}
+      </head>
+      <body className={`${inter.variable} antialiased`}>
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
