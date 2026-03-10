@@ -833,54 +833,30 @@ class DataCollector:
                         est_full = float(driving.total_range_in_km) / (soc / 100.0)
                         consumption_val = 16.5 + random.uniform(-2, 3)
                         # DriveRangeEstimatedFull: scoped by drive_id (no user_vehicle_id column)
-                        prev_dref = await session.execute(
-                            select(DriveRangeEstimatedFull)
-                            .where(DriveRangeEstimatedFull.drive_id == drive_obj.id)
-                            .order_by(DriveRangeEstimatedFull.first_date.desc())
-                            .limit(1)
+                        await _update_or_insert_duration_state(
+                            session=session,
+                            model_cls=DriveRangeEstimatedFull,
+                            user_vehicle_id=user_vehicle_id,
+                            match_keys={"range_estimated_full": est_full},
+                            volatile_keys=[],
+                            now=now,
+                            max_gap_s=max_gap_s,
+                            extra_filter=(DriveRangeEstimatedFull.drive_id == drive_obj.id),
+                            drive_id=drive_obj.id,
+                            range_estimated_full=est_full,
                         )
-                        prev_dref_row = prev_dref.scalar_one_or_none()
-                        if (
-                            prev_dref_row is not None
-                            and abs(prev_dref_row.range_estimated_full - est_full) < 0.01
-                            and (now - prev_dref_row.last_date).total_seconds() <= max_gap_s
-                        ):
-                            await session.execute(
-                                update(DriveRangeEstimatedFull)
-                                .where(DriveRangeEstimatedFull.id == prev_dref_row.id)
-                                .values(last_date=now, range_estimated_full=est_full)
-                            )
-                        else:
-                            session.add(DriveRangeEstimatedFull(
-                                drive_id=drive_obj.id,
-                                first_date=now,
-                                last_date=now,
-                                range_estimated_full=est_full,
-                            ))
                         # DriveConsumption: scoped by drive_id (no user_vehicle_id column)
-                        prev_dc = await session.execute(
-                            select(DriveConsumption)
-                            .where(DriveConsumption.drive_id == drive_obj.id)
-                            .order_by(DriveConsumption.first_date.desc())
-                            .limit(1)
-                        )
-                        prev_dc_row = prev_dc.scalar_one_or_none()
-                        if (
-                            prev_dc_row is not None
-                            and abs(prev_dc_row.consumption - consumption_val) < 0.01
-                            and (now - prev_dc_row.last_date).total_seconds() <= max_gap_s
-                        ):
-                            await session.execute(
-                                update(DriveConsumption)
-                                .where(DriveConsumption.id == prev_dc_row.id)
-                                .values(last_date=now, consumption=consumption_val)
-                            )
-                        else:
-                            session.add(DriveConsumption(
-                                drive_id=drive_obj.id,
-                                first_date=now,
-                                last_date=now,
-                                consumption=consumption_val,
+                        await _update_or_insert_duration_state(
+                            session=session,
+                            model_cls=DriveConsumption,
+                            user_vehicle_id=user_vehicle_id,
+                            match_keys={"consumption": consumption_val},
+                            volatile_keys=[],
+                            now=now,
+                            max_gap_s=max_gap_s,
+                            extra_filter=(DriveConsumption.drive_id == drive_obj.id),
+                            drive_id=drive_obj.id,
+                            consumption=consumption_val,
                             ))
 
                 if ac_resp and ac_resp.state:
@@ -1041,7 +1017,19 @@ async def _update_or_insert_duration_state(
     # Check if we can extend the existing row
     if prev is not None:
         gap = (now - prev.last_date).total_seconds()
-        keys_match = all(getattr(prev, k, object()) == v for k, v in match_keys.items())
+        
+        # Float-safe comparison
+        keys_match = True
+        for k, v in match_keys.items():
+            prev_val = getattr(prev, k, object())
+            if isinstance(prev_val, float) and isinstance(v, (float, int)):
+                if abs(prev_val - v) >= 1e-5:
+                    keys_match = False
+                    break
+            elif prev_val != v:
+                keys_match = False
+                break
+
         if keys_match and gap <= max_gap_s:
             update_vals: dict = {"last_date": now}
             for vk in volatile_keys:
@@ -1055,12 +1043,15 @@ async def _update_or_insert_duration_state(
             return
 
     # No matching row or gap too large — insert fresh
-    session.add(model_cls(
-        user_vehicle_id=user_vehicle_id,
-        first_date=now,
-        last_date=now,
+    insert_data = {
+        "first_date": now,
+        "last_date": now,
         **kwargs,
-    ))
+    }
+    if pk_col is not None:
+        insert_data["user_vehicle_id"] = user_vehicle_id
+        
+    session.add(model_cls(**insert_data))
 
 
 async def _safe(coro, label: str, vehicle_id: UUID):
