@@ -857,7 +857,7 @@ class DataCollector:
                             extra_filter=(DriveConsumption.drive_id == drive_obj.id),
                             drive_id=drive_obj.id,
                             consumption=consumption_val,
-                            ))
+                        )
 
                 if ac_resp and ac_resp.state:
                     await _update_or_insert_duration_state(
