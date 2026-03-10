@@ -290,12 +290,7 @@ export default function AdminPage() {
   };
 
   const handleDeleteInvite = async (inv: InviteRequest) => {
-    if (inv.status === "approved") {
-      if (!window.confirm(`WARNING: This invite is approved but NOT YET USED! If you delete it now, the user's invite link will be destroyed and they will get an "Expired" error. Are you sure you want to delete it?`)) return;
-    } else {
-      if (!window.confirm(`Delete invite for "${inv.email}"?`)) return;
-    }
-
+    if (!window.confirm(`Delete invite for "${inv.email}"?`)) return;
     setActionLoading(`del-${inv.id}`);
     try {
       await api.adminDeleteInvite(inv.id);

@@ -17,12 +17,14 @@ from app.database import get_db
 from app.models.user import User
 from app.models.invite import InviteRequest
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     PasswordChangeRequest,
     RecoveryCodeLoginRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     TwoFactorDisableRequest,
     TwoFactorEnableRequest,
@@ -38,11 +40,14 @@ from app.security import (
     JWTError,
     create_2fa_token,
     create_access_token,
+    create_password_reset_token,
     create_refresh_token,
+    decode_password_reset_token,
     decode_token,
     get_password_hash,
     verify_password,
 )
+from app.services.email import send_password_reset_email
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 
 router = APIRouter()
@@ -137,7 +142,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         display_name=body.display_name,
     )
     db.add(user)
-    await db.flush()
+    await db.commit()
     await db.refresh(user)
     return user
 
@@ -336,6 +341,69 @@ async def refresh(body: RefreshRequest):
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(body: RefreshRequest):
     return {"detail": "Successfully logged out"}
+
+
+# ── password reset (unauthenticated) ────────────────────────────────
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Initiate a password-reset flow.
+
+    Always returns a generic message regardless of whether the email exists
+    (prevents email enumeration attacks).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    if user is not None and user.is_active:
+        token = create_password_reset_token(user.email)
+        reset_link = f"{settings.app_base_url}/reset-password?token={token}"
+        sent = send_password_reset_email(user.email, reset_link)
+        if not sent:
+            # Log but do not expose failure to caller
+            logger.warning("Password reset email delivery failed for %s", user.email)
+
+    return {"detail": "If an account with that email exists, a password reset link has been sent."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Complete the password-reset flow.
+
+    Validates the JWT, hashes the new password, and updates the user record.
+    The token is short-lived (30 min) and cannot be reused after expiry.
+    """
+    try:
+        email, iat_dt = decode_password_reset_token(body.token)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token.",
+        )
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token.",
+        )
+
+    # Invalidate token if user's record was updated after the token was issued
+    if iat_dt and user.updated_at and user.updated_at > iat_dt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token has been invalidated by a more recent account update.",
+        )
+
+    user.password_hash = get_password_hash(body.new_password)
+    await db.commit()
+    return {"detail": "Password has been reset successfully. You can now log in with your new password."}
 
 
 # ── user profile ─────────────────────────────────────────────────────

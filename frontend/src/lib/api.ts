@@ -181,6 +181,28 @@ export const api = {
     return res.json();
   },
 
+  async forgotPassword(email: string) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok)
+      throw new Error((await res.json()).detail || "Request failed");
+    return res.json();
+  },
+
+  async resetPassword(token: string, newPassword: string) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+    if (!res.ok)
+      throw new Error((await res.json()).detail || "Password reset failed");
+    return res.json();
+  },
+
   // ── Admin APIs ──
 
   async adminListInvites() {

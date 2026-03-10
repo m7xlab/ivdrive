@@ -64,8 +64,8 @@ function RegisterForm() {
       setError("Passwords do not match");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
@@ -271,7 +271,10 @@ function RegisterForm() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-medium text-iv-muted">Password</label>
+          <label htmlFor="password" className="text-sm font-medium text-iv-muted flex justify-between">
+            <span>Password</span>
+            <span className="text-xs text-iv-muted/60 font-normal">Min 8 chars</span>
+          </label>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-iv-muted" />
             <input
@@ -296,7 +299,12 @@ function RegisterForm() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="confirmPassword" className="text-sm font-medium text-iv-muted">Confirm password</label>
+          <label htmlFor="confirmPassword" className="text-sm font-medium text-iv-muted flex justify-between">
+            <span>Confirm password</span>
+            {confirmPassword.length > 0 && password !== confirmPassword && (
+              <span className="text-xs text-iv-danger">Passwords do not match</span>
+            )}
+          </label>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-iv-muted" />
             <input
@@ -322,7 +330,7 @@ function RegisterForm() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || password.length < 8 || password !== confirmPassword}
           className="mt-2 w-full bg-gradient-to-r from-iv-green to-iv-cyan text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
