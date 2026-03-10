@@ -44,7 +44,7 @@ async def approve_invite(
     if invite.status != "pending":
         raise HTTPException(status_code=400, detail=f"Invite is already {invite.status}")
 
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_hex(32)
     invite.status = "approved"
     invite.token = token
     invite.approved_at = datetime.utcnow()
@@ -76,7 +76,7 @@ async def resend_invite(
     if invite.status not in ("approved", "pending"):
         raise HTTPException(status_code=400, detail=f"Cannot resend invite with status '{invite.status}'")
 
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_hex(32)
     invite.status = "approved"
     invite.token = token
     invite.approved_at = datetime.utcnow()
