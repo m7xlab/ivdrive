@@ -50,9 +50,23 @@ async def reverse_geocode(
             
             if response.status_code == 200:
                 data = response.json()
-                display_name = data.get("display_name", "Unknown Location")
-                # Clean up the name (usually take the first part)
-                short_name = display_name.split(",")[0] if display_name else "Unknown Location"
+                address = data.get("address", {})
+                
+                # Try to build a better name: Road + House Number, or Suburb, or City
+                road = address.get("road")
+                house_number = address.get("house_number")
+                suburb = address.get("suburb")
+                city = address.get("city") or address.get("town") or address.get("village")
+                
+                if road:
+                    parts = [road]
+                    if house_number:
+                        parts.append(house_number)
+                    short_name = " ".join(parts)
+                elif suburb:
+                    short_name = suburb
+                else:
+                    short_name = city or "Unknown Location"
                 
                 # 3. Save to cache
                 save_stmt = text("INSERT INTO geocoded_locations (latitude, longitude, display_name) VALUES (:lat, :lon, :name) ON CONFLICT DO NOTHING")

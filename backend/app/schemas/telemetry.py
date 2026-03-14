@@ -67,16 +67,16 @@ class TripItem(BaseModel):
 class TripAnalyticsItem(BaseModel):
     trip_id: int
     start_time: datetime
-    end_time: datetime
+    end_time: datetime | None = None
     start_latitude: float | None = None
     start_longitude: float | None = None
     destination_latitude: float | None = None
     destination_longitude: float | None = None
-    distance_km: float
-    duration_minutes: float
-    average_speed_kmh: float
-    kwh_used: float | None
-    efficiency_kwh_100km: float | None
+    distance_km: float | None = None
+    duration_minutes: float | None = None
+    average_speed_kmh: float | None = None
+    kwh_used: float | None = None
+    efficiency_kwh_100km: float | None = None
 
     model_config = {"from_attributes": True}
 

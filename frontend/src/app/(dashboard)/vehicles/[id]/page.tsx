@@ -934,53 +934,7 @@ export default function VehicleDetailPage() {
       {/* ===== TRIPS ===== */}
 
       {tab === "trips" && (
-        <div className="space-y-3">
-          {trips.length === 0 ? (
-            <EmptyState icon={Car} message="No trips recorded yet" />
-          ) : (
-            <>
-              <div className="glass rounded-xl p-5">
-                <h3 className="text-sm font-medium text-iv-muted mb-2">Trip Summary</h3>
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-2xl font-bold text-iv-green">{trips.length}</p>
-                    <p className="text-xs text-iv-muted">Total Trips</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-iv-cyan">
-                      {trips.reduce((acc, t) => acc + (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0), 0).toFixed(0)}
-                    </p>
-                    <p className="text-xs text-iv-muted">Total km</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-iv-text">
-                      {trips.length > 0 ? (trips.reduce((acc, t) => acc + (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0), 0) / trips.length).toFixed(1) : "0"}
-                    </p>
-                    <p className="text-xs text-iv-muted">Avg km/trip</p>
-                  </div>
-                </div>
-              </div>
-              {trips.map((t) => {
-                const distance = t.end_odometer != null && t.start_odometer != null ? (t.end_odometer - t.start_odometer).toFixed(1) : null;
-                return (
-                  <div key={t.id} className="glass rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-iv-cyan/10">
-                        <Car size={18} className="text-iv-cyan" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-iv-text truncate">
-                          {formatDate(t.start_date)}{t.end_date && ` → ${formatDate(t.end_date)}`}
-                        </p>
-                      </div>
-                    </div>
-                    {distance && <span className="text-iv-cyan font-mono text-sm font-semibold flex-shrink-0">{distance} km</span>}
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </div>
+        <TripsDashboard vehicleId={vehicleId} />
       )}
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
