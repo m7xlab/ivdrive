@@ -30,10 +30,10 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
   useEffect(() => {
     if (!isAutoPlaying) return;
     const timer = setInterval(() => {
-      handleNext();
+      setInternalIndex((prev) => prev + 1);
     }, 8000);
     return () => clearInterval(timer);
-  }, [isAutoPlaying, internalIndex]);
+  }, [isAutoPlaying]);
 
   useEffect(() => {
     if (scrollRef.current) {

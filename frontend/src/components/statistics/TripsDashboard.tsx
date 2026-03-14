@@ -272,6 +272,7 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
                 url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
               />
               {displayTrips.map(trip => {
+                if (trip.start_latitude == null || trip.start_longitude == null || trip.destination_latitude == null || trip.destination_longitude == null) return null;
                 const isActive = trip.trip_id === activeTripId;
                 return (
                     <Polyline
