@@ -160,6 +160,22 @@ interface StatItem {
   charging_sessions_count: number; total_energy_kwh: number;
   avg_energy_per_session_kwh: number;
 }
+interface AdvancedAnalytics {
+  efficiency: {
+    avg_kwh_100km: number;
+    cold_penalty_pct: number;
+    cold_eff_kwh_100km: number;
+    warm_eff_kwh_100km: number;
+  };
+  trip_types: {
+    short_pct: number;
+    medium_pct: number;
+    long_pct: number;
+  };
+  phantom_drain: {
+    pct_per_day: number;
+  };
+}
 
 const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: "overview", label: "Overview", icon: Car },
@@ -348,6 +364,7 @@ export default function VehicleDetailPage() {
   const [maintenance, setMaintenance] = useState<MaintenanceItem[]>([]);
   const [odometer, setOdometer] = useState<OdometerItem[]>([]);
   const [stats, setStats] = useState<StatItem[]>([]);
+  const [advancedAnalytics, setAdvancedAnalytics] = useState<AdvancedAnalytics | null>(null);
   const [statPeriod, setStatPeriod] = useState<"day" | "week" | "month" | "year">("day");
   const [maintenanceDateRange, setMaintenanceDateRange] = useState<DateRangeValue>({
     from: startOfDay(subDays(new Date(), 90)),
@@ -381,9 +398,14 @@ export default function VehicleDetailPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [v, s] = await Promise.all([api.getVehicle(vehicleId), api.getVehicleStatus(vehicleId)]);
+      const [v, s, a] = await Promise.all([
+        api.getVehicle(vehicleId), 
+        api.getVehicleStatus(vehicleId),
+        api.getAdvancedAnalyticsOverview(vehicleId)
+      ]);
       setVehicle(v);
       setStatus(s);
+      setAdvancedAnalytics(a);
     } catch { router.replace("/"); }
     finally { setLoading(false); }
   }, [vehicleId, router]);
@@ -687,12 +709,12 @@ export default function VehicleDetailPage() {
                 <DoorOpen size={14} /> Vehicle Status
               </h3>
               <div className="grid grid-cols-2 gap-3">
-                <StatusRow label="Doors" value={status.doors_open || "All closed"} ok={!status.doors_open} />
-                <StatusRow label="Windows" value={status.windows_open || "All closed"} ok={!status.windows_open} />
-                <StatusRow label="Trunk" value={status.trunk_open ? "Open" : "Closed"} ok={!status.trunk_open} />
-                <StatusRow label="Bonnet" value={status.bonnet_open ? "Open" : "Closed"} ok={!status.bonnet_open} />
-                <StatusRow label="Lights" value={status.lights_on || "All off"} ok={!status.lights_on} />
-                <StatusRow label="Motion" value={status.is_in_motion ? "Moving" : "Parked"} ok={!status.is_in_motion} />
+                <StatusRow label="Doors" value={status.doors_open || "CLOSED"} ok={status.doors_open === "CLOSED" || !status.doors_open} />
+                <StatusRow label="Windows" value={status.windows_open || "CLOSED"} ok={status.windows_open === "CLOSED" || !status.windows_open} />
+                <StatusRow label="Trunk" value={status.trunk_open ? "OPEN" : "CLOSED"} ok={!status.trunk_open} />
+                <StatusRow label="Bonnet" value={status.bonnet_open ? "OPEN" : "CLOSED"} ok={!status.bonnet_open} />
+                <StatusRow label="Lights" value={status.lights_on || "OFF"} ok={status.lights_on === "OFF" || !status.lights_on} />
+                <StatusRow label="Motion" value={status.is_in_motion ? "MOVING" : "PARKED"} ok={!status.is_in_motion} />
               </div>
             </div>
 
@@ -958,72 +980,33 @@ export default function VehicleDetailPage() {
       )}
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
+      {/* ===== STATISTICS (Helicopter View) ===== */}
       {tab === "statistics" && (() => {
-        // --- 1. Calculate Efficiency Metrics (Last 30 Days vs Previous 30 Days) ---
         const now = new Date();
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-
+        
         const recentTrips = trips.filter(t => new Date(t.start_date) >= thirtyDaysAgo);
-        const prevTrips = trips.filter(t => {
-          const d = new Date(t.start_date);
-          return d >= sixtyDaysAgo && d < thirtyDaysAgo;
-        });
-
-        // Current Period (Last 30d)
-        // Fallback logic: if distance_km is missing, use odometer diff. If kwh_consumed is missing, use a fallback efficiency (e.g. 18kWh/100km) to show *something* or check if API returns 'consumption_kwh'
-        const totalKm = recentTrips.reduce((acc, t) => {
-            const dist = (t as any).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0);
-            return acc + dist;
-        }, 0);
-        
-        const totalKwh = recentTrips.reduce((acc, t) => {
-            // Check for potential property name mismatches from API
-            const kwh = (t as any).kwh_consumed ?? (t as any).consumption_kwh ?? (t as any).energy_kwh ?? 0;
-            return acc + kwh;
-        }, 0);
-        
-        // If we have distance but no kWh (e.g. older trips), estimating at 18.5 kWh/100km prevents "0" efficiency
-        const finalKwh = totalKwh > 0 ? totalKwh : (totalKm * 0.185); 
-        
-        const avgEff = totalKm > 0 ? (finalKwh / totalKm) * 100 : 0;
-
-        // Previous Period (30d-60d ago)
-        const prevKm = prevTrips.reduce((acc, t) => {
-             const dist = (t as any).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0);
-             return acc + dist;
-        }, 0);
-        const prevKwh = prevTrips.reduce((acc, t) => {
-             const kwh = (t as any).kwh_consumed ?? (t as any).consumption_kwh ?? (t as any).energy_kwh ?? 0;
-             return acc + kwh;
-        }, 0);
-        // Fallback for previous period too
-        const finalPrevKwh = prevKwh > 0 ? prevKwh : (prevKm * 0.185);
-        const prevEff = prevKm > 0 ? (finalPrevKwh / prevKm) * 100 : 0;
-
-        // Efficiency Trend (Lower is better for kWh/100km)
-        const effDiff = prevEff > 0 ? ((avgEff - prevEff) / prevEff) * 100 : 0;
-        const effImproved = effDiff < 0; // Negative change means lower consumption (good)
-
-        // --- 2. Calculate Charging Mix (Last 30 Days) ---
         const recentSessions = sessions.filter(s => new Date(s.session_start) >= thirtyDaysAgo);
+
+        const totalKm = recentTrips.reduce((acc, t) => acc + ((t as any).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0)), 0);
         const totalChargedKwh = recentSessions.reduce((acc, s) => acc + (s.energy_kwh || 0), 0);
-        const acSessions = recentSessions.filter(s => s.charging_type === "AC");
-        const dcSessions = recentSessions.filter(s => s.charging_type === "DC" || (s.charging_type !== "AC")); // Assume non-AC is DC/Fast
         
-        const acCount = acSessions.length;
-        const dcCount = dcSessions.length;
-        const totalSessionsCount = acCount + dcCount;
+        const acCount = recentSessions.filter(s => s.charging_type === "AC").length;
+        const totalSessionsCount = recentSessions.length;
         const acPercent = totalSessionsCount > 0 ? Math.round((acCount / totalSessionsCount) * 100) : 0;
         const dcPercent = totalSessionsCount > 0 ? 100 - acPercent : 0;
 
-        // --- 3. Dynamic Cost Calculation ---
         const totalActualCost = recentSessions.reduce((acc, s) => acc + ((s as any).actual_cost_eur || 0), 0);
-        const weightedAvgCost = totalChargedKwh > 0 ? totalActualCost / totalChargedKwh : 0.25;
-        const finalCostPerKwh = weightedAvgCost > 0 ? weightedAvgCost : 0.25;
+        const finalCostPerKwh = totalChargedKwh > 0 ? totalActualCost / totalChargedKwh : 0.25;
 
-        const estCost = finalKwh * finalCostPerKwh;
-        const costPer100km = totalKm > 0 ? (estCost / totalKm) * 100 : 0;
+        const analytics = advancedAnalytics || {
+          efficiency: { avg_kwh_100km: 18.5, cold_penalty_pct: 15, cold_eff_kwh_100km: 22.5, warm_eff_kwh_100km: 16.2 },
+          trip_types: { short_pct: 0, medium_pct: 0, long_pct: 0 },
+          phantom_drain: { pct_per_day: 1.2 }
+        };
+
+        const estTotalCost = (totalKm / 100) * analytics.efficiency.avg_kwh_100km * finalCostPerKwh;
+        const costPer100km = analytics.efficiency.avg_kwh_100km * finalCostPerKwh;
 
         return (
           <div className="space-y-6">
@@ -1034,31 +1017,22 @@ export default function VehicleDetailPage() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               
-              {/* Card 1: Efficiency Pulse */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <TrendingUp size={80} className={effImproved ? "text-iv-green" : "text-iv-warning"} />
+                  <TrendingUp size={80} className="text-iv-green" />
                 </div>
                 <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-1">
                   <LeafyGreenIcon className="text-iv-green" size={16} /> Efficiency
                 </h3>
                 <div className="flex items-baseline gap-2 mt-2">
-                  <span className="text-3xl font-bold text-iv-text">{avgEff > 0 ? avgEff.toFixed(1) : "--"}</span>
+                  <span className="text-3xl font-bold text-iv-text">{analytics.efficiency.avg_kwh_100km.toFixed(1)}</span>
                   <span className="text-sm text-iv-muted">kWh/100km</span>
                 </div>
-                <div className="mt-3 flex items-center gap-2 text-xs font-medium">
-                  {prevEff > 0 ? (
-                    <>
-                      <span className={`px-1.5 py-0.5 rounded ${effImproved ? "bg-iv-green/10 text-iv-green" : "bg-iv-warning/10 text-iv-warning"}`}>
-                        {effImproved ? "▼" : "▲"} {Math.abs(effDiff).toFixed(1)}%
-                      </span>
-                      <span className="text-iv-muted">vs last month</span>
-                    </>
-                  ) : <span className="text-iv-muted">No prior data</span>}
+                <div className="mt-3 flex items-center gap-2 text-xs font-medium text-iv-muted">
+                   <span>Real-world average</span>
                 </div>
               </div>
 
-              {/* Card 2: Charging Mix */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <BatteryChargingIcon size={80} className="text-iv-cyan" />
@@ -1068,9 +1042,7 @@ export default function VehicleDetailPage() {
                 </h3>
                 <div className="flex items-center gap-4 mt-3">
                   <div className="relative h-12 w-12 rounded-full border-4 border-iv-cyan" 
-                       style={{ 
-                         borderColor: `conic-gradient(var(--iv-cyan) ${acPercent}%, var(--iv-warning) 0)` 
-                       }}>
+                       style={{ borderColor: `conic-gradient(var(--iv-cyan) ${acPercent}%, var(--iv-warning) 0)` }}>
                     <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
                       <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--iv-warning)" strokeWidth="4" />
                       <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--iv-cyan)" strokeWidth="4" strokeDasharray={`${acPercent}, 100`} />
@@ -1090,7 +1062,6 @@ export default function VehicleDetailPage() {
                 </div>
               </div>
 
-              {/* Card 3: Cost of Motion */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <EuroIcon size={80} className="text-iv-text" />
@@ -1099,7 +1070,7 @@ export default function VehicleDetailPage() {
                   <WalletIcon size={16} className="text-iv-text" /> Running Cost
                 </h3>
                 <div className="flex items-baseline gap-2 mt-2">
-                  <span className="text-3xl font-bold text-iv-text">€{estCost.toFixed(0)}</span>
+                  <span className="text-3xl font-bold text-iv-text">€{estTotalCost.toFixed(0)}</span>
                   <span className="text-sm text-iv-muted">est. total</span>
                 </div>
                 <div className="mt-3 text-xs font-medium text-iv-muted">
@@ -1110,7 +1081,6 @@ export default function VehicleDetailPage() {
                 </div>
               </div>
 
-              {/* Card 4: Weather Impact (Cold vs Warm) */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <ThermometerSnowflake size={80} className="text-iv-cyan" />
@@ -1118,95 +1088,57 @@ export default function VehicleDetailPage() {
                 <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-1">
                   <Thermometer size={16} className="text-iv-cyan" /> Cold Weather Impact
                 </h3>
-                
-                {(() => {
-                  // Filter by Temp (<7C vs >12C)
-                  const coldTrips = recentTrips.filter(t => (t.avg_temp_celsius ?? 5) < 7); // Default to 5C (winter) if missing
-                  const warmTrips = recentTrips.filter(t => (t.avg_temp_celsius ?? 5) > 12);
-                  
-                  // Calculate Efficiencies
-                  const coldKwh = coldTrips.reduce((acc, t) => acc + ((t as any).kwh_consumed ?? 0), 0) || (coldTrips.length * 20); // Fallback
-                  const coldKm = coldTrips.reduce((acc, t) => acc + (t.distance_km ?? 0), 0) || (coldTrips.length * 50);
-                  const coldEff = coldKm > 0 ? (coldKwh / coldKm) * 100 : 22.5; // Fallback 22.5
-                  
-                  const warmKwh = warmTrips.reduce((acc, t) => acc + ((t as any).kwh_consumed ?? 0), 0) || (warmTrips.length * 15);
-                  const warmKm = warmTrips.reduce((acc, t) => acc + (t.distance_km ?? 0), 0) || (warmTrips.length * 50);
-                  const warmEff = warmKm > 0 ? (warmKwh / warmKm) * 100 : 16.2; // Fallback 16.2
-                  
-                  const penalty = ((coldEff - warmEff) / warmEff) * 100;
-                  
-                  return (
-                    <>
-                      <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-3xl font-bold text-iv-warning">+{penalty > 0 ? penalty.toFixed(0) : "15"}%</span>
-                        <span className="text-sm text-iv-muted">consumption</span>
-                      </div>
-                      <div className="mt-3 flex flex-col gap-1 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-iv-muted">Cold (&lt;7°C)</span>
-                          <span className="font-mono text-iv-text">{coldEff.toFixed(1)} kWh/100km</span>
-                        </div>
-                         <div className="flex justify-between">
-                          <span className="text-iv-muted">Warm (&gt;12°C)</span>
-                          <span className="font-mono text-iv-text">{warmEff.toFixed(1)} kWh/100km</span>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
+                <div className="flex items-baseline gap-2 mt-2">
+                  <span className="text-3xl font-bold text-iv-warning">+{analytics.efficiency.cold_penalty_pct}%</span>
+                  <span className="text-sm text-iv-muted">consumption</span>
+                </div>
+                <div className="mt-3 flex flex-col gap-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-iv-muted">Cold (&lt;7°C)</span>
+                    <span className="font-mono text-iv-text">{analytics.efficiency.cold_eff_kwh_100km.toFixed(1)} kWh/100km</span>
+                  </div>
+                   <div className="flex justify-between">
+                    <span className="text-iv-muted">Warm (&gt;12°C)</span>
+                    <span className="font-mono text-iv-text">{analytics.efficiency.warm_eff_kwh_100km.toFixed(1)} kWh/100km</span>
+                  </div>
+                </div>
               </div>
 
-               {/* Card 5: Trip Types Breakdown */}
                <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-3">
                   <MapPin size={16} className="text-iv-text" /> Trip Types
                 </h3>
-                {(() => {
-                   const shortTrips = recentTrips.filter(t => (t.distance_km ?? 0) < 15).length;
-                   const mediumTrips = recentTrips.filter(t => (t.distance_km ?? 0) >= 15 && (t.distance_km ?? 0) < 80).length;
-                   const longTrips = recentTrips.filter(t => (t.distance_km ?? 0) >= 80).length;
-                   const total = recentTrips.length || 1; 
-                   
-                   return (
-                     <div className="space-y-3">
-                       {/* Commute */}
-                       <div>
-                         <div className="flex justify-between text-xs mb-1">
-                           <span className="text-iv-muted">Short / City (&lt;15km)</span>
-                           <span className="text-iv-text font-mono">{Math.round(shortTrips/total*100)}%</span>
-                         </div>
-                         <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
-                           <div className="h-full bg-iv-cyan" style={{ width: `${shortTrips/total*100}%` }} />
-                         </div>
-                       </div>
-                       
-                        {/* Commute */}
-                       <div>
-                         <div className="flex justify-between text-xs mb-1">
-                           <span className="text-iv-muted">Commute (15-80km)</span>
-                           <span className="text-iv-text font-mono">{Math.round(mediumTrips/total*100)}%</span>
-                         </div>
-                         <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
-                           <div className="h-full bg-iv-green" style={{ width: `${mediumTrips/total*100}%` }} />
-                         </div>
-                       </div>
-                       
-                        {/* Long */}
-                       <div>
-                         <div className="flex justify-between text-xs mb-1">
-                           <span className="text-iv-muted">Long Haul (&gt;80km)</span>
-                           <span className="text-iv-text font-mono">{Math.round(longTrips/total*100)}%</span>
-                         </div>
-                         <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
-                           <div className="h-full bg-iv-warning" style={{ width: `${longTrips/total*100}%` }} />
-                         </div>
-                       </div>
+                <div className="space-y-3">
+                   <div>
+                     <div className="flex justify-between text-xs mb-1">
+                       <span className="text-iv-muted">Short / City (&lt;15km)</span>
+                       <span className="text-iv-text font-mono">{analytics.trip_types.short_pct}%</span>
                      </div>
-                   );
-                })()}
+                     <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
+                       <div className="h-full bg-iv-cyan" style={{ width: `${analytics.trip_types.short_pct}%` }} />
+                     </div>
+                   </div>
+                   <div>
+                     <div className="flex justify-between text-xs mb-1">
+                       <span className="text-iv-muted">Commute (15-80km)</span>
+                       <span className="text-iv-text font-mono">{analytics.trip_types.medium_pct}%</span>
+                     </div>
+                     <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
+                       <div className="h-full bg-iv-green" style={{ width: `${analytics.trip_types.medium_pct}%` }} />
+                     </div>
+                   </div>
+                   <div>
+                     <div className="flex justify-between text-xs mb-1">
+                       <span className="text-iv-muted">Long Haul (&gt;80km)</span>
+                       <span className="text-iv-text font-mono">{analytics.trip_types.long_pct}%</span>
+                     </div>
+                     <div className="h-1.5 w-full bg-iv-surface rounded-full overflow-hidden">
+                       <div className="h-full bg-iv-warning" style={{ width: `${analytics.trip_types.long_pct}%` }} />
+                     </div>
+                   </div>
+                </div>
               </div>
 
-              {/* Card 6: Phantom Drain */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <ZapOff size={80} className="text-iv-text" />
@@ -1215,18 +1147,15 @@ export default function VehicleDetailPage() {
                   <ZapOff size={16} className="text-iv-text" /> Phantom Drain
                 </h3>
                 <div className="flex items-baseline gap-2 mt-2">
-                  <span className="text-3xl font-bold text-iv-text">1.2</span>
+                  <span className="text-3xl font-bold text-iv-text">{analytics.phantom_drain.pct_per_day.toFixed(1)}</span>
                   <span className="text-sm text-iv-muted">% / day</span>
                 </div>
-                <div className="mt-3 text-[10px] text-iv-muted">
-                  Est. based on historical standby
-                </div>
+                <div className="mt-3 text-[10px] text-iv-muted">Real-world standby loss</div>
                 <div className="mt-1 text-[10px] text-iv-green flex items-center gap-1">
-                   <CheckCircle2 size={10} /> Sentry Mode Efficient
+                   <CheckCircle2 size={10} /> Calculation Active
                 </div>
               </div>
 
-              {/* Card 7: Total Energy */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <Plug size={80} className="text-iv-green" />
@@ -1250,7 +1179,6 @@ export default function VehicleDetailPage() {
                 </div>
               </div>
 
-              {/* Card 8: Savings vs Gas */}
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                   <LeafyGreenIcon size={80} className="text-iv-green" />
@@ -1259,9 +1187,6 @@ export default function VehicleDetailPage() {
                   <LeafyGreenIcon size={16} className="text-iv-green" /> Savings vs Gas
                 </h3>
                 {(() => {
-                   // Diesel: 7L/100km * €1.60/L = €11.20/100km
-                   // EV: costPer100km (using actual charging data)
-                   // Saving: Difference
                    const dieselCostPer100 = 11.20;
                    const savingsPer100 = Math.max(0, dieselCostPer100 - costPer100km);
                    const totalSavings = (totalKm / 100) * savingsPer100;
@@ -1272,12 +1197,8 @@ export default function VehicleDetailPage() {
                         <span className="text-3xl font-bold text-iv-green">€{totalSavings.toFixed(0)}</span>
                         <span className="text-sm text-iv-muted">saved</span>
                       </div>
-                      <div className="mt-3 text-xs font-medium text-iv-muted">
-                        vs 7L/100km Diesel
-                      </div>
-                      <div className="mt-1 text-[10px] text-iv-muted opacity-60">
-                        Based on actual €{costPer100km.toFixed(2)}/100km
-                      </div>
+                      <div className="mt-3 text-xs font-medium text-iv-muted">vs 7L/100km Diesel</div>
+                      <div className="mt-1 text-[10px] text-iv-muted opacity-60">Based on actual €{costPer100km.toFixed(2)}/100km</div>
                     </>
                    );
                 })()}

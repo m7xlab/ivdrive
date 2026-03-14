@@ -597,6 +597,22 @@ export const api = {
     return res.json();
   },
 
+  async getTripsAnalytics(
+    id: string,
+    limit = 1000,
+    fromDate?: string,
+    toDate?: string
+  ) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const res = await apiFetch(
+      `/api/v1/vehicles/${id}/trips-analytics?${params.toString()}`
+    );
+    if (!res.ok) return [];
+    return res.json();
+  },
+
   async getPositions(
     id: string,
     limit = 10000,
@@ -841,6 +857,12 @@ export const api = {
       `/api/v1/vehicles/${id}/overview/visited?${params.toString()}`
     );
     if (!res.ok) return [];
+    return res.json();
+  },
+
+  async getAdvancedAnalyticsOverview(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/advanced-overview`);
+    if (!res.ok) throw new Error("Failed to fetch advanced overview");
     return res.json();
   },
 };

@@ -64,6 +64,23 @@ class TripItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TripAnalyticsItem(BaseModel):
+    trip_id: int
+    start_time: datetime
+    end_time: datetime
+    start_latitude: float | None = None
+    start_longitude: float | None = None
+    destination_latitude: float | None = None
+    destination_longitude: float | None = None
+    distance_km: float
+    duration_minutes: float
+    average_speed_kmh: float
+    kwh_used: float | None
+    efficiency_kwh_100km: float | None
+
+    model_config = {"from_attributes": True}
+
+
 class PositionItem(BaseModel):
     captured_at: datetime
     latitude: float
@@ -138,7 +155,8 @@ class StatisticsPeriod(BaseModel):
     time_driven_seconds: float = 0
     median_distance_km: float | None = None
     charging_sessions_count: int = 0
-    total_energy_kwh: float = 0
+    total_energy_kwh: float = 0  # This will be renamed to "Energy Charged" in the frontend
+    total_kwh_consumed: float = 0
     avg_energy_per_session_kwh: float = 0
     time_charging_seconds: float = 0
 

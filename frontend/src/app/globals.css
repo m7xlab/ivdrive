@@ -88,9 +88,11 @@ body {
 }
 
 .glass {
-  background: var(--iv-charcoal);
+  background: rgba(238, 241, 246, 0.6); /* --iv-surface at 60% opacity */
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--iv-border);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
 }
 
 .dark .glass {

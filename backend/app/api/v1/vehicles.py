@@ -50,6 +50,7 @@ from app.schemas.telemetry import (
     StateBandItem,
     StatisticsPeriod,
     TripItem,
+    TripAnalyticsItem,
     VehicleStateItem,
     WLTPResponse,
 )
@@ -681,6 +682,80 @@ async def get_trips(
     return result.scalars().all()
 
 
+@router.get("/{vehicle_id}/trips-analytics", response_model=list[TripAnalyticsItem])
+async def get_trips_analytics(
+    vehicle_id: uuid.UUID,
+    from_date: datetime | None = Query(default=None),
+    to_date: datetime | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=10000),
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns trip analytics data from the v_trip_analytics view.
+    """
+    from sqlalchemy import select, column
+    await _get_user_vehicle(vehicle_id, user, db)
+
+    stmt = (
+        select(
+            column("id").label("trip_id"),
+            column("start_date").label("start_time"),
+            column("end_date").label("end_time"),
+            column("start_lat").label("start_latitude"),
+            column("start_lon").label("start_longitude"),
+            column("end_lat").label("destination_latitude"),
+            column("end_lon").label("destination_longitude"),
+            column("distance_km").label("distance_km"),
+            column("duration_minutes").label("duration_minutes"),
+            column("average_speed_kmh").label("average_speed_kmh"),
+            column("total_kwh_consumed").label("kwh_used"),
+            column("efficiency_kwh_per_100km").label("efficiency_kwh_100km"),
+        )
+        .select_from(text("v_trip_analytics"))
+        .where(column("user_vehicle_id") == vehicle_id)
+    )
+
+    if from_date:
+        stmt = stmt.where(column("start_date") >= from_date)
+    if to_date:
+        stmt = stmt.where(column("start_date") <= to_date)
+
+    stmt = stmt.order_by(column("start_date").desc()).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.fetchall()
+
+    _log_statistics_query(
+        "trips-analytics",
+        vehicle_id,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        result_count=len(rows),
+        sql=_stmt_to_sql(stmt),
+    )
+
+    return [
+        TripAnalyticsItem(
+            trip_id=row.trip_id,
+            start_time=row.start_time,
+            end_time=row.end_time,
+            start_latitude=row.start_latitude,
+            start_longitude=row.start_longitude,
+            destination_latitude=row.destination_latitude,
+            destination_longitude=row.destination_longitude,
+            distance_km=row.distance_km,
+            duration_minutes=row.duration_minutes,
+            average_speed_kmh=row.average_speed_kmh,
+            kwh_used=row.kwh_used,
+            efficiency_kwh_100km=row.efficiency_kwh_100km,
+        )
+        for row in rows
+    ]
+
+
+
 @router.get("/{vehicle_id}/positions", response_model=list[PositionItem])
 async def get_positions(
     vehicle_id: uuid.UUID,
@@ -1064,21 +1139,14 @@ async def get_statistics(
     trunc_map = {"day": "day", "week": "week", "month": "month", "year": "year"}
     trunc = trunc_map[period]
 
+    # Sub-query for Trips
     trip_where = [Trip.user_vehicle_id == vehicle.id]
     if from_date:
         trip_where.append(Trip.start_date >= from_date)
     if to_date:
         trip_where.append(Trip.start_date <= to_date)
-
-    time_driven_expr = func.sum(
-        case(
-            (Trip.end_date.isnot(None), func.extract("epoch", Trip.end_date - Trip.start_date)),
-            else_=0,
-        )
-    )
-    median_expr = func.percentile_cont(0.5).within_group(
-        (Trip.end_odometer - Trip.start_odometer).asc()
-    ).label("median_distance")
+    time_driven_expr = func.sum(case((Trip.end_date.isnot(None), func.extract("epoch", Trip.end_date - Trip.start_date)), else_=0,))
+    median_expr = func.percentile_cont(0.5).within_group((Trip.end_odometer - Trip.start_odometer).asc()).label("median_distance")
     stmt_trip = (
         select(
             func.date_trunc(trunc, Trip.start_date).label("period"),
@@ -1095,18 +1163,13 @@ async def get_statistics(
     trip_stats = await db.execute(stmt_trip)
     trip_rows = {row.period: row for row in trip_stats.all()}
 
+    # Sub-query for Charging
     charge_where = [ChargingSession.user_vehicle_id == vehicle.id]
     if from_date:
         charge_where.append(ChargingSession.session_start >= from_date)
     if to_date:
         charge_where.append(ChargingSession.session_start <= to_date)
-
-    time_charging_expr = func.sum(
-        func.extract(
-            "epoch",
-            func.coalesce(ChargingSession.session_end, ChargingSession.session_start) - ChargingSession.session_start,
-        )
-    )
+    time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, ChargingSession.session_start) - ChargingSession.session_start,))
     stmt_charge = (
         select(
             func.date_trunc(trunc, ChargingSession.session_start).label("period"),
@@ -1122,15 +1185,42 @@ async def get_statistics(
     charge_stats = await db.execute(stmt_charge)
     charge_rows = {row.period: row for row in charge_stats.all()}
 
-    all_periods = sorted(set(list(trip_rows.keys()) + list(charge_rows.keys())), reverse=True)[:limit]
+    # Sub-query for Consumption
+    params = {"vehicle_id": vehicle_id}
+    consume_where_clauses = ["user_vehicle_id = :vehicle_id"]
+    if from_date:
+        consume_where_clauses.append("consumption_day >= :from_date")
+        params["from_date"] = from_date
+    if to_date:
+        consume_where_clauses.append("consumption_day <= :to_date")
+        params["to_date"] = to_date
+    stmt_consume = (
+        select(
+            func.date_trunc(trunc, text("consumption_day")).label("period"),
+            func.sum(text("total_kwh_consumed")).label("total_energy_consumed"),
+        )
+        .select_from(text("v_daily_consumption"))
+        .where(text(" AND ".join(consume_where_clauses)))
+        .params(params)
+        .group_by("period")
+        .order_by(text("period DESC"))
+        .limit(limit)
+    )
+    consume_stats = await db.execute(stmt_consume)
+    consume_rows = {row.period: row for row in consume_stats.all()}
+
+    # Merge results
+    all_periods = sorted(set(list(trip_rows.keys()) + list(charge_rows.keys()) + list(consume_rows.keys())), reverse=True)[:limit]
 
     results = []
     for p in all_periods:
         tr = trip_rows.get(p)
         cr = charge_rows.get(p)
+        co = consume_rows.get(p)
         sessions_count = int(cr.sessions_count) if cr else 0
         total_energy = float(cr.total_energy) if cr else 0
         time_charging = float(cr.time_charging_seconds) if cr else 0
+        total_consumed = float(co.total_energy_consumed) if co else 0
         results.append(
             StatisticsPeriod(
                 period=p.isoformat() if p else "",
@@ -1140,13 +1230,14 @@ async def get_statistics(
                 median_distance_km=float(tr.median_distance) if tr and tr.median_distance is not None else None,
                 charging_sessions_count=sessions_count,
                 total_energy_kwh=total_energy,
+                total_kwh_consumed=total_consumed,
                 avg_energy_per_session_kwh=round(total_energy / sessions_count, 2) if sessions_count else 0,
                 time_charging_seconds=time_charging,
             )
         )
 
     _log_statistics_query(
-        "statistics", vehicle_id, from_date=from_date, to_date=to_date, limit=limit, result_count=len(results), extra={"period": period}, sql=" | ".join(filter(None, [_stmt_to_sql(stmt_trip), _stmt_to_sql(stmt_charge)])) or None
+        "statistics", vehicle_id, from_date=from_date, to_date=to_date, limit=limit, result_count=len(results), extra={"period": period}, sql=" | ".join(filter(None, [_stmt_to_sql(stmt_trip), _stmt_to_sql(stmt_charge), _stmt_to_sql(stmt_consume)])) or None
     )
     return results
 
