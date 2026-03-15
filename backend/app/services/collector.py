@@ -922,6 +922,8 @@ class DataCollector:
                     raw_air_conditioning=_to_raw(ac_resp),
                     raw_maintenance=_to_raw(maint_resp),
                     raw_warning_lights=_to_raw(warning_lights_resp),
+                    raw_garage_vehicle=garage_data,  # Already a dict from API call
+                    raw_vehicle_renders=renders_data,  # Already a dict from API call
                 ))
 
                 # ── Commit & update timestamp ───────────────────────────────
