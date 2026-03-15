@@ -494,6 +494,8 @@ class CollectorRawResponse(Base):
     raw_air_conditioning: Mapped[Any | None] = mapped_column(JSONB)
     raw_maintenance: Mapped[Any | None] = mapped_column(JSONB)
     raw_warning_lights: Mapped[Any | None] = mapped_column(JSONB)
+    raw_garage_vehicle: Mapped[Any | None] = mapped_column(JSONB)
+    raw_vehicle_renders: Mapped[Any | None] = mapped_column(JSONB)
 
     user_vehicle: Mapped["UserVehicle"] = relationship()  # noqa: F821
 
