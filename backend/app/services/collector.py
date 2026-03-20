@@ -542,6 +542,10 @@ class DataCollector:
                     ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id)
                 maint_resp = await _safe(api.get_maintenance(vin), "maintenance", user_vehicle_id)
                 warning_lights_resp = await _safe(api.get_warning_lights(vin), "warning_lights", user_vehicle_id)
+                
+                # Fetch additional metadata endpoints for complete raw data coverage
+                garage_vehicle_resp = await _safe(api.get_garage_vehicle(vin), "garage_vehicle", user_vehicle_id)
+                vehicle_renders_resp = await _safe(api.get_vehicle_renders(vin), "vehicle_renders", user_vehicle_id)
 
                 # Weather & elevation for position enrichment
                 temp_c = None
@@ -922,8 +926,8 @@ class DataCollector:
                     raw_air_conditioning=_to_raw(ac_resp),
                     raw_maintenance=_to_raw(maint_resp),
                     raw_warning_lights=_to_raw(warning_lights_resp),
-                    raw_garage_vehicle=garage_data,  # Already a dict from API call
-                    raw_vehicle_renders=renders_data,  # Already a dict from API call
+                    raw_garage_vehicle=_to_raw(garage_vehicle_resp),
+                    raw_vehicle_renders=_to_raw(vehicle_renders_resp),
                 ))
 
                 # ── Commit & update timestamp ───────────────────────────────
