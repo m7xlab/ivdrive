@@ -1,0 +1,15 @@
+--- backend/app/services/analytics.py
++++ backend/app/services/analytics.py
+@@ -176,6 +176,11 @@
+                             )
+                             energy_price = price_res.scalar_one_or_none()
+                             
++                            if not energy_price and country_code != "LT":
++                                price_res_fallback = await session.execute(
++                                    select(EnergyPrice).where(EnergyPrice.country_code == "LT")
++                                )
++                                energy_price = price_res_fallback.scalar_one_or_none()
++
+                             if energy_price:
+                                 open_charge.base_cost_eur = added_kwh * energy_price.electricity_price_eur_kwh
+                             else:

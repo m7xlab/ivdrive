@@ -613,8 +613,12 @@ async def get_advanced_analytics_overview(
         price_res = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == country_code))
         energy_price = price_res.scalar_one_or_none()
 
-    elec_price = energy_price.electricity_price_eur_kwh if energy_price else 0.25
-    petrol_price = energy_price.petrol_price_eur_l if energy_price else 1.65
+        if not energy_price and country_code != "LT":
+            price_res_fallback = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == "LT"))
+            energy_price = price_res_fallback.scalar_one_or_none()
+
+    elec_price = getattr(energy_price, "electricity_price_eur_kwh", 0.25)
+    petrol_price = getattr(energy_price, "petrol_price_eur_l", 1.65)
 
     # 4. Actual Charging Prices
     actual_price_sql = text("""

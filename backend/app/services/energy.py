@@ -27,9 +27,10 @@ async def fetch_and_store_energy_prices():
                 
             upserts = []
             for c in countries:
+                cc = c.get("country_code", "??")
                 upserts.append({
-                    "country_code": c.get("country_code", "UNKNOWN"),
-                    "country_name": c.get("country_name", "UNKNOWN"),
+                    "country_code": cc[:2].upper(),
+                    "country_name": c.get("country_name", "Unknown"),
                     "electricity_price_eur_kwh": float(c.get("electricity_price_eur_kwh", 0.0)),
                     "petrol_price_eur_l": float(c.get("petrol_price_eur_l", 0.0)),
                     "updated_at": datetime.now(UTC),

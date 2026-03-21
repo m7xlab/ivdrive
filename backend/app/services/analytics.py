@@ -119,6 +119,7 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                                 if getattr(veh, "country_code", None) != detected_cc:
                                     logger.info("Auto-updating country_code for %s from %s to %s based on trip end location", user_vehicle_id, getattr(veh, "country_code", None), detected_cc)
                                     veh.country_code = detected_cc
+                                    session.add(veh)
                         except Exception as e:
                             logger.warning("Failed to auto-update country code: %s", e)
 
@@ -174,6 +175,12 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                                 select(EnergyPrice).where(EnergyPrice.country_code == country_code)
                             )
                             energy_price = price_res.scalar_one_or_none()
+                            
+                            if not energy_price and country_code != "LT":
+                                price_res_fallback = await session.execute(
+                                    select(EnergyPrice).where(EnergyPrice.country_code == "LT")
+                                )
+                                energy_price = price_res_fallback.scalar_one_or_none()
                             
                             if energy_price:
                                 open_charge.base_cost_eur = added_kwh * energy_price.electricity_price_eur_kwh
