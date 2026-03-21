@@ -26,13 +26,17 @@ def upgrade() -> None:
             electricity_price_eur_kwh FLOAT NOT NULL,
             petrol_price_eur_l FLOAT NOT NULL,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
-        );
-        ALTER TABLE user_vehicles ADD COLUMN country_code VARCHAR(2) DEFAULT 'LT' NOT NULL;
+        )
+    """)
+    op.execute("""
+        ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) DEFAULT 'LT' NOT NULL
     """)
 
 
 def downgrade() -> None:
     op.execute("""
-        ALTER TABLE user_vehicles DROP COLUMN country_code;
-        DROP TABLE energy_prices;
+        ALTER TABLE user_vehicles DROP COLUMN IF EXISTS country_code
+    """)
+    op.execute("""
+        DROP TABLE IF EXISTS energy_prices
     """)

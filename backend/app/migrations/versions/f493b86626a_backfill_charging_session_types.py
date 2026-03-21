@@ -1,7 +1,7 @@
 """backfill charging session types
 
 Revision ID: f493b86626a
-Revises: 952353be8fb7
+Revises: aab0f10c9cd
 Create Date: 2026-03-21 16:35:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision: str = 'f493b86626a'
-down_revision: Union[str, None] = '952353be8fb7'
+down_revision: Union[str, None] = 'aab0f10c9cd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
