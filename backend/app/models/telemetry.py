@@ -499,3 +499,18 @@ class CollectorRawResponse(Base):
 
     user_vehicle: Mapped["UserVehicle"] = relationship()  # noqa: F821
 
+
+class EnergyPrice(Base):
+    """
+    Weekly electricity and petrol prices per country from fuel-prices.eu.
+    Used for cost/savings calculations.
+    """
+    __tablename__ = "energy_prices"
+
+    country_code: Mapped[str] = mapped_column(String(2), primary_key=True)
+    country_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    electricity_price_eur_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    petrol_price_eur_l: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )

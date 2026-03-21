@@ -123,6 +123,30 @@ class DataCollector:
             replace_existing=True,
         )
 
+        from app.services.energy import fetch_and_store_energy_prices
+        self._scheduler.add_job(
+            fetch_and_store_energy_prices,
+            "cron",
+            day_of_week="mon",
+            hour=2,
+            minute=0,
+            id="fetch_energy_prices",
+            replace_existing=True,
+        )
+        
+        # Also run it once on startup if the table is empty
+        asyncio.create_task(self._initial_energy_prices_check())
+
+    async def _initial_energy_prices_check(self) -> None:
+        from app.services.energy import fetch_and_store_energy_prices
+        from app.models.telemetry import EnergyPrice
+        from sqlalchemy import select
+        async with async_session() as session:
+            result = await session.execute(select(EnergyPrice).limit(1))
+            if not result.scalar_one_or_none():
+                logger.info("Energy prices table is empty, fetching initial data...")
+                await fetch_and_store_energy_prices()
+
     async def _watchdog_listen_task(self) -> None:
         """Restart the pub/sub listener task if it has died unexpectedly."""
         if self._listen_task is None or self._listen_task.done():

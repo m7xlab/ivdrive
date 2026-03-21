@@ -46,6 +46,27 @@ async def fetch_weather_and_elevation(lat: float, lon: float):
 
     return weather["temp_c"], weather["condition"], elevation
 
+async def reverse_geocode_country(lat: float, lon: float) -> str | None:
+    """Fetch the ISO 3166-1 alpha-2 country code using Nominatim."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={
+                    "format": "jsonv2",
+                    "lat": lat,
+                    "lon": lon
+                },
+                headers={"User-Agent": "iVDrive-Backend-Collector (info@ivdrive.eu)"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                country_code = data.get("address", {}).get("country_code", "").upper()
+                return country_code if len(country_code) == 2 else None
+    except Exception as e:
+        logger.warning("Failed to reverse geocode country: %s", e)
+    return None
+
 def _sync_fetch_nordpool(area: str = "LT") -> float:
     """Synchronous call to kipe/nordpool to get the current hourly price."""
     try:

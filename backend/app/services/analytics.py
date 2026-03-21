@@ -19,6 +19,8 @@ from app.models.telemetry import (
 from app.models.vehicle import UserVehicle
 from app.services.external_apis import fetch_nordpool_price
 
+from app.services.external_apis import reverse_geocode_country
+
 logger = logging.getLogger(__name__)
 
 async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
@@ -95,11 +97,12 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                     if open_trip.start_odometer and open_trip.end_odometer:
                         open_trip.distance_km = float(open_trip.end_odometer - open_trip.start_odometer)
                     
+                    v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
+                    veh = v_res.scalar_one_or_none()
+
                     if open_trip.start_soc and open_trip.end_soc:
                         soc_used = open_trip.start_soc - open_trip.end_soc
                         # Needs total capacity. Let's fetch the vehicle
-                        v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
-                        veh = v_res.scalar_one_or_none()
                         capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
                         if capacity_kwh is None: capacity_kwh = 77.0 # Default fallback
                         
@@ -107,6 +110,17 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                             open_trip.kwh_consumed = (soc_used / 100.0) * capacity_kwh
                             
                     logger.info("Ended Trip for %s (Dist: %s km, Consumed: %s kWh)", user_vehicle_id, open_trip.distance_km, open_trip.kwh_consumed)
+
+                    # --- Automatic Country Code Update ---
+                    if open_trip.end_lat and open_trip.end_lon:
+                        try:
+                            detected_cc = await reverse_geocode_country(open_trip.end_lat, open_trip.end_lon)
+                            if detected_cc and veh:
+                                if getattr(veh, "country_code", None) != detected_cc:
+                                    logger.info("Auto-updating country_code for %s from %s to %s based on trip end location", user_vehicle_id, getattr(veh, "country_code", None), detected_cc)
+                                    veh.country_code = detected_cc
+                        except Exception as e:
+                            logger.warning("Failed to auto-update country code: %s", e)
 
 
             # --- CHARGING SESSIONS LOGIC ---
@@ -123,13 +137,14 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                         user_vehicle_id=user_vehicle_id,
                         session_start=latest_charge.first_date,
                         start_level=latest_charge.battery_pct,
+                        charging_type=latest_charge.charge_type if latest_charge else None,
                         latitude=latest_pos.latitude if latest_pos else None,
                         longitude=latest_pos.longitude if latest_pos else None,
                         odometer=latest_odom.mileage_in_km if latest_odom else None,
                         avg_temp_celsius=latest_pos.outside_temp_celsius if latest_pos else None,
                     )
                     session.add(new_charge)
-                    logger.info("Started new ChargingSession for %s", user_vehicle_id)
+                    logger.info("Started new ChargingSession for %s (type: %s)", user_vehicle_id, latest_charge.charge_type if latest_charge else "unknown")
                 else:
                     if latest_pos and latest_pos.outside_temp_celsius:
                         if open_charge.avg_temp_celsius is None:
@@ -152,9 +167,20 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                             added_kwh = (soc_added / 100.0) * capacity_kwh
                             open_charge.energy_kwh = added_kwh
                             
-                            # NordPool Price calculation
-                            np_price = await fetch_nordpool_price()
-                            open_charge.base_cost_eur = added_kwh * np_price
+                            # Get country code and fetch energy price
+                            country_code = getattr(veh, "country_code", "LT")
+                            from app.models.telemetry import EnergyPrice
+                            price_res = await session.execute(
+                                select(EnergyPrice).where(EnergyPrice.country_code == country_code)
+                            )
+                            energy_price = price_res.scalar_one_or_none()
+                            
+                            if energy_price:
+                                open_charge.base_cost_eur = added_kwh * energy_price.electricity_price_eur_kwh
+                            else:
+                                # Fallback if no energy price found
+                                np_price = await fetch_nordpool_price()
+                                open_charge.base_cost_eur = added_kwh * np_price
                     
                     logger.info("Ended ChargingSession for %s (Cost: %s EUR)", user_vehicle_id, open_charge.base_cost_eur)
 

@@ -39,6 +39,7 @@ class UserVehicle(TimestampMixin, Base):
     capabilities: Mapped[list | None] = mapped_column(JSONB)
     specifications: Mapped[dict | None] = mapped_column(JSONB)
     warning_lights: Mapped[list | None] = mapped_column(JSONB)
+    country_code: Mapped[str] = mapped_column(String(2), default="LT", nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="vehicles")  # noqa: F821
     connector_session: Mapped["ConnectorSession | None"] = relationship(

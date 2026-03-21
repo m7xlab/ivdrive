@@ -13,6 +13,7 @@ class VehicleCreate(BaseModel):
     active_interval_seconds: int = Field(default=300, ge=60, le=86400)
     parked_interval_seconds: int = Field(default=1800, ge=60, le=86400)
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)
+    country_code: str | None = Field(default=None, max_length=2)
 
 
 class VehicleResponse(BaseModel):
@@ -25,6 +26,7 @@ class VehicleResponse(BaseModel):
     active_interval_seconds: int
     parked_interval_seconds: int
     wltp_range_km: float | None = None
+    country_code: str | None = None
     image_url: str | None = None
     body_type: str | None = None
     trim_level: str | None = None
@@ -49,6 +51,7 @@ class VehicleUpdate(BaseModel):
     active_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
     parked_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)
+    country_code: str | None = Field(default=None, max_length=2)
 
 
 class VehicleStatusResponse(BaseModel):

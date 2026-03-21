@@ -1,0 +1,26 @@
+--- backend/app/api/v1/analytics.py
++++ backend/app/api/v1/analytics.py
+@@ -613,6 +613,15 @@
+ 
+     elec_price = energy_price.electricity_price_eur_kwh if energy_price else 0.25
+     petrol_price = energy_price.petrol_price_eur_l if energy_price else 1.65
++    
++    # 4. Actual Charging Prices
++    actual_price_sql = text("""
++        SELECT SUM(actual_cost_eur) / SUM(energy_kwh) as avg_price 
++        FROM charging_sessions 
++        WHERE user_vehicle_id = :vid AND actual_cost_eur IS NOT NULL AND energy_kwh > 0
++    """)
++    actual_price_res = await db.execute(actual_price_sql, {"vid": str(vehicle_id)})
++    actual_price_row = actual_price_res.fetchone()
++    actual_avg_price = float(actual_price_row[0]) if actual_price_row and actual_price_row[0] else None
+ 
+     # Build response with dynamic data and safe fallbacks
+     return {
+@@ -632,6 +641,7 @@
+             "country_code": country_code,
+             "electricity_eur_kwh": elec_price,
+             "petrol_eur_l": petrol_price,
++            "user_avg_electricity_eur_kwh": actual_avg_price,
+         }
+     }

@@ -176,6 +176,12 @@ interface AdvancedAnalytics {
   phantom_drain: {
     pct_per_day: number;
   };
+  energy_prices?: {
+    country_code: string;
+    electricity_eur_kwh: number;
+    petrol_eur_l: number;
+    user_avg_electricity_eur_kwh?: number | null;
+  };
 }
 
 const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
@@ -945,11 +951,20 @@ export default function VehicleDetailPage() {
         const analytics = advancedAnalytics || {
           efficiency: { avg_kwh_100km: 18.5, cold_penalty_pct: 15, cold_eff_kwh_100km: 22.5, warm_eff_kwh_100km: 16.2 },
           trip_types: { short_pct: 0, medium_pct: 0, long_pct: 0 },
-          phantom_drain: { pct_per_day: 1.2 }
+          phantom_drain: { pct_per_day: 1.2 },
+          energy_prices: { country_code: "LT", electricity_eur_kwh: 0.25, petrol_eur_l: 1.65 }
         };
 
-        const estTotalCost = (totalKm / 100) * analytics.efficiency.avg_kwh_100km * finalCostPerKwh;
-        const costPer100km = analytics.efficiency.avg_kwh_100km * finalCostPerKwh;
+        const activeElecPrice = analytics.energy_prices?.electricity_eur_kwh || 0.25;
+        const activePetrolPrice = analytics.energy_prices?.petrol_eur_l || 1.65;
+        const activeCountry = analytics.energy_prices?.country_code || "LT";
+        const userAvgElecPrice = analytics.energy_prices?.user_avg_electricity_eur_kwh;
+        
+        // Cost is calculated using real energy prices from our backend
+        const estTotalCost = (totalKm / 100) * analytics.efficiency.avg_kwh_100km * activeElecPrice;
+        const costPer100km = analytics.efficiency.avg_kwh_100km * activeElecPrice;
+        
+        const realTotalCost = userAvgElecPrice ? (totalKm / 100) * analytics.efficiency.avg_kwh_100km * userAvgElecPrice : null;
 
         return (
           <div className="space-y-6">
@@ -1012,16 +1027,34 @@ export default function VehicleDetailPage() {
                 <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-1">
                   <WalletIcon size={16} className="text-iv-text" /> Running Cost
                 </h3>
-                <div className="flex items-baseline gap-2 mt-2">
-                  <span className="text-3xl font-bold text-iv-text">€{estTotalCost.toFixed(0)}</span>
-                  <span className="text-sm text-iv-muted">est. total</span>
-                </div>
-                <div className="mt-3 text-xs font-medium text-iv-muted">
-                  ~ <span className="text-iv-text font-semibold">€{costPer100km.toFixed(2)}</span> / 100km
-                </div>
-                <div className="mt-1 text-[10px] text-iv-muted opacity-60">
-                  Based on avg €{finalCostPerKwh.toFixed(2)}/kWh
-                </div>
+                {realTotalCost !== null ? (
+                  <>
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className="text-2xl font-bold text-iv-muted line-through opacity-70">€{estTotalCost.toFixed(0)}</span>
+                      <span className="text-3xl font-bold text-iv-text">€{realTotalCost.toFixed(0)}</span>
+                      <span className="text-sm text-iv-muted">est. total</span>
+                    </div>
+                    <div className="mt-3 text-xs font-medium text-iv-muted">
+                      ~ <span className="text-iv-text font-semibold">€{(analytics.efficiency.avg_kwh_100km * userAvgElecPrice!).toFixed(2)}</span> / 100km
+                    </div>
+                    <div className="mt-1 text-[10px] text-iv-muted opacity-60">
+                      Based on your actual avg €{userAvgElecPrice!.toFixed(2)}/kWh (vs {activeCountry} avg €{activeElecPrice.toFixed(2)})
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className="text-3xl font-bold text-iv-text">€{estTotalCost.toFixed(0)}</span>
+                      <span className="text-sm text-iv-muted">est. total</span>
+                    </div>
+                    <div className="mt-3 text-xs font-medium text-iv-muted">
+                      ~ <span className="text-iv-text font-semibold">€{costPer100km.toFixed(2)}</span> / 100km
+                    </div>
+                    <div className="mt-1 text-[10px] text-iv-muted opacity-60">
+                      Based on {activeCountry} avg €{activeElecPrice.toFixed(2)}/kWh
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
@@ -1130,18 +1163,22 @@ export default function VehicleDetailPage() {
                   <LeafyGreenIcon size={16} className="text-iv-green" /> Savings vs Gas
                 </h3>
                 {(() => {
-                   const dieselCostPer100 = 11.20;
-                   const savingsPer100 = Math.max(0, dieselCostPer100 - costPer100km);
+                   const ICE_CONSUMPTION = 8.0; // 8 L/100km for comparable SUV
+                   const dieselCostPer100 = ICE_CONSUMPTION * activePetrolPrice;
+                   const effCostPer100km = userAvgElecPrice ? analytics.efficiency.avg_kwh_100km * userAvgElecPrice : costPer100km;
+                   const savingsPer100 = Math.max(0, dieselCostPer100 - effCostPer100km);
                    const totalSavings = (totalKm / 100) * savingsPer100;
                    
-                   return (
+                    return (
                     <>
                       <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-3xl font-bold text-iv-green">€{totalSavings.toFixed(0)}</span>
+                        <span className="text-3xl font-bold text-iv-green">~€{totalSavings.toFixed(0)}</span>
                         <span className="text-sm text-iv-muted">saved</span>
                       </div>
-                      <div className="mt-3 text-xs font-medium text-iv-muted">vs 7L/100km Diesel</div>
-                      <div className="mt-1 text-[10px] text-iv-muted opacity-60">Based on actual €{costPer100km.toFixed(2)}/100km</div>
+                      <div className="mt-3 text-xs font-medium text-iv-muted">vs {ICE_CONSUMPTION}L/100km SUV</div>
+                      <div className="mt-1 text-[10px] text-iv-muted opacity-60">
+                        Gas: €{dieselCostPer100.toFixed(2)}/100km | EV: €{effCostPer100km.toFixed(2)}/100km
+                      </div>
                     </>
                    );
                 })()}

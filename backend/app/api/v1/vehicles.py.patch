@@ -1,0 +1,10 @@
+--- backend/app/api/v1/vehicles.py
++++ backend/app/api/v1/vehicles.py
+@@ -128,6 +128,7 @@
+         active_interval_seconds=v.active_interval_seconds,
+         parked_interval_seconds=v.parked_interval_seconds,
+         wltp_range_km=v.wltp_range_km,
++        country_code=v.country_code,
+         image_url=v.image_url,
+         body_type=v.body_type,
+         trim_level=v.trim_level,
