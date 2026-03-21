@@ -1,0 +1,8 @@
+--- backend/app/migrations/versions/709fd0a72bf_add_energy_prices_and_country_code.py
++++ backend/app/migrations/versions/709fd0a72bf_add_energy_prices_and_country_code.py
+@@ -25,6 +25,6 @@
+         );
+     """)
+     op.execute("""
+         ALTER TABLE user_vehicles ADD COLUMN country_code VARCHAR(2) DEFAULT 'LT' NOT NULL;
+     """)
