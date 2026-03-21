@@ -128,6 +128,7 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         active_interval_seconds=v.active_interval_seconds,
         parked_interval_seconds=v.parked_interval_seconds,
         wltp_range_km=v.wltp_range_km,
+        country_code=v.country_code,
         image_url=v.image_url,
         body_type=v.body_type,
         trim_level=v.trim_level,
@@ -192,6 +193,7 @@ async def create_vehicle(
         active_interval_seconds=body.active_interval_seconds,
         parked_interval_seconds=body.parked_interval_seconds,
         wltp_range_km=body.wltp_range_km,
+        country_code=body.country_code or "LT",
     )
     db.add(vehicle)
     await db.flush()

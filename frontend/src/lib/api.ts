@@ -417,13 +417,18 @@ export const api = {
       active_interval_seconds?: number;
       parked_interval_seconds?: number;
       wltp_range_km?: number | null;
+      country_code?: string | null;
     }
   ) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error("Failed to update vehicle");
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("updateVehicle 422 error details:", errText);
+      throw new Error(`Failed to update vehicle: ${errText}`);
+    }
     return res.json();
   },
 

@@ -20,10 +20,12 @@ import {
   Upload,
   Database,
   Sliders,
+  Monitor,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { ThemeSection } from "./theme-section";
 
 interface SettingsVehicle {
   id: string;
@@ -35,6 +37,7 @@ interface SettingsVehicle {
   active_interval_seconds: number;
   parked_interval_seconds: number;
   wltp_range_km: number | null;
+  country_code: string | null;
   connector_status: string | null;
   last_fetch_at: string | null;
   created_at: string;
@@ -108,6 +111,7 @@ export default function SettingsPage() {
   const [activeInterval, setActiveInterval] = useState(300);
   const [parkedInterval, setParkedInterval] = useState(1800);
   const [wltpRange, setWltpRange] = useState<string>("");
+  const [countryCode, setCountryCode] = useState<string>("");
 
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [geofencesLoading, setGeofencesLoading] = useState(true);
@@ -183,6 +187,7 @@ export default function SettingsPage() {
         active_interval_seconds: activeInterval,
         parked_interval_seconds: parkedInterval,
         wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? parsedWltp : null,
+        country_code: countryCode.trim() ? countryCode.trim().toUpperCase() : null,
       });
       await loadVehicles();
       setEditingInterval(null);
@@ -424,6 +429,18 @@ export default function SettingsPage() {
                         />
                         <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">km</span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Energy Region</span>
+                        <input
+                          type="text"
+                          maxLength={2}
+                          value={countryCode}
+                          onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                          placeholder="e.g. LT"
+                          className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50 uppercase"
+                        />
+                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">Code</span>
+                      </div>
                       <div className="flex items-center gap-2 mt-1">
                         <button onClick={() => handleSaveInterval(v.id)}
                           className="text-xs text-iv-green hover:underline">Save</button>
@@ -438,6 +455,7 @@ export default function SettingsPage() {
                         setActiveInterval(v.active_interval_seconds);
                         setParkedInterval(v.parked_interval_seconds);
                         setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
+                        setCountryCode(v.country_code || "");
                       }}
                       className="text-xs text-iv-muted hover:text-iv-text transition-colors text-left"
                     >
@@ -452,6 +470,11 @@ export default function SettingsPage() {
                             WLTP: {v.wltp_range_km} km
                           </span>
                         )}
+                        {v.country_code && (
+                          <span className="sm:before:content-['·'] sm:before:mx-1">
+                            Region: {v.country_code}
+                          </span>
+                        )}
                       </span>
                       <span className="text-iv-cyan/60 mt-1 block sm:mt-0 sm:ml-1 sm:inline">Edit</span>
                     </button>
@@ -461,6 +484,11 @@ export default function SettingsPage() {
             ))
           )}
         </div>
+      </SectionCard>
+
+      {/* Theme Settings */}
+      <SectionCard icon={Monitor} title="Theme Preferences">
+        <ThemeSection />
       </SectionCard>
 
       {/* Profile */}

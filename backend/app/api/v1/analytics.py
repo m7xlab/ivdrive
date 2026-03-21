@@ -602,6 +602,34 @@ async def get_advanced_analytics_overview(
     drain_res = await db.execute(drain_sql, {"vid": str(vehicle_id)})
     drain_row = drain_res.fetchone()
 
+    # 3. Energy Prices
+    energy_price = None
+    country_code = "LT"
+    v_res = await db.execute(select(UserVehicle).where(UserVehicle.id == vehicle_id))
+    veh = v_res.scalar_one_or_none()
+    if veh:
+        country_code = getattr(veh, "country_code", "LT")
+        from app.models.telemetry import EnergyPrice
+        price_res = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == country_code))
+        energy_price = price_res.scalar_one_or_none()
+
+        if not energy_price and country_code != "LT":
+            price_res_fallback = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == "LT"))
+            energy_price = price_res_fallback.scalar_one_or_none()
+
+    elec_price = getattr(energy_price, "electricity_price_eur_kwh", 0.25)
+    petrol_price = getattr(energy_price, "petrol_price_eur_l", 1.65)
+
+    # 4. Actual Charging Prices
+    actual_price_sql = text("""
+        SELECT SUM(actual_cost_eur) / SUM(energy_kwh) as avg_price 
+        FROM charging_sessions 
+        WHERE user_vehicle_id = :vid AND actual_cost_eur IS NOT NULL AND energy_kwh > 0
+    """)
+    actual_price_res = await db.execute(actual_price_sql, {"vid": str(vehicle_id)})
+    actual_price_row = actual_price_res.fetchone()
+    actual_avg_price = float(actual_price_row[0]) if actual_price_row and actual_price_row[0] else None
+
     # Build response with dynamic data and safe fallbacks
     return {
         "efficiency": {
@@ -617,5 +645,11 @@ async def get_advanced_analytics_overview(
         },
         "phantom_drain": {
             "pct_per_day": round(float(drain_row[0]), 2) if drain_row and drain_row[0] is not None else 0.0,
+        },
+        "energy_prices": {
+            "country_code": country_code,
+            "electricity_eur_kwh": elec_price,
+            "petrol_eur_l": petrol_price,
+            "user_avg_electricity_eur_kwh": actual_avg_price,
         }
     }
