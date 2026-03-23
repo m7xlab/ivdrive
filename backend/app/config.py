@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     default_parked_interval_seconds: int = 1800
     default_active_interval_seconds: int = 300
     collector_debug: bool = False
+    collect_raw_data: bool = False
     skoda_client_debug: bool = False
 
     # Registration & Invites

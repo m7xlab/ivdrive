@@ -5,6 +5,17 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.19.1] - 2026-03-23
+
+### Added 🌟
+- **Re-Authentication UI**: Added a new "Re-Auth" button in the Settings dashboard. Users can now easily re-authenticate their vehicles (with existing or updated credentials) if their Skoda token expires or is invalidated.
+- **Raw Data Collection Toggle**: Introduced a `COLLECT_RAW_DATA` environment variable to gracefully enable/disable raw Skoda API response logging without altering the database schema.
+
+### Fixed 🛠
+- **Collector Token Invalidation Bug**: Fixed a critical issue where temporary Skoda API timeouts or 5xx server errors would permanently kick users out and invalidate their sessions. The collector now patiently retries on server timeouts instead of throwing a `token_error`.
+- **Log Flooding Prevention**: The background collector now smartly skips API polling for vehicles stuck in `token_error` or `auth_failed` states until the user re-authenticates, preventing infinite loop errors and log flooding in production.
+
+
 ## [v1.0.19] - 2026-03-21
 
 ### Breaking Changes 🚨

@@ -443,6 +443,15 @@ export const api = {
     return res.json();
   },
 
+  async reauthenticateVehicle(id: string, body: { skoda_username?: string, skoda_password?: string, skoda_spin?: string }) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/reauthenticate`, { 
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to re-authenticate vehicle");
+    return res.json();
+  },
+
   async getBatteryHistory(
     id: string,
     limit = 10000,

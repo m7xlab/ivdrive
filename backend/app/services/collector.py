@@ -389,6 +389,10 @@ class DataCollector:
 
             cs: ConnectorSession = vehicle.connector_session
 
+            if cs.status in ("token_error", "auth_failed") and not force:
+                logger.debug("Skipping scheduled fetch for vehicle %s (status: %s)", user_vehicle_id, cs.status)
+                return
+
             if not cs.access_token_encrypted or not cs.refresh_token_encrypted:
                 logger.warning("Vehicle %s missing tokens", user_vehicle_id)
                 return
@@ -408,8 +412,19 @@ class DataCollector:
                     expires_in = tokens.get("expiresIn") or tokens.get("expires_in", 3600)
                     cs.token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
                     await session.flush()
+                except httpx.TimeoutException:
+                    logger.warning("Token refresh timed out for vehicle %s, will retry next cycle", user_vehicle_id)
+                    return
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code >= 500:
+                        logger.warning("Token refresh failed due to Skoda server error (HTTP %s) for vehicle %s. Retrying next cycle", e.response.status_code, user_vehicle_id)
+                        return
+                    logger.exception("Token refresh failed with client error for vehicle %s", user_vehicle_id)
+                    cs.status = "token_error"
+                    await session.commit()
+                    return
                 except Exception:
-                    logger.exception("Token refresh failed for vehicle %s", user_vehicle_id)
+                    logger.exception("Token refresh failed with unknown error for vehicle %s", user_vehicle_id)
                     cs.status = "token_error"
                     await session.commit()
                     return
@@ -939,20 +954,22 @@ class DataCollector:
                         except Exception:
                             return None
 
-                session.add(CollectorRawResponse(
-                    user_vehicle_id=user_vehicle_id,
-                    captured_at=now,
-                    raw_connection_status=_to_raw(conn_resp),
-                    raw_vehicle_status=_to_raw(status_resp),
-                    raw_charging=_to_raw(charging),
-                    raw_driving_range=_to_raw(driving),
-                    raw_position=_to_raw(position),
-                    raw_air_conditioning=_to_raw(ac_resp),
-                    raw_maintenance=_to_raw(maint_resp),
-                    raw_warning_lights=_to_raw(warning_lights_resp),
-                    raw_garage_vehicle=_to_raw(garage_vehicle_resp),
-                    raw_vehicle_renders=_to_raw(vehicle_renders_resp),
-                ))
+                from app.config import settings
+                if settings.collect_raw_data:
+                    session.add(CollectorRawResponse(
+                        user_vehicle_id=user_vehicle_id,
+                        captured_at=now,
+                        raw_connection_status=_to_raw(conn_resp),
+                        raw_vehicle_status=_to_raw(status_resp),
+                        raw_charging=_to_raw(charging),
+                        raw_driving_range=_to_raw(driving),
+                        raw_position=_to_raw(position),
+                        raw_air_conditioning=_to_raw(ac_resp),
+                        raw_maintenance=_to_raw(maint_resp),
+                        raw_warning_lights=_to_raw(warning_lights_resp),
+                        raw_garage_vehicle=_to_raw(garage_vehicle_resp),
+                        raw_vehicle_renders=_to_raw(vehicle_renders_resp),
+                    ))
 
                 # ── Commit & update timestamp ───────────────────────────────
                 cs.last_fetch_at = now

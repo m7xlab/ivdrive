@@ -1,10 +1,53 @@
 --- backend/app/api/v1/vehicles.py
 +++ backend/app/api/v1/vehicles.py
-@@ -128,6 +128,7 @@
-         active_interval_seconds=v.active_interval_seconds,
-         parked_interval_seconds=v.parked_interval_seconds,
-         wltp_range_km=v.wltp_range_km,
-+        country_code=v.country_code,
-         image_url=v.image_url,
-         body_type=v.body_type,
-         trim_level=v.trim_level,
+@@ -292,6 +292,39 @@
+     await publish_vehicle_refresh(str(vehicle_id))
+     return {"status": "queued", "message": "Manual refresh triggered successfully"}
+ 
++
++@router.post("/{vehicle_id}/reauthenticate", status_code=status.HTTP_200_OK)
++async def reauthenticate_vehicle(
++    vehicle_id: uuid.UUID,
++    body: VehicleReauth,
++    user: User = Depends(get_current_active_user),
++    db: AsyncSession = Depends(get_db),
++):
++    vehicle = await _get_user_vehicle(vehicle_id, user, db, load_session=True)
++    
++    config_str = decrypt_field(vehicle.connector_config_encrypted)
++    config = json.loads(config_str)
++    
++    username = body.skoda_username or config.get("username")
++    password = body.skoda_password or config.get("password")
++    spin = body.skoda_spin or config.get("spin")
++    
++    auth = SkodaAuthClient()
++    try:
++        tokens = await auth.login(username, password)
++    except Exception as e:
++        logger.warning("Re-auth failed for vehicle %s", vehicle.id, exc_info=True)
++        raise HTTPException(status_code=400, detail=str(e))
++    finally:
++        await auth.close()
++
++    if body.skoda_username or body.skoda_password or body.skoda_spin:
++        new_config = json.dumps({"username": username, "password": password, "spin": spin})
++        vehicle.connector_config_encrypted = encrypt_field(new_config)
++
++    access_token = tokens.get("accessToken") or tokens.get("access_token", "")
++    refresh_token = tokens.get("refreshToken") or tokens.get("refresh_token", "")
++    expires_in = tokens.get("expiresIn") or tokens.get("expires_in", 3600)
++    token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
++    
++    if vehicle.connector_session:
++        vehicle.connector_session.access_token_encrypted = encrypt_field(access_token)
++        vehicle.connector_session.refresh_token_encrypted = encrypt_field(refresh_token)
++        vehicle.connector_session.token_expires_at = token_expires_at
++        vehicle.connector_session.status = "active"
++    
++    await db.commit()
++    await publish_vehicle_refresh(str(vehicle.id))
++    return {"status": "success", "message": "Re-authenticated successfully and queued for refresh"}
++
+ 
+ @router.get("/{vehicle_id}/status", response_model=VehicleStatusResponse)

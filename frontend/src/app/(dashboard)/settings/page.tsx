@@ -21,6 +21,7 @@ import {
   Database,
   Sliders,
   Monitor,
+  RefreshCcw,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
@@ -107,6 +108,11 @@ export default function SettingsPage() {
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [vehicleDeleting, setVehicleDeleting] = useState<string | null>(null);
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
+  const [reauthModalId, setReauthModalId] = useState<string | null>(null);
+  const [reauthUsername, setReauthUsername] = useState("");
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [reauthSpin, setReauthSpin] = useState("");
+  const [reauthLoading, setReauthLoading] = useState(false);
   const [editingInterval, setEditingInterval] = useState<string | null>(null);
   const [activeInterval, setActiveInterval] = useState(300);
   const [parkedInterval, setParkedInterval] = useState(1800);
@@ -178,6 +184,24 @@ export default function SettingsPage() {
     try { await api.deleteVehicle(id); await loadVehicles(); showToast("success", "Vehicle removed"); }
     catch (err) { showToast("error", err instanceof Error ? err.message : "Failed to delete vehicle"); }
     finally { setVehicleDeleting(null); }
+  };
+
+  const handleReauthVehicle = async (id: string) => {
+    setReauthLoading(true);
+    try {
+      await api.reauthenticateVehicle(id, {
+        skoda_username: reauthUsername.trim() || undefined,
+        skoda_password: reauthPassword || undefined,
+        skoda_spin: reauthSpin.trim() || undefined,
+      });
+      showToast("success", "Re-authenticated successfully");
+      setReauthModalId(null);
+      await loadVehicles();
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Re-auth failed");
+    } finally {
+      setReauthLoading(false);
+    }
   };
 
   const handleSaveInterval = async (id: string) => {
@@ -384,6 +408,20 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Remove button – icon-only on mobile, icon+label on sm+ */}
+                  {v.connector_status === "token_error" && (
+                    <button
+                      onClick={() => {
+                        setReauthUsername("");
+                        setReauthPassword("");
+                        setReauthSpin("");
+                        setReauthModalId(v.id);
+                      }}
+                      className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
+                    >
+                      <RefreshCcw size={14} />
+                      <span className="hidden sm:inline">Re-Auth</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => setDeleteModalId(v.id)}
                     disabled={vehicleDeleting === v.id}
@@ -822,6 +860,34 @@ export default function SettingsPage() {
           </button>
         </div>
       </SectionCard>
+
+      {/* Re-authenticate modal */}
+      {reauthModalId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div role="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !reauthLoading && setReauthModalId(null)} onKeyDown={(e) => e.key === "Escape" && !reauthLoading && setReauthModalId(null)} />
+          <div className="glass relative w-full max-w-sm rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-iv-text mb-2 flex items-center gap-2"><KeyRound size={18} className="text-iv-cyan" /> Re-authenticate</h2>
+            <p className="text-xs text-iv-muted mb-4">
+              Your Skoda token expired. Leave fields blank to re-login with saved credentials, or provide new ones if they changed.
+            </p>
+            <div className="space-y-3 mb-6">
+              <input type="text" placeholder="Email (optional)" value={reauthUsername} onChange={(e) => setReauthUsername(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
+              <input type="password" placeholder="Password (optional)" value={reauthPassword} onChange={(e) => setReauthPassword(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
+              <input type="password" placeholder="S-PIN (optional)" value={reauthSpin} onChange={(e) => setReauthSpin(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setReauthModalId(null)} disabled={reauthLoading}
+                className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
+                Cancel
+              </button>
+              <button onClick={() => handleReauthVehicle(reauthModalId)} disabled={reauthLoading}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-cyan/20 px-4 py-2.5 text-sm font-semibold text-iv-cyan transition-all hover:bg-iv-cyan/30 disabled:opacity-50">
+                {reauthLoading ? <Loader2 size={14} className="animate-spin" /> : "Re-login"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation modal */}
       {deleteModalId && (

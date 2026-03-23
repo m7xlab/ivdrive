@@ -45,6 +45,12 @@ class VehicleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class VehicleReauth(BaseModel):
+    skoda_username: str | None = None
+    skoda_password: str | None = None
+    skoda_spin: str | None = None
+
+
 class VehicleUpdate(BaseModel):
     display_name: str | None = None
     collection_enabled: bool | None = None
