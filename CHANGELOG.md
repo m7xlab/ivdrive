@@ -5,6 +5,12 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.20.1] - 2026-03-24
+
+### Fixed 🛠
+- **Advanced Trip Math Calculation**: Repaired a mathematical flaw (averaging ratios instead of total sums) in the advanced analytics SQL view that artificially inflated average consumption rates due to short city trips.
+- **Cold Weather Anomalies in Warm Climates**: Fixed a bug where users in warm climates (e.g., Spain) were given false negative weather penalties due to hardcoded fallback numbers when no cold weather data was available.
+
 ## [v1.0.20] - 2026-03-24
 
 ### Added 🌟
