@@ -630,13 +630,19 @@ async def get_advanced_analytics_overview(
     actual_price_row = actual_price_res.fetchone()
     actual_avg_price = float(actual_price_row[0]) if actual_price_row and actual_price_row[0] else None
 
+    # Safe math fallbacks
+    overall_eff = float(trip_row[6]) if trip_row and trip_row[6] else 18.5
+    cold_eff = float(trip_row[4]) if trip_row and trip_row[4] else overall_eff
+    warm_eff = float(trip_row[5]) if trip_row and trip_row[5] else overall_eff
+    cold_penalty = ((cold_eff - warm_eff) / warm_eff * 100) if warm_eff > 0 else 0
+
     # Build response with dynamic data and safe fallbacks
     return {
         "efficiency": {
-            "avg_kwh_100km": round(float(trip_row[6]), 1) if trip_row and trip_row[6] else 18.5,
-            "cold_penalty_pct": round(((float(trip_row[4]) - float(trip_row[5])) / float(trip_row[5]) * 100) if trip_row and trip_row[4] and trip_row[5] and float(trip_row[5]) != 0 else 15, 1),
-            "cold_eff_kwh_100km": round(float(trip_row[4]), 1) if trip_row and trip_row[4] else 22.5,
-            "warm_eff_kwh_100km": round(float(trip_row[5]), 1) if trip_row and trip_row[5] else 16.2,
+            "avg_kwh_100km": round(overall_eff, 1),
+            "cold_penalty_pct": round(cold_penalty, 1),
+            "cold_eff_kwh_100km": round(cold_eff, 1),
+            "warm_eff_kwh_100km": round(warm_eff, 1),
         },
         "trip_types": {
             "short_pct": round(float(trip_row[0]) / float(trip_row[3]) * 100 if trip_row and trip_row[3] > 0 else 0, 1),
