@@ -2,13 +2,15 @@ import secrets
 import uuid
 from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.announcement import Announcement
 from app.models.invite import InviteRequest
 from app.models.user import User
+from app.models.vehicle import UserVehicle, ConnectorSession
+from app.models.telemetry import Trip, ChargingSession
 from app.api.v1.dependencies import get_current_superuser
 from app.schemas.announcement import AnnouncementCreate, AnnouncementResponse
 from app.schemas.invite import (
@@ -329,3 +331,50 @@ async def admin_refresh_vehicle(
 
     await publish_vehicle_refresh(str(vehicle_id))
     return {"status": "queued", "message": f"Manual refresh triggered for vehicle {vehicle_id}"}
+
+
+@router.get("/statistics")
+async def admin_statistics(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser)
+):
+    # Total Users
+    total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
+    # Pending Invites
+    pending_invites = (await db.execute(select(func.count(InviteRequest.id)).where(InviteRequest.status == 'pending'))).scalar() or 0
+    # Total Vehicles
+    total_vehicles = (await db.execute(select(func.count(UserVehicle.id)))).scalar() or 0
+    
+    # Vehicles by Country
+    country_rows = await db.execute(select(UserVehicle.country_code, func.count(UserVehicle.id)).group_by(UserVehicle.country_code))
+    vehicles_by_country = [{"name": row[0] or "Unknown", "value": row[1]} for row in country_rows]
+    
+    # Vehicles by Model
+    model_rows = await db.execute(select(UserVehicle.model, func.count(UserVehicle.id)).group_by(UserVehicle.model))
+    vehicles_by_model = [{"name": row[0] or "Unknown", "value": row[1]} for row in model_rows]
+    
+    # Connector Status Health (token_error, active, auth_failed, etc.)
+    status_rows = await db.execute(select(ConnectorSession.status, func.count(ConnectorSession.id)).group_by(ConnectorSession.status))
+    connector_status = [{"name": row[0] or "Unknown", "value": row[1]} for row in status_rows]
+    
+    # Total Telemetry
+    total_trips = (await db.execute(select(func.count(Trip.id)))).scalar() or 0
+    total_charging_sessions = (await db.execute(select(func.count(ChargingSession.id)))).scalar() or 0
+    
+    # Calculate Sync Error Rate
+    total_connectors = sum(item["value"] for item in connector_status)
+    error_statuses = {"token_error", "auth_failed", "connection_error"}
+    error_connectors = sum(item["value"] for item in connector_status if item["name"] in error_statuses)
+    sync_error_rate = (error_connectors / total_connectors * 100) if total_connectors > 0 else 0.0
+
+    return {
+        "total_users": total_users,
+        "pending_invites": pending_invites,
+        "total_vehicles": total_vehicles,
+        "total_trips": total_trips,
+        "total_charging_sessions": total_charging_sessions,
+        "vehicles_by_country": sorted(vehicles_by_country, key=lambda x: x["value"], reverse=True),
+        "vehicles_by_model": sorted(vehicles_by_model, key=lambda x: x["value"], reverse=True),
+        "connector_status": sorted(connector_status, key=lambda x: x["value"], reverse=True),
+        "sync_error_rate": round(sync_error_rate, 1)
+    }

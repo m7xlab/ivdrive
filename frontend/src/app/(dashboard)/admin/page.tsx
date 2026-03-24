@@ -26,7 +26,12 @@ import {
   PlusCircle,
   Info,
   RefreshCw,
+  BarChart4,
+  Activity,
+  Globe2,
+  Car,
 } from "lucide-react";
+import { StatisticsDashboard } from "./statistics";
 
 // ── Types ──
 
@@ -57,7 +62,7 @@ interface Announcement {
   is_active: boolean;
 }
 
-type Tab = "invites" | "users" | "announcements";
+type Tab = "statistics" | "invites" | "users" | "announcements";
 
 // ── Helpers ──
 
@@ -111,7 +116,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("invites");
+  const [tab, setTab] = useState<Tab>("statistics");
   const [invites, setInvites] = useState<InviteRequest[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -414,6 +419,7 @@ export default function AdminPage() {
       <div className="flex gap-1 bg-iv-surface/50 rounded-lg p-1 w-fit">
         {(
           [
+            { id: "statistics" as Tab, label: "Statistics", icon: Activity, badge: 0 },
             { id: "invites" as Tab, label: "Invites", icon: Mail, badge: pendingCount },
             { id: "users" as Tab, label: "Users", icon: Users, badge: 0 },
             { id: "announcements" as Tab, label: "Announcements", icon: Bell, badge: activeAnnouncementsCount },
@@ -444,6 +450,8 @@ export default function AdminPage() {
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-iv-muted" />
         </div>
+      ) : tab === "statistics" ? (
+        <StatisticsDashboard />
       ) : tab === "invites" ? (
         <InvitesTable
           invites={invites}

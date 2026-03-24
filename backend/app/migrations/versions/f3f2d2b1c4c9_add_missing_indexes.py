@@ -1,7 +1,7 @@
 """add missing indexes
 
 Revision ID: f3f2d2b1c4c9
-Revises: f493b86626a
+Revises: 709fd0a72bf
 Create Date: 2026-03-21 22:45:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'f3f2d2b1c4c9'
-down_revision = 'f493b86626a'
+down_revision = '709fd0a72bf'
 branch_labels = None
 depends_on = None
 

@@ -300,6 +300,12 @@ export const api = {
     return res.json();
   },
 
+  async adminGetStatistics() {
+    const res = await apiFetch("/api/v1/admin/statistics");
+    if (!res.ok) throw new Error("Failed to fetch admin statistics");
+    return res.json();
+  },
+
   async adminDeleteAnnouncement(id: string) {
     const res = await apiFetch(`/api/v1/admin/announcements/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error((await res.json()).detail || "Failed to delete announcement");

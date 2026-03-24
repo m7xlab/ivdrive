@@ -534,6 +534,39 @@ class DataCollector:
                 # On the very first poll after a collector restart (cache is empty) we
                 # always write so the DB reflects current reality.
                 if not car_active and not force:
+                    # Keep ChargingState up to date with target_soc changes even when parked
+                    if charging and charging.status:
+                        parked_gap_s = max(vehicle.parked_interval_seconds * 3, 3600)
+                        cs_data = {
+                            "state": charging.status.state,
+                            "charge_type": charging.status.charge_type,
+                            "charge_power_kw": charging.status.charge_power_in_kw,
+                            "charge_rate_km_per_hour": charging.status.charge_rate_in_kilometers_per_hour,
+                            "remaining_time_min": charging.status.remaining_time_to_fully_charged_in_minutes,
+                        }
+                        if charging.settings:
+                            cs_data["target_soc_pct"] = charging.settings.target_state_of_charge_in_percent
+                            cs_data["max_charge_current_ac"] = charging.settings.max_charge_current_ac
+                            cs_data["auto_unlock_plug_when_charged"] = charging.settings.auto_unlock_plug_when_charged
+                        if charging.status.battery:
+                            cs_data["battery_pct"] = charging.status.battery.state_of_charge_in_percent
+                            cs_data["remaining_range_m"] = charging.status.battery.remaining_cruising_range_in_meters
+                        await _update_or_insert_duration_state(
+                            session, ChargingState, user_vehicle_id,
+                            match_keys={"state": charging.status.state},
+                            volatile_keys=[
+                                "charge_power_kw", "charge_rate_km_per_hour",
+                                "remaining_time_min", "target_soc_pct",
+                                "battery_pct", "remaining_range_m",
+                            ],
+                            now=now,
+                            max_gap_s=parked_gap_s,
+                            **cs_data,
+                        )
+                        # We commit here to ensure the Target SoC update is saved,
+                        # avoiding an unconditional commit when 'charging' is None.
+                        await session.commit()
+
                     last_known = self._last_connection_state.get(user_vehicle_id)
                     state_changed = (last_known is None) or (last_known != is_online)
 
