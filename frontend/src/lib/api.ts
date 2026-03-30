@@ -81,12 +81,22 @@ async function apiFetch(
   return res;
 }
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidPassword(password: string): boolean {
+  return password.length >= 6;
+}
+
 export const api = {
   getTokens,
   setTokens,
   clearTokens,
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string): Promise<any> {
+    if (!isValidEmail(email)) throw new Error("Invalid email format");
+    if (!isValidPassword(password)) throw new Error("Password must be at least 6 characters");
     const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,7 +158,9 @@ export const api = {
     return res.json();
   },
 
-  async register(email: string, password: string, displayName?: string, inviteToken?: string) {
+  async register(email: string, password: string, displayName?: string, inviteToken?: string): Promise<any> {
+    if (!isValidEmail(email)) throw new Error("Invalid email format");
+    if (!isValidPassword(password)) throw new Error("Password must be at least 6 characters");
     const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -181,7 +193,8 @@ export const api = {
     return res.json();
   },
 
-  async forgotPassword(email: string) {
+  async forgotPassword(email: string): Promise<any> {
+    if (!isValidEmail(email)) throw new Error("Invalid email format");
     const res = await fetch(`${API_BASE}/api/v1/auth/forgot-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -192,7 +205,8 @@ export const api = {
     return res.json();
   },
 
-  async resetPassword(token: string, newPassword: string) {
+  async resetPassword(token: string, newPassword: string): Promise<any> {
+    if (!isValidPassword(newPassword)) throw new Error("Password must be at least 6 characters");
     const res = await fetch(`${API_BASE}/api/v1/auth/reset-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
