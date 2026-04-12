@@ -46,8 +46,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const me = await api.getMe();
       setUser(me);
-    } catch {
+    } catch (err: any) {
       setUser(null);
+      if (err.message === "Not authenticated") {
+        api.clearTokens();
+      }
     } finally {
       setLoading(false);
     }
