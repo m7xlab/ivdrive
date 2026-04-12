@@ -44,16 +44,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const tokens = api.getTokens();
-      if (!tokens?.access_token) {
-        setUser(null);
-        return;
-      }
       const me = await api.getMe();
       setUser(me);
     } catch {
       setUser(null);
-      api.clearTokens();
     } finally {
       setLoading(false);
     }
