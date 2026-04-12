@@ -8,7 +8,7 @@ import uuid
 
 import pyotp
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,7 +170,7 @@ async def request_invite(body: InviteRequestCreate, db: AsyncSession = Depends(g
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(response: Response, body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -193,14 +193,34 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             tfa_token=create_2fa_token(str(user.id)),
         )
 
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=not settings.debug if hasattr(settings, "debug") else False,
+        samesite="lax",
+        max_age=settings.access_token_expire_minutes * 60,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=not settings.debug if hasattr(settings, "debug") else False,
+        samesite="lax",
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+    )
+
     return LoginResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=access_token,
+        refresh_token=refresh_token,
     )
 
 
 @router.post("/login/verify-2fa", response_model=TokenResponse)
-async def verify_2fa_login(body: TwoFactorLoginRequest, db: AsyncSession = Depends(get_db)):
+async def verify_2fa_login(response: Response, body: TwoFactorLoginRequest, db: AsyncSession = Depends(get_db)):
     """Accept a temporary 2FA token + TOTP code and return full access tokens."""
     try:
         payload = decode_token(body.tfa_token)
@@ -310,9 +330,18 @@ async def verify_recovery_code_login(body: RecoveryCodeLoginRequest, db: AsyncSe
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest):
+async def refresh(request: Request, response: Response, body: RefreshRequest = None):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token and body and body.refresh_token:
+        refresh_token = body.refresh_token
+        
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing refresh token",
+        )
     try:
-        payload = decode_token(body.refresh_token)
+        payload = decode_token(refresh_token)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -339,7 +368,7 @@ async def refresh(body: RefreshRequest):
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(body: RefreshRequest):
+async def logout(response: Response, body: RefreshRequest = None):
     return {"detail": "Successfully logged out"}
 
 

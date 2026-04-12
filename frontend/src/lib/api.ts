@@ -6,51 +6,20 @@ const API_BASE =
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
     : "";
 
-interface TokenPair {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
+export function clearTokens() {
+  // Deprecated: No longer used for localStorage, backend handles HttpOnly cookies.
 }
 
-function getTokens(): TokenPair | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem("ivdrive_tokens");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function setTokens(tokens: TokenPair) {
-  localStorage.setItem("ivdrive_tokens", JSON.stringify(tokens));
-}
-
-function clearTokens() {
-  localStorage.removeItem("ivdrive_tokens");
-}
-
-async function refreshAccessToken(): Promise<string | null> {
-  const tokens = getTokens();
-  if (!tokens?.refresh_token) return null;
-
+async function refreshAccessToken(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+      credentials: "include",
     });
-    if (!res.ok) {
-      clearTokens();
-      return null;
-    }
-    const newTokens: TokenPair = await res.json();
-    setTokens(newTokens);
-    return newTokens.access_token;
+    return res.ok;
   } catch {
-    clearTokens();
-    return null;
+    return false;
   }
 }
 
@@ -58,23 +27,25 @@ async function apiFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const tokens = getTokens();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
-  if (tokens?.access_token) {
-    headers["Authorization"] = `Bearer ${tokens.access_token}`;
-  }
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers,
+    credentials: "include",
+  };
 
-  let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res = await fetch(`${API_BASE}${path}`, fetchOptions);
 
-  if (res.status === 401 && tokens?.refresh_token) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (res.status === 401) {
+    // Attempt to refresh cookie
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      // Retry
+      res = await fetch(`${API_BASE}${path}`, fetchOptions);
     }
   }
 
@@ -82,8 +53,6 @@ async function apiFetch(
 }
 
 export const api = {
-  getTokens,
-  setTokens,
   clearTokens,
 
   async login(email: string, password: string) {
@@ -94,9 +63,7 @@ export const api = {
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Login failed");
     const data = await res.json();
-    if (!data.requires_2fa) {
-      setTokens(data);
-    }
+    
     return data;
   },
 
@@ -108,7 +75,7 @@ export const api = {
     });
     if (!res.ok) throw new Error((await res.json()).detail || "2FA verification failed");
     const tokens: TokenPair = await res.json();
-    setTokens(tokens);
+    
     return tokens;
   },
 
@@ -120,7 +87,7 @@ export const api = {
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Recovery code verification failed");
     const tokens: TokenPair = await res.json();
-    setTokens(tokens);
+    
     return tokens;
   },
 
