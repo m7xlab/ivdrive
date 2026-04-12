@@ -5,6 +5,14 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-04-12
+
+### Security 🔒
+- **HTTP-Only Cookie Migration**: Entirely removed `localStorage` token management in favor of secure, backend-issued `HttpOnly` and `SameSite=Lax` cookies for `access_token` and `refresh_token` to prevent XSS-based token theft.
+- **Frontend Auth Flag**: Implemented a secure local browser flag (`is_logged_in`) to eliminate unnecessary backend requests (401 Unauthorized loops) for unauthenticated users visiting the application.
+- **Strict 2FA Cookie Binding**: Fixed a critical bug in the 2FA and Recovery Code verification routes where authentication bypassed the new `HttpOnly` cookie structure.
+- **Complete Logout Invalidation**: Fixed a session persistence bug where clicking 'Sign Out' on the frontend failed to call the backend logout endpoint, leaving cookies actively alive in the browser.
+
 ## [v1.0.20.2] - 2026-03-24
 
 ### Fixed 🛠
