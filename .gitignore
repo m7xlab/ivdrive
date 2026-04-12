@@ -12,3 +12,5 @@ release-notes.md
 # Local / dev-only docs (never commit or ship)
 _local_docs/
 _deprecated_scripts/
+.claudemem
+CLAUDE.md
