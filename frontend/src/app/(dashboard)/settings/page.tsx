@@ -136,6 +136,7 @@ export default function SettingsPage() {
 
     const [exporting, setExporting] = useState(false);
   const [exportJobs, setExportJobs] = useState<any[]>([]);
+  const [exportEnabled, setExportEnabled] = useState(false);
   const [downloadPasswords, setDownloadPasswords] = useState<Record<string, string>>({});
 
   const [is2FASettingLoading, setIs2FASettingLoading] = useState(false);
@@ -178,8 +179,12 @@ export default function SettingsPage() {
 
     const loadExportJobs = useCallback(async () => {
     try {
-      const data = await api.getExportStatus();
-      setExportJobs(data);
+      const config = await api.getExportConfig();
+      setExportEnabled(config.export_enabled);
+      if (config.export_enabled) {
+        const data = await api.getExportStatus();
+        setExportJobs(data);
+      }
     } catch (e) {}
   }, []);
 
@@ -826,6 +831,7 @@ export default function SettingsPage() {
       </SectionCard>
 
       {/* Data Sovereignty */}
+      {exportEnabled && (
       <SectionCard icon={Database} title="Data & Privacy">
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -896,6 +902,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </SectionCard>
+      )}
 
       {/* Danger Zone */}
       <SectionCard icon={Shield} title="Danger Zone">

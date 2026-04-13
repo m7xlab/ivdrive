@@ -346,6 +346,17 @@ export const api = {
     return res.json();
   },
 
+  async getExportConfig() {
+    const res = await apiFetch("/api/v1/settings/export/config", {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to get export config");
+    }
+    return res.json();
+  },
+
   async getExportStatus() {
     const res = await apiFetch("/api/v1/settings/export/status", {
       method: "GET",

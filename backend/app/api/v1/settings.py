@@ -19,6 +19,16 @@ router = APIRouter()
 
 # ── Data Export ─────────────────────────────────────────────────────────────
 
+@router.get("/export/config", status_code=status.HTTP_200_OK)
+async def get_export_config(
+    user: User = Depends(get_current_active_user),
+):
+    use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
+    s3_endpoint = os.getenv("S3_ENDPOINT", "")
+    
+    export_enabled = use_gcs or bool(s3_endpoint)
+    return {"export_enabled": export_enabled}
+
 @router.post("/export", status_code=status.HTTP_202_ACCEPTED)
 async def request_data_export(
     background_tasks: BackgroundTasks,
