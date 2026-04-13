@@ -8,12 +8,12 @@ from datetime import datetime, timezone, timedelta
 from app.services.export import ExportService
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.services.storage import StorageProvider
-from app.database import async_sessionmaker
+from app.database import async_session
 from sqlalchemy import update
 
 async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs: bool):
     try:
-        async with async_sessionmaker() as db:
+        async with async_session() as db:
             service = ExportService(db)
             await db.execute(update(ExtractionJob).where(ExtractionJob.id == job_id).values(status=ExtractionJobStatus.PROCESSING))
             await db.commit()
@@ -53,7 +53,7 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
             await db.commit()
             
     except Exception as e:
-        async with async_sessionmaker() as db:
+        async with async_session() as db:
             await db.execute(
                 update(ExtractionJob).where(ExtractionJob.id == job_id)
                 .values(status=ExtractionJobStatus.FAILED, error_message=str(e))
