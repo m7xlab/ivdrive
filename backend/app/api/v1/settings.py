@@ -24,9 +24,9 @@ async def get_export_config(
     user: User = Depends(get_current_active_user),
 ):
     use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
-    s3_endpoint = os.getenv("S3_ENDPOINT", "")
+    use_s3 = os.getenv("USE_S3_STORAGE", "false").lower() == "true"
     
-    export_enabled = use_gcs or bool(s3_endpoint)
+    export_enabled = use_gcs or use_s3
     return {"export_enabled": export_enabled}
 
 @router.post("/export", status_code=status.HTTP_202_ACCEPTED)
