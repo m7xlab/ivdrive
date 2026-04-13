@@ -32,7 +32,10 @@ class StorageProvider:
             blob = self.bucket.blob(destination_blob_name)
             await asyncio.to_thread(blob.upload_from_filename, file_path)
         else:
-            await asyncio.to_thread(self.client.upload_file, file_path, self.bucket_name, destination_blob_name)
+            def _upload():
+                with open(file_path, "rb") as f:
+                    self.client.put_object(Bucket=self.bucket_name, Key=destination_blob_name, Body=f)
+            await asyncio.to_thread(_upload)
 
     def generate_download_url(self, blob_name: str, expiration=timedelta(hours=24)) -> str:
         if self.use_gcs:
