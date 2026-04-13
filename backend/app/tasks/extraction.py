@@ -79,7 +79,7 @@ async def cleanup_expired_extractions():
             for job in expired_jobs:
                 if job.file_url:
                     try:
-                        storage.delete_file(job.file_url)
+                        await storage.delete_file(job.file_url)
                     except Exception as e:
                         logger.error(f"Failed to delete expired export {job.file_url}: {e}")
                 

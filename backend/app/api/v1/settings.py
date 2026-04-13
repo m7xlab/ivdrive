@@ -75,9 +75,11 @@ async def get_download_link(
         raise HTTPException(status_code=400, detail="Export not completed yet")
         
     use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
-    storage = StorageProvider(use_gcs=use_gcs)
-    
-    download_url = storage.generate_download_url(job.file_url)
+    try:
+        storage = StorageProvider(use_gcs=use_gcs)
+        download_url = storage.generate_download_url(job.file_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return {
         "url": download_url,

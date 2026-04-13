@@ -63,10 +63,14 @@ class StorageProvider:
         else:
             raise Exception("No storage provider configured (USE_GCS_STORAGE and USE_S3_STORAGE are both false)")
 
-    def delete_file(self, blob_name: str):
+    async def delete_file(self, blob_name: str):
         if self.use_gcs:
             blob = self.bucket.blob(blob_name)
-            if blob.exists():
-                blob.delete()
+            def _delete_gcs():
+                if blob.exists():
+                    blob.delete()
+            await asyncio.to_thread(_delete_gcs)
         elif getattr(self, 'use_s3', False):
-            self.client.delete_object(Bucket=self.bucket_name, Key=blob_name)
+            await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket_name, Key=blob_name)
+        else:
+            raise Exception("No storage provider configured (USE_GCS_STORAGE and USE_S3_STORAGE are both false)")
