@@ -62,8 +62,8 @@ class ExportService:
         for vehicle in vehicles:
             v_data = {
                 "id": str(vehicle.id),
-                "vin": vehicle.vin,
-                "nickname": vehicle.nickname,
+                "vin_hash": vehicle.vin_hash,
+                "display_name": vehicle.display_name,
                 "model": vehicle.model,
                 "telemetry": {}
             }
