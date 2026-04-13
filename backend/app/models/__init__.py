@@ -1,6 +1,7 @@
 from app.models.announcement import Announcement, UserAnnouncement
 from app.models.base import Base
 from app.models.geofence import Geofence
+from app.models.extraction_job import ExtractionJob
 from app.models.telemetry import (
     AirConditioningState,
     ChargingSession,
@@ -31,6 +32,7 @@ __all__ = [
     "DriveLevel",
     "DriveRange",
     "Geofence",
+    "ExtractionJob",
     "InviteRequest",
     "MaintenanceReport",
     "OdometerReading",

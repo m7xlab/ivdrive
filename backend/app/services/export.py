@@ -62,15 +62,15 @@ class ExportService:
         for vehicle in vehicles:
             v_data = {
                 "id": str(vehicle.id),
-                "vin": vehicle.vin,
-                "nickname": vehicle.nickname,
+                "vin_hash": vehicle.vin_hash,
+                "display_name": vehicle.display_name,
                 "model": vehicle.model,
                 "telemetry": {}
             }
             
             # Helper to query and serialize tables scoped to user_vehicle_id
             v_data["telemetry"]["drives"] = await self._get_table_data(
-                Drive, vehicle.id, since, "id" # Internal ID for root drive
+                Drive, vehicle.id, since, None # Internal ID for root drive, no date filtering
             )
             v_data["telemetry"]["charging_sessions"] = await self._get_table_data(
                 ChargingSession, vehicle.id, since, "session_start"
@@ -99,17 +99,19 @@ class ExportService:
             
         return str(zip_path)
 
-    async def _get_table_data(self, model, vehicle_id: uuid.UUID, since: datetime, date_col: str) -> List[Dict[str, Any]]:
+    async def _get_table_data(self, model, vehicle_id: uuid.UUID, since: datetime, date_col: str | None) -> List[Dict[str, Any]]:
         """Generic query for telemetry tables."""
-        # Find the actual column object for filtering
-        attr = getattr(model, date_col)
         
-        query = select(model).where(
-            and_(
-                model.user_vehicle_id == vehicle_id,
-                attr >= since
+        if date_col is not None:
+            attr = getattr(model, date_col)
+            query = select(model).where(
+                and_(
+                    model.user_vehicle_id == vehicle_id,
+                    attr >= since
+                )
             )
-        )
+        else:
+            query = select(model).where(model.user_vehicle_id == vehicle_id)
         
         result = await self.db.execute(query)
         rows = result.scalars().all()

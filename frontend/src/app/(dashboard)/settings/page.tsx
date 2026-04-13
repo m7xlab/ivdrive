@@ -134,7 +134,10 @@ export default function SettingsPage() {
   const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
   const [accountDeleting, setAccountDeleting] = useState(false);
 
-  const [exporting, setExporting] = useState(false);
+    const [exporting, setExporting] = useState(false);
+  const [exportJobs, setExportJobs] = useState<any[]>([]);
+  const [exportEnabled, setExportEnabled] = useState(false);
+  const [downloadPasswords, setDownloadPasswords] = useState<Record<string, string>>({});
 
   const [is2FASettingLoading, setIs2FASettingLoading] = useState(false);
   const [show2FASetup, setShow2FASetup] = useState(false);
@@ -174,7 +177,30 @@ export default function SettingsPage() {
     finally { setGeofencesLoading(false); }
   }, []);
 
-  useEffect(() => { loadVehicles(); loadGeofences(); }, [loadVehicles, loadGeofences]);
+    const loadExportJobs = useCallback(async () => {
+    try {
+      const config = await api.getExportConfig();
+      setExportEnabled(config.export_enabled);
+      if (config.export_enabled) {
+        const data = await api.getExportStatus();
+        setExportJobs(data);
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    loadVehicles();
+    loadGeofences();
+    loadExportJobs();
+  }, [loadVehicles, loadGeofences, loadExportJobs]);
+
+  useEffect(() => {
+    const hasPending = exportJobs.some(j => j.status === "PENDING" || j.status === "PROCESSING");
+    if (hasPending) {
+      const timer = setInterval(loadExportJobs, 3000);
+      return () => clearInterval(timer);
+    }
+  }, [exportJobs, loadExportJobs]);
 
   const showToast = (status: "success" | "error", message: string) => setToast({ status, message });
 
@@ -320,23 +346,32 @@ export default function SettingsPage() {
     }
   };
 
-  const handleExport = async () => {
+    const handleExport = async () => {
     setExporting(true);
     try {
-      const blob = await api.exportUserData();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ivdrive_export_${new Date().toISOString().split("T")[0]}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      showToast("success", "Export completed! Your data is ready.");
+      await api.exportUserData();
+      showToast("success", "Export initiated! It will appear below when ready.");
+      await loadExportJobs();
     } catch (err) {
       showToast("error", err instanceof Error ? err.message : "Failed to generate export");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleDownload = async (jobId: string) => {
+    try {
+      const linkData = await api.getExportDownloadLink(jobId);
+      setDownloadPasswords(prev => ({ ...prev, [jobId]: linkData.password }));
+      
+      const a = document.createElement("a");
+      a.href = linkData.url;
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to get download link");
     }
   };
 
@@ -796,6 +831,7 @@ export default function SettingsPage() {
       </SectionCard>
 
       {/* Data Sovereignty */}
+      {exportEnabled && (
       <SectionCard icon={Database} title="Data & Privacy">
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -806,15 +842,48 @@ export default function SettingsPage() {
                 This ZIP file contains a standardized JSON format that can be imported into self-hosted iVDrive instances.
               </p>
             </div>
-            <button
+                        <button
               onClick={handleExport}
               disabled={exporting}
               className="flex items-center gap-2 rounded-lg bg-iv-cyan/10 px-4 py-2.5 text-sm font-medium text-iv-cyan transition-colors hover:bg-iv-cyan/20 disabled:opacity-50"
             >
               {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              {exporting ? "Exporting..." : "Export"}
+              {exporting ? "Requesting..." : "Request Export"}
             </button>
           </div>
+
+          {exportJobs.length > 0 && (
+            <div className="space-y-2 pt-2">
+              {exportJobs.map(job => (
+                <div key={job.job_id} className="flex items-center justify-between rounded-lg bg-iv-surface border border-iv-border p-3 text-sm">
+                  <div>
+                    <p className="font-medium text-iv-text flex items-center gap-2">
+                      Export Archive
+                      {job.status === "COMPLETED" && <span className="text-[10px] bg-iv-green/20 text-iv-green px-2 py-0.5 rounded uppercase font-bold">Ready</span>}
+                      {(job.status === "PENDING" || job.status === "PROCESSING") && <span className="text-[10px] bg-iv-warning/20 text-iv-warning px-2 py-0.5 rounded uppercase font-bold flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> {job.status}</span>}
+                      {job.status === "FAILED" && <span className="text-[10px] bg-iv-danger/20 text-iv-danger px-2 py-0.5 rounded uppercase font-bold">Failed</span>}
+                    </p>
+                    <p className="text-xs text-iv-muted">{new Date(job.created_at).toLocaleString()}</p>
+                    
+                    {downloadPasswords[job.job_id] && (
+                      <p className="text-xs text-iv-warning mt-2 font-mono bg-iv-warning/10 p-1.5 rounded inline-block border border-iv-warning/20">
+                        Password: {downloadPasswords[job.job_id]}
+                      </p>
+                    )}
+                  </div>
+                  
+                  {job.status === "COMPLETED" && (
+                    <button
+                      onClick={() => handleDownload(job.job_id)}
+                      className="text-iv-cyan hover:underline text-xs font-medium"
+                    >
+                      Download ZIP
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           
           <div className="flex items-start justify-between gap-4 border-t border-iv-border pt-4">
             <div className="flex-1">
@@ -833,6 +902,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </SectionCard>
+      )}
 
       {/* Danger Zone */}
       <SectionCard icon={Shield} title="Danger Zone">

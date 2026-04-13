@@ -17,3 +17,6 @@ nordpool>=0.3.5
 pyotp>=2.9.0
 qrcode[pil]>=7.4
 myskoda>=0.7.3
+boto3>=1.35.0
+google-cloud-storage>=2.14.0
+pyzipper>=0.3.6

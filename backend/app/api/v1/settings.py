@@ -9,37 +9,83 @@ from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
 from app.models.geofence import Geofence
 from app.models.user import User
+from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.schemas.geofence import GeofenceCreate, GeofenceResponse, GeofenceUpdate
 from app.services.export import ExportService
+from app.tasks.extraction import process_data_extraction
+from app.services.storage import StorageProvider
 
 router = APIRouter()
 
 # ── Data Export ─────────────────────────────────────────────────────────────
 
+@router.get("/export/config", status_code=status.HTTP_200_OK)
+async def get_export_config(
+    user: User = Depends(get_current_active_user),
+):
+    use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
+    use_s3 = os.getenv("USE_S3_STORAGE", "false").lower() == "true"
+    
+    export_enabled = use_gcs or use_s3
+    return {"export_enabled": export_enabled}
+
 @router.post("/export", status_code=status.HTTP_202_ACCEPTED)
 async def request_data_export(
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Triggers a 1-year data export for the user.
-    In a real-world scenario, this would be a background task.
-    For this implementation, we will generate it synchronously to provide 
-    an immediate download link in the first version.
+    Triggers a 1-year data export for the user asynchronously.
     """
-    service = ExportService(db)
-    zip_path = await service.generate_user_export(user.id)
+    job = ExtractionJob(user_id=user.id, status=ExtractionJobStatus.PENDING)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
     
-    if not zip_path:
-        raise HTTPException(status_code=404, detail="No vehicle data found to export")
+    use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
     
-    # We return the file directly for now. 
-    # In Phase 2, this will be handled via status polling.
-    return FileResponse(
-        path=zip_path,
-        filename=os.path.basename(zip_path),
-        media_type="application/zip"
+    background_tasks.add_task(process_data_extraction, user.id, job.id, use_gcs)
+    
+    return {"message": "Export initiated", "job_id": job.id}
+
+@router.get("/export/status", status_code=status.HTTP_200_OK)
+async def get_data_export_status(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ExtractionJob).where(ExtractionJob.user_id == user.id).order_by(ExtractionJob.created_at.desc())
     )
+    jobs = result.scalars().all()
+    return [{"job_id": j.id, "status": j.status, "created_at": j.created_at} for j in jobs]
+
+@router.get("/export/{job_id}/download", status_code=status.HTTP_200_OK)
+async def get_download_link(
+    job_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id, ExtractionJob.user_id == user.id))
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != ExtractionJobStatus.COMPLETED or not job.file_url:
+        raise HTTPException(status_code=400, detail="Export not completed yet")
+        
+    use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
+    try:
+        storage = StorageProvider(use_gcs=use_gcs)
+        download_url = storage.generate_download_url(job.file_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return {
+        "url": download_url,
+        "password": job.password,
+        "expires_at": job.expires_at
+    }
 
 # ── Geofences ───────────────────────────────────────────────────────────────
 

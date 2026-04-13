@@ -343,7 +343,40 @@ export const api = {
       const err = await res.json();
       throw new Error(err.detail || "Failed to start export");
     }
-    return res.blob();
+    return res.json();
+  },
+
+  async getExportConfig() {
+    const res = await apiFetch("/api/v1/settings/export/config", {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to get export config");
+    }
+    return res.json();
+  },
+
+  async getExportStatus() {
+    const res = await apiFetch("/api/v1/settings/export/status", {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to get export status");
+    }
+    return res.json();
+  },
+
+  async getExportDownloadLink(jobId: string) {
+    const res = await apiFetch(`/api/v1/settings/export/${jobId}/download`, {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to get download link");
+    }
+    return res.json();
   },
 
   async updateMe(data: { display_name?: string }) {

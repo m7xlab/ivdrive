@@ -123,6 +123,15 @@ class DataCollector:
             replace_existing=True,
         )
 
+        from app.tasks.extraction import cleanup_expired_extractions
+        self._scheduler.add_job(
+            cleanup_expired_extractions,
+            "interval",
+            hours=1,
+            id="cleanup_expired_extractions",
+            replace_existing=True,
+        )
+
         from app.services.energy import fetch_and_store_energy_prices
         self._scheduler.add_job(
             fetch_and_store_energy_prices,
