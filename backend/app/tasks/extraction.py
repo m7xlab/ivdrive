@@ -9,7 +9,10 @@ from app.services.export import ExportService
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.services.storage import StorageProvider
 from app.database import async_session
-from sqlalchemy import update
+import logging
+from sqlalchemy import update, select
+
+logger = logging.getLogger(__name__)
 
 async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs: bool):
     try:
@@ -59,3 +62,28 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
                 .values(status=ExtractionJobStatus.FAILED, error_message=str(e))
             )
             await db.commit()
+
+async def cleanup_expired_extractions():
+    use_gcs = os.getenv("USE_GCS_STORAGE", "false").lower() == "true"
+    storage = StorageProvider(use_gcs=use_gcs)
+    
+    try:
+        async with async_session() as db:
+            query = select(ExtractionJob).where(ExtractionJob.expires_at < datetime.now(timezone.utc))
+            result = await db.execute(query)
+            expired_jobs = result.scalars().all()
+            
+            for job in expired_jobs:
+                if job.file_url:
+                    try:
+                        storage.delete_file(job.file_url)
+                    except Exception as e:
+                        logger.error(f"Failed to delete expired export {job.file_url}: {e}")
+                
+                await db.delete(job)
+                
+            if expired_jobs:
+                await db.commit()
+                logger.info(f"Cleaned up {len(expired_jobs)} expired extraction jobs.")
+    except Exception as e:
+        logger.error(f"Failed to run extraction job cleanup: {e}")
