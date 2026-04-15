@@ -100,7 +100,7 @@ export async function apiFetch(
        errData = await errorClone.text();
      }
      
-     const message = errData?.detail || (typeof errData === 'string' ? errData : "An error occurred");
+     const message = errData?.error?.message || errData?.detail || (typeof errData === 'string' ? errData : "An error occurred");
      throw new ApiError(message, res.status, errData);
   }
 
