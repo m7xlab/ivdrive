@@ -476,7 +476,7 @@ def _apply_time_filters(stmt, date_column, from_date, to_date, limit):
         stmt = stmt.where(date_column >= from_date)
     if to_date:
         stmt = stmt.where(date_column <= to_date)
-    return stmt.order_by(date_column.desc()).limit(limit)
+    return stmt.order_by(date_column.desc()).offset(skip).limit(limit)
 
 
 def _apply_time_filters_chronological(stmt, date_column, from_date, to_date, limit):
@@ -485,7 +485,7 @@ def _apply_time_filters_chronological(stmt, date_column, from_date, to_date, lim
         stmt = stmt.where(date_column >= from_date)
     if to_date:
         stmt = stmt.where(date_column <= to_date)
-    return stmt.order_by(date_column.asc()).limit(limit)
+    return stmt.order_by(date_column.asc()).offset(skip).limit(limit)
 
 
 def _merge_bands(
@@ -515,6 +515,7 @@ async def get_battery_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -539,6 +540,7 @@ async def get_range_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -563,6 +565,7 @@ async def get_levels_step(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -577,7 +580,7 @@ async def get_levels_step(
         stmt = stmt.where(DriveLevel.last_date >= from_date)
     if to_date:
         stmt = stmt.where(DriveLevel.last_date <= to_date)
-    stmt = stmt.order_by(DriveLevel.first_date.asc()).limit(limit)
+    stmt = stmt.order_by(DriveLevel.first_date.asc()).offset(skip).limit(limit)
     rows = (await db.execute(stmt)).all()
 
     # Collapse consecutive identical levels into step segments
@@ -608,6 +611,7 @@ async def get_ranges_step(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -622,7 +626,7 @@ async def get_ranges_step(
         stmt = stmt.where(DriveRange.last_date >= from_date)
     if to_date:
         stmt = stmt.where(DriveRange.last_date <= to_date)
-    stmt = stmt.order_by(DriveRange.first_date.asc()).limit(limit)
+    stmt = stmt.order_by(DriveRange.first_date.asc()).offset(skip).limit(limit)
     rows = (await db.execute(stmt)).all()
 
     # Collapse consecutive identical ranges into step segments
@@ -653,6 +657,7 @@ async def get_outside_temperature(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -680,6 +685,7 @@ async def get_charging_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -702,6 +708,7 @@ async def get_charging_sessions(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -722,6 +729,7 @@ async def get_trips(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -738,6 +746,7 @@ async def get_trips_analytics(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=1000, ge=1, le=10000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -771,7 +780,7 @@ async def get_trips_analytics(
     if to_date:
         stmt = stmt.where(column("start_date") <= to_date)
 
-    stmt = stmt.order_by(column("start_date").desc()).limit(limit)
+    stmt = stmt.order_by(column("start_date").desc()).offset(skip).limit(limit)
 
     result = await db.execute(stmt)
     rows = result.fetchall()
@@ -812,6 +821,7 @@ async def get_positions(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -832,6 +842,7 @@ async def get_air_conditioning_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -850,6 +861,7 @@ async def get_maintenance_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -868,6 +880,7 @@ async def get_odometer_history(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -890,6 +903,7 @@ async def get_connection_states(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -908,6 +922,7 @@ async def get_overview_state_bands(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1088,6 +1103,7 @@ async def get_overview_range_at_100(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1131,6 +1147,7 @@ async def get_overview_efficiency(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1181,6 +1198,7 @@ async def get_statistics(
     limit: int = Query(default=30, ge=1, le=365),
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1208,7 +1226,7 @@ async def get_statistics(
         .where(*trip_where)
         .group_by("period")
         .order_by(text("period DESC"))
-        .limit(limit)
+        .offset(skip).limit(limit)
     )
     trip_stats = await db.execute(stmt_trip)
     trip_rows = {row.period: row for row in trip_stats.all()}
@@ -1230,7 +1248,7 @@ async def get_statistics(
         .where(*charge_where)
         .group_by("period")
         .order_by(text("period DESC"))
-        .limit(limit)
+        .offset(skip).limit(limit)
     )
     charge_stats = await db.execute(stmt_charge)
     charge_rows = {row.period: row for row in charge_stats.all()}
@@ -1254,7 +1272,7 @@ async def get_statistics(
         .params(params)
         .group_by("period")
         .order_by(text("period DESC"))
-        .limit(limit)
+        .offset(skip).limit(limit)
     )
     consume_stats = await db.execute(stmt_consume)
     consume_rows = {row.period: row for row in consume_stats.all()}
@@ -1298,6 +1316,7 @@ async def get_battery_temperature(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1319,6 +1338,7 @@ async def get_charging_power(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1341,6 +1361,7 @@ async def get_overview_electric_consumption(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1388,6 +1409,7 @@ async def get_visited_locations(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
+    skip: int = Query(default=0, ge=0),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1404,7 +1426,7 @@ async def get_visited_locations(
         stmt_pos = stmt_pos.where(VehiclePosition.captured_at >= from_date)
     if to_date:
         stmt_pos = stmt_pos.where(VehiclePosition.captured_at <= to_date)
-    stmt_pos = stmt_pos.order_by(VehiclePosition.captured_at.asc()).limit(limit)
+    stmt_pos = stmt_pos.order_by(VehiclePosition.captured_at.asc()).offset(skip).limit(limit)
     pos_rows = (await db.execute(stmt_pos)).all()
 
     # 2. Charging session locations (lat/lon not null)
@@ -1421,7 +1443,7 @@ async def get_visited_locations(
         stmt_cs = stmt_cs.where(ChargingSession.session_start >= from_date)
     if to_date:
         stmt_cs = stmt_cs.where(ChargingSession.session_start <= to_date)
-    stmt_cs = stmt_cs.order_by(ChargingSession.session_start.asc()).limit(limit)
+    stmt_cs = stmt_cs.order_by(ChargingSession.session_start.asc()).offset(skip).limit(limit)
     cs_rows = (await db.execute(stmt_cs)).all()
 
     results: list[VisitedLocationItem] = []
