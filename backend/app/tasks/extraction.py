@@ -35,7 +35,6 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
                 def encrypt_zip():
                     with pyzipper.AESZipFile(enc_zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
                         zf.setpassword(password.encode('utf-8'))
-                        # Enforce stronger AES-256
                         zf.setencryption(pyzipper.WZ_AES, nbits=256)
                         zf.write(zip_path, os.path.basename(zip_path))
                     

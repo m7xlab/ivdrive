@@ -386,13 +386,13 @@ async def logout(response: Response, request: Request, body: RefreshRequest = No
     response.delete_cookie(
         key="access_token", 
         httponly=True, 
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=True, # always secure according to PR comments
         samesite="lax"
     )
     response.delete_cookie(
         key="refresh_token", 
         httponly=True, 
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=True,
         samesite="lax"
     )
     return {"detail": "Successfully logged out"}
