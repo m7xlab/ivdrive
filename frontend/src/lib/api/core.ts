@@ -64,6 +64,14 @@ export async function clearApiCache() {
   requestCache.clear();
 }
 
+export function invalidateApiCache(pathMatch: string) {
+  for (const key of requestCache.keys()) {
+    if (key.includes(pathMatch)) {
+      requestCache.delete(key);
+    }
+  }
+}
+
 export async function apiFetch(
   path: string,
   options: RequestInit = {}
@@ -126,6 +134,17 @@ export async function apiFetch(
      
      const message = errData?.error?.message || errData?.detail || (typeof errData === 'string' ? errData : "An error occurred");
      throw new ApiError(message, res.status, errData);
+  }
+
+  // Invalidate cache on mutations
+  if (options.method && ["POST", "PUT", "PATCH", "DELETE"].includes(options.method.toUpperCase()) && res.ok) {
+    // Basic heuristic: if we mutate /api/v1/vehicles/123/something, we invalidate /api/v1/vehicles/123
+    const segments = path.split("/");
+    const vehicleIdIndex = segments.indexOf("vehicles") + 1;
+    if (vehicleIdIndex > 0 && vehicleIdIndex < segments.length) {
+      const vehicleId = segments[vehicleIdIndex];
+      invalidateApiCache(vehicleId);
+    }
   }
 
   if (isGet && res.ok) {

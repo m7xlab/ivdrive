@@ -2,17 +2,61 @@ from contextlib import asynccontextmanager
 import logging
 import sys
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+import json
 
 from app.api.v1 import auth, commands, admin, notifications, geo
 from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
 from app.config import settings
+from app.services.cache import cache_get, cache_set
+
+
+class CacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "GET" and "/api/v1/vehicles/" in request.url.path:
+            # We cache expensive analytical routes
+            path = request.url.path
+            if "overview" in path or "analytics" in path or "statistics" in path or "history" in path or "trips" in path or "charging" in path:
+                # Exclude live status
+                if "/status" not in path and "/pulse" not in path:
+                    cache_key = f"ivdrive:api:cache:{path}"
+                    if request.url.query:
+                        cache_key += f"?{request.url.query}"
+                        
+                    cached_data = await cache_get(cache_key)
+                    if cached_data:
+                        # Add header to show it was cached
+                        response = JSONResponse(content=cached_data)
+                        response.headers["X-Cache"] = "HIT"
+                        return response
+
+                    response = await call_next(request)
+                    
+                    if response.status_code == 200 and response.headers.get("content-type") == "application/json":
+                        body_bytes = b"".join([section async for section in response.body_iterator])
+                        
+                        try:
+                            json_data = json.loads(body_bytes.decode())
+                            await cache_set(cache_key, json_data, expire_seconds=60)
+                        except Exception:
+                            pass
+                            
+                        return Response(
+                            content=body_bytes,
+                            status_code=response.status_code,
+                            headers=dict(response.headers),
+                            media_type=response.media_type
+                        )
+                    return response
+        
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -34,6 +78,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(CacheMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
