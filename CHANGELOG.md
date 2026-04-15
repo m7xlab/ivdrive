@@ -5,7 +5,23 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-04-12
+## [Unreleased] - 2026-04-15
+
+### Added 🌟
+- **Data Sovereignty (Extract My Data)**: Users can now download a complete JSON snapshot of all their vehicle telemetry and trip data spanning the last 12 months.
+- **Secure Export Infrastructure**: Exports are bundled into AES-256 encrypted `.zip` archives with dynamically generated passwords. Supports both Google Cloud Storage (`USE_GCS_STORAGE`) and S3-compatible endpoints (`USE_S3_STORAGE`).
+- **Data Privacy UI**: Added a dedicated "Data & Privacy" settings panel, completely hidden if storage flags are disabled, allowing users to request and download their exports.
+
+### Changed ⚙️
+- **Frontend API Refactor**: Split the monolithic 900-line `api.ts` file into smaller, logical domain modules (`auth.ts`, `vehicles.ts`, `statistics.ts`, `settings.ts`, etc.) while retaining backward compatibility via a barrel file export.
+- **Centralized Error Handling**: Overhauled `apiFetch` in the frontend to automatically throw standardized `ApiError` instances on non-OK responses, removing thousands of lines of boilerplate `!res.ok` checks.
+
+### Fixed 🛠
+- **Token Refresh Loop**: Corrected a state leak where a failed token refresh attempt (401 Unauthorized) left the `is_logged_in` flag active, trapping the user in a request loop instead of logging them out.
+- **Secure Logout Cookies**: Ensure the `secure=True` flag is properly mirrored on `delete_cookie` calls during logout when running outside of debug mode.
+- **Memory Leak in API Responses**: Ensured the original fetch `Response.body` stream is cancelled and consumed after cloning it to parse error messages.
+
+## [v1.0.21-beta] - 2026-04-12
 
 ### Security 🔒
 - **HTTP-Only Cookie Migration**: Entirely removed `localStorage` token management in favor of secure, backend-issued `HttpOnly` and `SameSite=Lax` cookies for `access_token` and `refresh_token` to prevent XSS-based token theft.
