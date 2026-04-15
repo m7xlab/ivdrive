@@ -55,6 +55,15 @@ export class ApiError extends Error {
   }
 }
 
+
+// Simple memory cache for GET requests
+const requestCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 60000; // 1 minute
+
+export async function clearApiCache() {
+  requestCache.clear();
+}
+
 export async function apiFetch(
   path: string,
   options: RequestInit = {}
@@ -70,7 +79,22 @@ export async function apiFetch(
     credentials: "include",
   };
 
-  let res = await fetch(`${API_BASE}${path}`, fetchOptions);
+  const isGet = !options.method || options.method.toUpperCase() === "GET";
+  const cacheKey = `${API_BASE}${path}`;
+
+  // Serve from cache if fresh
+  if (isGet) {
+    const cached = requestCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      // Return a mocked Response object wrapped around the cached JSON
+      return new Response(JSON.stringify(cached.data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  let res = await fetch(cacheKey, fetchOptions);
 
   if (res.status === 401) {
     // Attempt to refresh cookie
@@ -104,5 +128,14 @@ export async function apiFetch(
      throw new ApiError(message, res.status, errData);
   }
 
+  if (isGet && res.ok) {
+    const clone = res.clone();
+    try {
+      const data = await clone.json();
+      requestCache.set(cacheKey, { data, timestamp: Date.now() });
+    } catch {
+      // Ignored for non-json
+    }
+  }
   return res;
 }
