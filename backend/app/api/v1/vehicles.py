@@ -471,7 +471,7 @@ async def get_vehicle_status(
     )
 
 
-def _apply_time_filters(stmt, date_column, from_date, to_date, limit):
+def _apply_time_filters(stmt, date_column, from_date, to_date, limit, skip: int = 0):
     if from_date:
         stmt = stmt.where(date_column >= from_date)
     if to_date:
@@ -479,7 +479,7 @@ def _apply_time_filters(stmt, date_column, from_date, to_date, limit):
     return stmt.order_by(date_column.desc()).offset(skip).limit(limit)
 
 
-def _apply_time_filters_chronological(stmt, date_column, from_date, to_date, limit):
+def _apply_time_filters_chronological(stmt, date_column, from_date, to_date, limit, skip: int = 0):
     """Same as _apply_time_filters but order asc so we get the first N segments in the range (for step charts)."""
     if from_date:
         stmt = stmt.where(date_column >= from_date)
@@ -1088,7 +1088,7 @@ async def get_overview_wltp(
 
 
 def _apply_time_filters_range_drive(
-    stmt, from_date: datetime | None, to_date: datetime | None, limit: int, date_col
+    stmt, from_date: datetime | None, to_date: datetime | None, limit: int, date_col, skip: int = 0
 ):
     if from_date:
         stmt = stmt.where(date_col >= from_date)
