@@ -73,8 +73,7 @@ export function invalidateApiCache(vehicleId?: string) {
   for (const key of requestCache.keys()) {
     try {
       // Safely parse regardless of relative/absolute API_BASE
-      const urlStr = key.startsWith('http') ? key : `http://localhost${key.startsWith('/') ? key : '/' + key}`;
-      const url = new URL(urlStr);
+      const url = new URL(key, "http://localhost");
       if (url.pathname === matchString || url.pathname.startsWith(`${matchString}/`)) {
         requestCache.delete(key);
       }
