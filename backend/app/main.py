@@ -19,6 +19,9 @@ from app.services.cache import cache_get, cache_set, init_cache, close_cache
 import asyncio
 
 
+from app.security import decode_token
+from app.config import settings
+
 class CacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method == "GET" and "/api/v1/vehicles/" in request.url.path:
@@ -27,9 +30,22 @@ class CacheMiddleware(BaseHTTPMiddleware):
             if "overview" in path or "analytics" in path or "statistics" in path or "history" in path or "trips" in path or "charging" in path:
                 # Exclude live status
                 if "/status" not in path and "/pulse" not in path:
-                    cache_key = f"ivdrive:api:cache:{path}"
+                    
+                    # Extract user_id from cookie to scope cache keys securely
+                    user_id = "anonymous"
+                    token = request.cookies.get("access_token")
+                    if token:
+                        try:
+                            payload = decode_token(token)
+                            if payload.get("type") == "access":
+                                user_id = payload.get("sub", "anonymous")
+                        except Exception:
+                            pass
+                            
+                    cache_key = f"ivdrive:api:cache:{user_id}:{path}"
                     if request.url.query:
                         cache_key += f"?{request.url.query}"
+
                         
                     cached_data = await cache_get(cache_key)
                     if cached_data:
