@@ -168,13 +168,17 @@ export async function apiFetch(
 
   // Invalidate cache on mutations
   if (options.method && ["POST", "PUT", "PATCH", "DELETE"].includes(options.method.toUpperCase()) && res.ok) {
-    const segments = path.split("/");
-    const vehicleIdIndex = segments.indexOf("vehicles") + 1;
-    if (vehicleIdIndex > 0 && vehicleIdIndex < segments.length) {
-      const vehicleId = segments[vehicleIdIndex];
-      invalidateApiCache(vehicleId);
-    } else {
-      // If mutation happens outside of a specific vehicle (e.g. global settings), wipe whole cache
+    try {
+      const parsedUrl = new URL(path, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+      const segments = parsedUrl.pathname.split("/").filter(Boolean);
+      const vehicleIdIndex = segments.indexOf("vehicles") + 1;
+      if (vehicleIdIndex > 0 && vehicleIdIndex < segments.length) {
+        const vehicleId = segments[vehicleIdIndex];
+        invalidateApiCache(vehicleId);
+      } else {
+        clearApiCache();
+      }
+    } catch {
       clearApiCache();
     }
   }

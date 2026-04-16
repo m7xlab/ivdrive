@@ -49,7 +49,8 @@ class CacheMiddleware(BaseHTTPMiddleware):
                     except Exception:
                         return await call_next(request)
                             
-                    cache_key = f"ivdrive:api:cache:{user_id}:{path}"
+                    accept_header = request.headers.get("accept", "application/json")
+                    cache_key = f"ivdrive:api:cache:{user_id}:{path}:{accept_header}"
                     if request.url.query:
                         cache_key += f"?{request.url.query}"
 
