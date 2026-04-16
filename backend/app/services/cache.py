@@ -6,20 +6,32 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+valkey_client: Optional[valkey.Valkey] = None
+
 def _valkey_url() -> str:
     url = settings.valkey_url
     if url.startswith("valkey://"):
         url = "redis://" + url[len("valkey://"):]
     return url
 
-async def get_valkey_client(**kwargs) -> valkey.Valkey:
-    return valkey.from_url(_valkey_url(), decode_responses=True, **kwargs)
+async def init_cache() -> None:
+    global valkey_client
+    if valkey_client is None:
+        valkey_client = valkey.from_url(_valkey_url(), decode_responses=True)
+        logger.info("Valkey cache connection pool initialized.")
+
+async def close_cache() -> None:
+    global valkey_client
+    if valkey_client is not None:
+        await valkey_client.aclose()
+        valkey_client = None
+        logger.info("Valkey cache connection pool closed.")
 
 async def cache_get(key: str) -> Optional[Any]:
+    if not valkey_client:
+        return None
     try:
-        client = await get_valkey_client()
-        val = await client.get(key)
-        await client.aclose()
+        val = await valkey_client.get(key)
         if val:
             return json.loads(val)
         return None
@@ -28,24 +40,22 @@ async def cache_get(key: str) -> Optional[Any]:
         return None
 
 async def cache_set(key: str, value: Any, expire_seconds: int = 60) -> None:
+    if not valkey_client:
+        return
     try:
-        client = await get_valkey_client()
-        await client.setex(key, expire_seconds, json.dumps(value))
-        await client.aclose()
+        await valkey_client.setex(key, expire_seconds, json.dumps(value))
     except Exception as e:
         logger.error(f"Valkey cache set failed: {e}")
 
 async def invalidate_vehicle_cache(vehicle_id: str) -> None:
-    """Invalidate all cached API responses for a specific vehicle."""
+    if not valkey_client:
+        return
     try:
-        client = await get_valkey_client()
-        # Scan for keys matching the vehicle prefix
-        pattern = f"ivdrive:api:cache:vehicles:{vehicle_id}:*"
+        pattern = f"ivdrive:api:cache:*/vehicles/{vehicle_id}*"
         cursor = '0'
-        while cursor != 0:
-            cursor, keys = await client.scan(cursor=cursor, match=pattern, count=100)
+        while cursor != '0':
+            cursor, keys = await valkey_client.scan(cursor=cursor, match=pattern, count=100)
             if keys:
-                await client.delete(*keys)
-        await client.aclose()
+                await valkey_client.delete(*keys)
     except Exception as e:
         logger.error(f"Valkey cache invalidation failed: {e}")

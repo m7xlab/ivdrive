@@ -64,9 +64,10 @@ export async function clearApiCache() {
   requestCache.clear();
 }
 
-export function invalidateApiCache(pathMatch: string) {
+export function invalidateApiCache(vehicleId: string) {
+  const matchString = `/api/v1/vehicles/${vehicleId}`;
   for (const key of requestCache.keys()) {
-    if (key.includes(pathMatch)) {
+    if (key.includes(matchString)) {
       requestCache.delete(key);
     }
   }

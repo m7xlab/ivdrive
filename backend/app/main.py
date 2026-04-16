@@ -15,7 +15,8 @@ from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
 from app.config import settings
-from app.services.cache import cache_get, cache_set
+from app.services.cache import cache_get, cache_set, init_cache, close_cache
+import asyncio
 
 
 class CacheMiddleware(BaseHTTPMiddleware):
@@ -44,9 +45,10 @@ class CacheMiddleware(BaseHTTPMiddleware):
                         
                         try:
                             json_data = json.loads(body_bytes.decode())
-                            await cache_set(cache_key, json_data, expire_seconds=60)
-                        except Exception:
-                            pass
+                            # Fire-and-forget the cache set so we don't block the response
+                            asyncio.create_task(cache_set(cache_key, json_data, expire_seconds=60))
+                        except Exception as e:
+                            logging.error(f"Cache middleware serialization error: {e}")
                             
                         return Response(
                             content=body_bytes,
@@ -61,6 +63,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await init_cache()
     # So that logger.info() from app (e.g. STATISTICS_QUERY_DEBUG) appears in docker logs
     if getattr(settings, "statistics_query_debug", False):
         app_logger = logging.getLogger("app")
@@ -70,6 +73,7 @@ async def lifespan(app: FastAPI):
             h.setLevel(logging.INFO)
             app_logger.addHandler(h)
     yield
+    await close_cache()
 
 
 app = FastAPI(
