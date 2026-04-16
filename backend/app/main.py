@@ -47,7 +47,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
                             body_bytes = response.body
                             try:
                                 json_data = json.loads(body_bytes.decode())
-                                asyncio.create_task(cache_set(cache_key, json_data, expire_seconds=60))
+                                await cache_set(cache_key, json_data, expire_seconds=60)
                             except Exception as e:
                                 logging.error(f"Cache middleware serialization error: {e}")
                             return response

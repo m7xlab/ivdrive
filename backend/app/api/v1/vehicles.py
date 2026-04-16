@@ -1426,7 +1426,7 @@ async def get_visited_locations(
         stmt_pos = stmt_pos.where(VehiclePosition.captured_at >= from_date)
     if to_date:
         stmt_pos = stmt_pos.where(VehiclePosition.captured_at <= to_date)
-    stmt_pos = stmt_pos.order_by(VehiclePosition.captured_at.asc()).offset(skip).limit(limit)
+    stmt_pos = stmt_pos.order_by(VehiclePosition.captured_at.asc())
     pos_rows = (await db.execute(stmt_pos)).all()
 
     # 2. Charging session locations (lat/lon not null)
@@ -1443,7 +1443,7 @@ async def get_visited_locations(
         stmt_cs = stmt_cs.where(ChargingSession.session_start >= from_date)
     if to_date:
         stmt_cs = stmt_cs.where(ChargingSession.session_start <= to_date)
-    stmt_cs = stmt_cs.order_by(ChargingSession.session_start.asc()).offset(skip).limit(limit)
+    stmt_cs = stmt_cs.order_by(ChargingSession.session_start.asc())
     cs_rows = (await db.execute(stmt_cs)).all()
 
     results: list[VisitedLocationItem] = []
@@ -1458,7 +1458,7 @@ async def get_visited_locations(
             timestamp=r.timestamp, source="charging",
         ))
     results.sort(key=lambda x: x.timestamp)
-    results = results[:limit]
+    results = results[skip:skip+limit]
 
     _log_statistics_query(
         "overview/visited", vehicle_id, from_date=from_date, to_date=to_date,
