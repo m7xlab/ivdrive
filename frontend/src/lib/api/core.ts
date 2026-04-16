@@ -60,6 +60,18 @@ export class ApiError extends Error {
 const requestCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 60000; // 1 minute
 
+// Periodically clean up stale cache entries to prevent Map memory leaks over long sessions
+if (typeof window !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of requestCache.entries()) {
+      if (now - val.timestamp >= CACHE_TTL_MS) {
+        requestCache.delete(key);
+      }
+    }
+  }, 120000); // Check every 2 minutes
+}
+
 export async function clearApiCache() {
   requestCache.clear();
 }

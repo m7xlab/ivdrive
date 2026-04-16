@@ -1414,51 +1414,45 @@ async def get_visited_locations(
     db: AsyncSession = Depends(get_db),
 ):
     """Historical visited locations combining vehicle positions and charging session locations."""
+    from sqlalchemy import union_all, literal_column
     vehicle = await _get_user_vehicle(vehicle_id, user, db)
 
-    # 1. Vehicle positions
-    stmt_pos = select(
+    # 1. Drive positions
+    q1 = select(
         VehiclePosition.latitude,
         VehiclePosition.longitude,
         VehiclePosition.captured_at.label("timestamp"),
+        literal_column("'position'").label("source")
     ).where(VehiclePosition.user_vehicle_id == vehicle.id)
     if from_date:
-        stmt_pos = stmt_pos.where(VehiclePosition.captured_at >= from_date)
+        q1 = q1.where(VehiclePosition.captured_at >= from_date)
     if to_date:
-        stmt_pos = stmt_pos.where(VehiclePosition.captured_at <= to_date)
-    stmt_pos = stmt_pos.order_by(VehiclePosition.captured_at.asc())
-    pos_rows = (await db.execute(stmt_pos)).all()
+        q1 = q1.where(VehiclePosition.captured_at <= to_date)
 
-    # 2. Charging session locations (lat/lon not null)
-    stmt_cs = select(
+    # 2. Charging session locations
+    q2 = select(
         ChargingSession.latitude,
         ChargingSession.longitude,
         ChargingSession.session_start.label("timestamp"),
+        literal_column("'charging'").label("source")
     ).where(
         ChargingSession.user_vehicle_id == vehicle.id,
         ChargingSession.latitude.isnot(None),
         ChargingSession.longitude.isnot(None),
     )
     if from_date:
-        stmt_cs = stmt_cs.where(ChargingSession.session_start >= from_date)
+        q2 = q2.where(ChargingSession.session_start >= from_date)
     if to_date:
-        stmt_cs = stmt_cs.where(ChargingSession.session_start <= to_date)
-    stmt_cs = stmt_cs.order_by(ChargingSession.session_start.asc())
-    cs_rows = (await db.execute(stmt_cs)).all()
+        q2 = q2.where(ChargingSession.session_start <= to_date)
 
-    results: list[VisitedLocationItem] = []
-    for r in pos_rows:
-        results.append(VisitedLocationItem(
-            latitude=r.latitude, longitude=r.longitude,
-            timestamp=r.timestamp, source="position",
-        ))
-    for r in cs_rows:
-        results.append(VisitedLocationItem(
-            latitude=r.latitude, longitude=r.longitude,
-            timestamp=r.timestamp, source="charging",
-        ))
-    results.sort(key=lambda x: x.timestamp)
-    results = results[skip:skip+limit]
+    # Combine with UNION ALL and paginate in SQL natively
+    stmt = union_all(q1, q2).order_by(text("timestamp ASC")).offset(skip).limit(limit)
+    
+    rows = (await db.execute(stmt)).all()
+    results = [
+        VisitedLocationItem(latitude=r.latitude, longitude=r.longitude, timestamp=r.timestamp, source=r.source)
+        for r in rows
+    ]
 
     _log_statistics_query(
         "overview/visited", vehicle_id, from_date=from_date, to_date=to_date,
