@@ -47,11 +47,12 @@ export function ChargingStatisticsDashboard({
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => {
-      fetchData();
-    }, 60000);
+    const isLive = !toISO || new Date(toISO) >= new Date();
+    if (!isLive) return;
+
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, toISO]);
 
   const totalCharges = stats.reduce((acc, r) => acc + r.charging_sessions_count, 0);
   const totalEnergy = stats.reduce((acc, r) => acc + r.total_energy_kwh, 0);

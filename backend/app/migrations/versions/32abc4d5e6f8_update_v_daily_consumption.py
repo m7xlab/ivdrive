@@ -36,10 +36,21 @@ def upgrade() -> None:
             p.user_vehicle_id,
             p.park_start_time,
             p.next_park_start_time,
-            (SELECT cs.battery_pct FROM charging_states cs WHERE cs.user_vehicle_id = p.user_vehicle_id AND cs.first_date <= p.park_start_time ORDER BY cs.first_date DESC LIMIT 1) AS start_soc,
-            (SELECT cs.battery_pct FROM charging_states cs WHERE cs.user_vehicle_id = p.user_vehicle_id AND cs.first_date <= COALESCE(p.next_park_start_time, NOW()) ORDER BY cs.first_date DESC LIMIT 1) AS end_soc
-        FROM
-            parked_periods p
+            s_soc.battery_pct AS start_soc,
+            e_soc.battery_pct AS end_soc
+        FROM parked_periods p
+        LEFT JOIN LATERAL (
+            SELECT battery_pct 
+            FROM charging_states cs 
+            WHERE cs.user_vehicle_id = p.user_vehicle_id AND cs.first_date <= p.park_start_time 
+            ORDER BY cs.first_date DESC LIMIT 1
+        ) s_soc ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT battery_pct 
+            FROM charging_states cs 
+            WHERE cs.user_vehicle_id = p.user_vehicle_id AND cs.first_date <= COALESCE(p.next_park_start_time, NOW()) 
+            ORDER BY cs.first_date DESC LIMIT 1
+        ) e_soc ON TRUE
     ),
     consumption_per_cycle AS (
         SELECT

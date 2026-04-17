@@ -43,11 +43,12 @@ export function VisitedDashboard({ vehicleId, dateRange }: VisitedDashboardProps
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => {
-      fetchData();
-    }, 60000);
+    const isLive = !toISOVal || new Date(toISOVal) >= new Date();
+    if (!isLive) return;
+
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, toISOVal]);
 
   if (loading) {
     return (

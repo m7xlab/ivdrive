@@ -76,12 +76,12 @@ export function DrivingStatisticsDashboard({
 
   useEffect(() => {
     fetchData();
-    // Live incremental refresh for the current day
-    const interval = setInterval(() => {
-      fetchData();
-    }, 60000); // Poll every 1 minute
+    const isLive = !toISO || new Date(toISO) >= new Date();
+    if (!isLive) return;
+
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, toISO]);
 
   const latestData = rows.length > 0 ? rows[0] : null;
   const historicalData = rows.length > 1 ? rows.slice(1) : [];
