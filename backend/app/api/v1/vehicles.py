@@ -1213,7 +1213,7 @@ async def get_statistics(
         trip_where.append(Trip.start_date >= from_date)
     if to_date:
         trip_where.append(Trip.start_date <= to_date)
-    time_driven_expr = func.sum(case((Trip.end_date.isnot(None), func.extract("epoch", Trip.end_date - Trip.start_date)), else_=0,))
+    time_driven_expr = func.sum(case((Trip.end_date.isnot(None), func.extract("epoch", Trip.end_date - Trip.start_date)), else_=func.extract("epoch", func.now() - Trip.start_date),))
     median_expr = func.percentile_cont(0.5).within_group((Trip.end_odometer - Trip.start_odometer).asc()).label("median_distance")
     stmt_trip = (
         select(
@@ -1237,7 +1237,7 @@ async def get_statistics(
         charge_where.append(ChargingSession.session_start >= from_date)
     if to_date:
         charge_where.append(ChargingSession.session_start <= to_date)
-    time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, ChargingSession.session_start) - ChargingSession.session_start,))
+    time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, func.now()) - ChargingSession.session_start,))
     stmt_charge = (
         select(
             func.date_trunc(trunc, ChargingSession.session_start).label("period"),

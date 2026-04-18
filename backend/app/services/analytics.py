@@ -85,6 +85,24 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                             open_trip.avg_temp_celsius = latest_pos.outside_temp_celsius
                         else:
                             open_trip.avg_temp_celsius = (open_trip.avg_temp_celsius + latest_pos.outside_temp_celsius) / 2.0
+                    
+                    # Update live tracking variables
+                    open_trip.end_lat = latest_pos.latitude if latest_pos else open_trip.end_lat
+                    open_trip.end_lon = latest_pos.longitude if latest_pos else open_trip.end_lon
+                    open_trip.end_odometer = latest_odom.mileage_in_km if latest_odom else open_trip.end_odometer
+                    open_trip.end_soc = latest_charge.battery_pct if latest_charge else open_trip.end_soc
+
+                    if open_trip.start_odometer and open_trip.end_odometer:
+                        open_trip.distance_km = float(open_trip.end_odometer - open_trip.start_odometer)
+                        
+                    if open_trip.start_soc and open_trip.end_soc:
+                        soc_used = open_trip.start_soc - open_trip.end_soc
+                        v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
+                        veh = v_res.scalar_one_or_none()
+                        capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
+                        if capacity_kwh is None: capacity_kwh = 77.0
+                        if soc_used > 0:
+                            open_trip.kwh_consumed = (soc_used / 100.0) * capacity_kwh
             else:
                 if open_trip:
                     # End the trip! Calculate deltas.
@@ -152,6 +170,20 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                             open_charge.avg_temp_celsius = latest_pos.outside_temp_celsius
                         else:
                             open_charge.avg_temp_celsius = (open_charge.avg_temp_celsius + latest_pos.outside_temp_celsius) / 2.0
+                    
+                    # Update live charging variables
+                    open_charge.end_level = latest_charge.battery_pct if latest_charge else open_charge.end_level
+                    
+                    if open_charge.start_level and open_charge.end_level:
+                        soc_added = open_charge.end_level - open_charge.start_level
+                        v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
+                        veh = v_res.scalar_one_or_none()
+                        capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
+                        if capacity_kwh is None: capacity_kwh = 77.0
+                        
+                        if soc_added > 0:
+                            added_kwh = (soc_added / 100.0) * capacity_kwh
+                            open_charge.energy_kwh = added_kwh
             else:
                 if open_charge:
                     open_charge.session_end = datetime.now(UTC)
