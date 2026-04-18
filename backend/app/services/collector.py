@@ -883,7 +883,12 @@ class DataCollector:
                     soc = float(driving.primary_engine_range.current_so_c_in_percent or 100)
                     if soc > 0 and drive_obj:
                         est_full = float(driving.total_range_in_km) / (soc / 100.0)
-                        consumption_val = 16.5 + random.uniform(-2, 3)
+                        
+                        # Calculate accurate consumption (kWh/100km) from estimated full range and battery capacity
+                        capacity_kwh = getattr(vehicle, "battery_capacity_kwh", 77.0)
+                        if capacity_kwh is None: capacity_kwh = 77.0
+                        consumption_val = (capacity_kwh / est_full) * 100 if est_full > 0 else None
+                        
                         # DriveRangeEstimatedFull: scoped by drive_id (no user_vehicle_id column)
                         await _update_or_insert_duration_state(
                             session=session,
@@ -903,12 +908,13 @@ class DataCollector:
                             model_cls=DriveConsumption,
                             user_vehicle_id=user_vehicle_id,
                             match_keys={"consumption": consumption_val},
-                            volatile_keys=[],
+                            volatile_keys=["temperature_celsius"],
                             now=now,
                             max_gap_s=max_gap_s,
                             extra_filter=(DriveConsumption.drive_id == drive_obj.id),
                             drive_id=drive_obj.id,
                             consumption=consumption_val,
+                            temperature_celsius=temp_c,
                         )
 
                 if ac_resp and ac_resp.state:

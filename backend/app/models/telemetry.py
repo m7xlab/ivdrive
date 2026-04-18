@@ -395,6 +395,7 @@ class DriveConsumption(Base):
     first_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumption: Mapped[float | None] = mapped_column(Float)
+    temperature_celsius: Mapped[float | None] = mapped_column(Float)
 
     drive: Mapped["Drive"] = relationship()
 

@@ -23,7 +23,7 @@ class ChargingSessionUpdate(BaseModel):
 
 async def get_user_vehicle(user_id: UUID, vehicle_id: UUID, db: AsyncSession) -> UserVehicle:
     stmt = select(UserVehicle).where(UserVehicle.id == vehicle_id, UserVehicle.user_id == user_id)
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     vehicle = result.scalar_one_or_none()
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -40,21 +40,16 @@ async def get_efficiency_curve(
     
     stmt = (
         select(
-            func.round(Trip.avg_temp_celsius).label("temp"),
-            func.avg(Trip.kwh_consumed / Trip.distance_km * 100).label("avg_consumption_kwh_100km"),
-            func.count(Trip.id).label("trip_count")
+            text("temperature AS temp"),
+            text("avg_consumption AS avg_consumption_kwh_100km"),
+            text("data_points AS trip_count")
         )
-        .where(
-            Trip.user_vehicle_id == vehicle_id,
-            Trip.distance_km > 0,
-            Trip.kwh_consumed > 0,
-            Trip.avg_temp_celsius.isnot(None)
-        )
-        .group_by("temp")
-        .order_by("temp")
+        .select_from(text("v_winter_penalty_stats"))
+        .where(text("user_vehicle_id = :vid"))
+        .order_by(text("temperature"))
     )
     
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     data = result.all()
     
     return [
@@ -88,7 +83,7 @@ async def get_charging_costs(
         )
     )
     
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     row = result.first()
     
     if not row:
@@ -121,7 +116,7 @@ async def get_charging_sessions(
         .order_by(ChargingSession.session_start.desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     sessions = result.scalars().all()
     
     return [
@@ -155,7 +150,7 @@ async def update_charging_session(
         ChargingSession.id == session_id,
         ChargingSession.user_vehicle_id == vehicle_id
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     session_obj = result.scalar_one_or_none()
     
     if not session_obj:
@@ -248,7 +243,7 @@ async def get_battery_health(
         .order_by(BatteryHealth.captured_at.desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
@@ -287,7 +282,7 @@ async def get_power_usage(
         .order_by(PowerUsage.captured_at.desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
@@ -318,7 +313,7 @@ async def get_charging_curves(
         .order_by(ChargingCurve.captured_at.desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
@@ -351,7 +346,7 @@ async def get_legacy_charging_power_curve(
         .order_by(ChargingPower.first_date.desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
@@ -386,7 +381,7 @@ async def get_legacy_power_vs_battery_temp(
         .order_by("temp")
     )
     
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     rows = result.all()
     
     return [
@@ -414,7 +409,7 @@ async def get_legacy_weconnect_errors(
         .order_by(WeconnectError.datetime.desc())
         .limit(100)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
@@ -440,7 +435,7 @@ async def get_legacy_climatization(
         .order_by(ClimatizationState.first_date.desc())
         .limit(100)
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"vid": vehicle_id})
     records = result.scalars().all()
     
     return [
