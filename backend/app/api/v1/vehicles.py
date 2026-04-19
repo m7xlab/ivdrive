@@ -125,6 +125,7 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         model=v.model,
         model_year=v.model_year,
         collection_enabled=v.collection_enabled,
+        incognito_mode=v.incognito_mode,
         active_interval_seconds=v.active_interval_seconds,
         parked_interval_seconds=v.parked_interval_seconds,
         wltp_range_km=v.wltp_range_km,

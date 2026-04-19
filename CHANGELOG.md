@@ -5,6 +5,16 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-04-19
+
+### Added 🌟
+- **Incognito Mode**: Added a privacy feature that stops location tracking. When enabled, the background collector bypasses all Skoda API position requests and prevents saving `VehiclePosition` records, while continuing to log battery and charging statistics.
+- **Sync Disable**: Added a UI toggle in the Vehicle Settings allowing users to easily pause all background telemetry collection for specific vehicles.
+- **Enhanced Settings UI**: Added hidden accessibility labels to password forms and built-in visibility toggles (eye icons) for password inputs.
+
+### Changed ⚙️
+- **Frontend State Isolation**: Refactored the vehicle settings dashboard to strictly isolate edit forms per vehicle, preventing configuration state bleed when multiple vehicles are present.
+
 ## [Unreleased] - 2026-04-16
 
 ### Architecture & Performance 🚀

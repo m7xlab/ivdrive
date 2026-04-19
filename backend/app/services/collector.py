@@ -584,7 +584,11 @@ class DataCollector:
                     charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id)
 
                 driving = await _safe(api.get_driving_range(vin), "driving_range", user_vehicle_id)
-                position = await _safe(api.get_position(vin), "position", user_vehicle_id)
+                
+                position = None
+                if not vehicle.incognito_mode:
+                    position = await _safe(api.get_position(vin), "position", user_vehicle_id)
+                
                 status_resp = await _safe(api.get_vehicle_status(vin), "vehicle_status", user_vehicle_id)
                 if not ac_resp:
                     ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id)
@@ -599,7 +603,7 @@ class DataCollector:
                 temp_c = None
                 weather_code = None
                 elevation_m = None
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.type == "VEHICLE" and pos.gps_coordinates:
                             lat = pos.gps_coordinates.latitude
@@ -765,7 +769,7 @@ class DataCollector:
                         session.add(VehicleState(**vs_data))
 
                 # --- Position ---
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.gps_coordinates:
                             session.add(VehiclePosition(
