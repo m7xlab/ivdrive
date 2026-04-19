@@ -35,6 +35,7 @@ interface SettingsVehicle {
   model: string | null;
   model_year: number | null;
   collection_enabled: boolean;
+  incognito_mode: boolean;
   active_interval_seconds: number;
   parked_interval_seconds: number;
   wltp_range_km: number | null;
@@ -116,6 +117,8 @@ export default function SettingsPage() {
   const [editingInterval, setEditingInterval] = useState<string | null>(null);
   const [activeInterval, setActiveInterval] = useState(300);
   const [parkedInterval, setParkedInterval] = useState(1800);
+  const [collectionEnabled, setCollectionEnabled] = useState(true);
+  const [incognitoMode, setIncognitoMode] = useState(false);
   const [wltpRange, setWltpRange] = useState<string>("");
   const [countryCode, setCountryCode] = useState<string>("");
 
@@ -236,6 +239,8 @@ export default function SettingsPage() {
       await api.updateVehicle(id, {
         active_interval_seconds: activeInterval,
         parked_interval_seconds: parkedInterval,
+        collection_enabled: collectionEnabled,
+        incognito_mode: incognitoMode,
         wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? parsedWltp : null,
         country_code: countryCode.trim() ? countryCode.trim().toUpperCase() : null,
       });
@@ -474,6 +479,26 @@ export default function SettingsPage() {
                   <Timer size={12} className="text-iv-muted flex-shrink-0 mt-0.5" />
                   {editingInterval === v.id ? (
                     <div className="flex flex-col gap-2 flex-1">
+                      <div className="flex items-center justify-between gap-4 py-1">
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-iv-text block">Sync Enabled</span>
+                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Collect background telemetry from Skoda API. Disabling pauses all data collection.</span>
+                        </div>
+                        <label aria-label="Sync Enabled toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                          <input type="checkbox" checked={collectionEnabled} onChange={(e) => setCollectionEnabled(e.target.checked)} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-green transition-colors"></div>
+                        </label>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-1 mb-2">
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-iv-text block">Incognito Mode</span>
+                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Pause GPS/location tracking while preserving battery & charging stats.</span>
+                        </div>
+                        <label aria-label="Incognito Mode toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                          <input type="checkbox" checked={incognitoMode} onChange={(e) => setIncognitoMode(e.target.checked)} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-cyan transition-colors"></div>
+                        </label>
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-iv-muted w-28 flex-shrink-0">Active Telemetry</span>
                         <input type="range" min={60} max={1800} step={60} value={activeInterval}
@@ -527,6 +552,8 @@ export default function SettingsPage() {
                         setEditingInterval(v.id);
                         setActiveInterval(v.active_interval_seconds);
                         setParkedInterval(v.parked_interval_seconds);
+                        setCollectionEnabled(v.collection_enabled ?? true);
+                        setIncognitoMode(v.incognito_mode ?? false);
                         setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
                         setCountryCode(v.country_code || "");
                       }}

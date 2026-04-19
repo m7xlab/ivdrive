@@ -24,6 +24,8 @@ export const vehiclesApi = {
     skoda_spin?: string;
     active_interval_seconds?: number;
     parked_interval_seconds?: number;
+    collection_enabled?: boolean;
+    incognito_mode?: boolean;
     wltp_range_km?: number | null;
   }) {
     const res = await apiFetch("/api/v1/vehicles/", {
@@ -38,6 +40,7 @@ export const vehiclesApi = {
     data: {
       display_name?: string;
       collection_enabled?: boolean;
+      incognito_mode?: boolean;
       active_interval_seconds?: number;
       parked_interval_seconds?: number;
       wltp_range_km?: number | null;

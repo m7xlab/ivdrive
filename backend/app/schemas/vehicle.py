@@ -12,6 +12,8 @@ class VehicleCreate(BaseModel):
     skoda_spin: str | None = None
     active_interval_seconds: int = Field(default=300, ge=60, le=86400)
     parked_interval_seconds: int = Field(default=1800, ge=60, le=86400)
+    collection_enabled: bool = True
+    incognito_mode: bool = False
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)
     country_code: str | None = Field(default=None, max_length=2)
 
@@ -23,6 +25,7 @@ class VehicleResponse(BaseModel):
     model: str | None
     model_year: str | None
     collection_enabled: bool
+    incognito_mode: bool
     active_interval_seconds: int
     parked_interval_seconds: int
     wltp_range_km: float | None = None
@@ -54,6 +57,7 @@ class VehicleReauth(BaseModel):
 class VehicleUpdate(BaseModel):
     display_name: str | None = None
     collection_enabled: bool | None = None
+    incognito_mode: bool | None = None
     active_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
     parked_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)

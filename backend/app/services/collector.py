@@ -599,7 +599,7 @@ class DataCollector:
                 temp_c = None
                 weather_code = None
                 elevation_m = None
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.type == "VEHICLE" and pos.gps_coordinates:
                             lat = pos.gps_coordinates.latitude
@@ -765,7 +765,7 @@ class DataCollector:
                         session.add(VehicleState(**vs_data))
 
                 # --- Position ---
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.gps_coordinates:
                             session.add(VehiclePosition(
