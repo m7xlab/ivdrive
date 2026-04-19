@@ -38,20 +38,22 @@ async def get_efficiency_curve(
     """Returns average consumption mapped by temperature to visualize the 'Winter Penalty'."""
     await get_user_vehicle(user.id, vehicle_id, db)
     
+    from sqlalchemy import table, column
+    v_stats = table("v_winter_penalty_stats",
+        column("user_vehicle_id"),
+        column("temperature"),
+        column("avg_consumption"),
+        column("data_points")
+    )
+    
     stmt = (
         select(
-            func.round(Trip.avg_temp_celsius).label("temp"),
-            func.avg(Trip.kwh_consumed / Trip.distance_km * 100).label("avg_consumption_kwh_100km"),
-            func.count(Trip.id).label("trip_count")
+            v_stats.c.temperature.label("temp"),
+            v_stats.c.avg_consumption.label("avg_consumption_kwh_100km"),
+            v_stats.c.data_points.label("trip_count")
         )
-        .where(
-            Trip.user_vehicle_id == vehicle_id,
-            Trip.distance_km > 0,
-            Trip.kwh_consumed > 0,
-            Trip.avg_temp_celsius.isnot(None)
-        )
-        .group_by("temp")
-        .order_by("temp")
+        .where(v_stats.c.user_vehicle_id == vehicle_id)
+        .order_by(v_stats.c.temperature)
     )
     
     result = await db.execute(stmt)
