@@ -1,7 +1,7 @@
 """add temperature_celsius to drive_consumptions
 
 Revision ID: 33abc4d5e6f9
-Revises: 32abc4d5e6f8
+Revises: 30fea49a7f15
 Create Date: 2026-04-18 16:58:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '33abc4d5e6f9'
-down_revision: Union[str, None] = '32abc4d5e6f8'
+down_revision: Union[str, None] = '30fea49a7f15'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
