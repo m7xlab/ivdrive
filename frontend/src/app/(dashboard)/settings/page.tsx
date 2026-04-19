@@ -22,6 +22,8 @@ import {
   Sliders,
   Monitor,
   RefreshCcw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
@@ -104,6 +106,7 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   const [vehicles, setVehicles] = useState<SettingsVehicle[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
@@ -622,17 +625,33 @@ export default function SettingsPage() {
       {/* Change Password */}
       <SectionCard icon={KeyRound} title="Change Password">
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handlePasswordChange(); }}>
+          <input type="text" autoComplete="username" value={user?.email || ""} hidden readOnly />
           <div>
             <label htmlFor="pwd-current" className="block text-xs font-medium text-iv-muted mb-1.5">Current Password</label>
-            <input id="pwd-current" type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="Enter current password" className={inputClasses} autoComplete="current-password" />
+            <div className="relative">
+              <input id="pwd-current" type={showPasswords ? "text" : "password"} value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="Enter current password" className={inputClasses + " pr-10"} autoComplete="current-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="pwd-new" className="block text-xs font-medium text-iv-muted mb-1.5">New Password</label>
-            <input id="pwd-new" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className={inputClasses} autoComplete="new-password" />
+            <div className="relative">
+              <input id="pwd-new" type={showPasswords ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className={inputClasses + " pr-10"} autoComplete="new-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="pwd-confirm" className="block text-xs font-medium text-iv-muted mb-1.5">Confirm New Password</label>
-            <input id="pwd-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className={inputClasses} autoComplete="new-password" />
+            <div className="relative">
+              <input id="pwd-confirm" type={showPasswords ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className={inputClasses + " pr-10"} autoComplete="new-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div className="flex justify-end">
             <button type="submit" disabled={passwordSaving || !oldPassword || !newPassword || !confirmPassword} className={btnPrimaryClasses}>
