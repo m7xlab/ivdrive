@@ -5,7 +5,7 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-04-20
+## [v1.0.21] - 2026-04-20
 
 ### Added 🌟
 - **Incognito Mode**: Added a privacy feature that stops location tracking. When enabled, the background collector bypasses all Skoda API position requests and prevents saving `VehiclePosition` records, while continuing to log battery and charging statistics.
@@ -22,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Energy Economics Engine Refactor**: Completely replaced the legacy `EnergyPrice` table with a robust 4-table relational architecture (`fuel_prices`, `price_breakdowns`, `economics`, `vignette_prices`). The backend background task now asynchronously ingests and processes granular weekly data across 33 European countries for precise EV vs. ICE cost comparisons.
 - **Frontend State Isolation**: Refactored the vehicle settings dashboard to strictly isolate edit forms per vehicle, preventing configuration state bleed when multiple vehicles are present.
 
-## [Unreleased] - 2026-04-16
 
 ### Architecture & Performance 🚀
 - **Backend API Caching**: Integrated a robust Valkey-backed `CacheMiddleware` in `main.py`. Heavy read-only analytical endpoints (`/statistics`, `/analytics`, `/history`, `/trips`) are now natively cached server-side with a 60-second TTL. This drastically reduces PostgreSQL database load during concurrent dashboard mounting and rapid user navigation.
@@ -33,7 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal Pagination Limits**: Added a standard `skip` offset parameter across all list-returning backend endpoints (Battery, Range, Charging, Trips, etc.) to allow frontends to securely paginate through massive historical datasets without hitting memory limits.
 
 
-## [Unreleased] - 2026-04-15
 
 ### Added 🌟
 - **Data Sovereignty (Extract My Data)**: Users can now download a complete JSON snapshot of all their vehicle telemetry and trip data spanning the last 12 months.
@@ -55,7 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Secure Logout Cookies**: Ensure the `secure=True` flag is properly mirrored on `delete_cookie` calls during logout when running outside of debug mode.
 - **Memory Leak in API Responses**: Ensured the original fetch `Response.body` stream is cancelled and consumed after cloning it to parse error messages.
 
-## [v1.0.21-beta] - 2026-04-12
 
 ### Security 🔒
 - **HTTP-Only Cookie Migration**: Entirely removed `localStorage` token management in favor of secure, backend-issued `HttpOnly` and `SameSite=Lax` cookies for `access_token` and `refresh_token` to prevent XSS-based token theft.
