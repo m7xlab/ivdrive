@@ -39,7 +39,6 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
                             zf.setencryption(pyzipper.WZ_AES, nbits=256)
                             zf.write(zip_path, os.path.basename(zip_path))
                     finally:
-                        password = None
                         if os.path.exists(zip_path):
                             os.remove(zip_path)
                     
@@ -61,7 +60,6 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
                 )
                 await db.commit()
             finally:
-                password = None
                 if zip_path and os.path.exists(zip_path):
                     os.remove(zip_path)
                 if enc_zip_path and os.path.exists(enc_zip_path):
