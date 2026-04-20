@@ -43,7 +43,12 @@ export function LocationsDashboard({ vehicleId, dateRange }: LocationsDashboardP
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    const isLive = !toISO || new Date(toISO) >= new Date();
+    if (!isLive) return;
+
+    const interval = setInterval(fetchData, 60000);
+    return () => clearInterval(interval);
+  }, [fetchData, toISO]);
 
   const distinctPlaces = new Set(positions.map((p) => placeKey(p.latitude, p.longitude))).size;
   const lastPositions = [...positions]

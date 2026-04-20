@@ -2,6 +2,7 @@ name: Validate PR Description
 
 on:
   pull_request:
+    branches: [main, development]
     types: [opened, synchronize, edited, reopened]
 
 jobs:
@@ -30,6 +31,7 @@ jobs:
 
       - name: Validate PR description
         id: validate
+        continue-on-error: true
         env:
           PR_BODY: ${{ steps.pr-description.outputs.body }}
         run: |
@@ -128,8 +130,6 @@ jobs:
                 body: comment
               });
             }
-            
-            core.setFailed('PR description validation failed');
 
       - name: Remove validation comment if passed
         if: steps.validate.outputs.is_valid == 'true'
@@ -155,3 +155,7 @@ jobs:
                 comment_id: validationComment.id,
               });
             }
+
+      - name: Fail job if PR description invalid
+        if: steps.validate.outputs.is_valid != 'true'
+        run: exit 1

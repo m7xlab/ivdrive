@@ -19,6 +19,7 @@ from app.models.telemetry import (
 from app.models.invite import InviteRequest
 from app.models.user import User
 from app.models.vehicle import ConnectorSession, UserVehicle
+from app.models.fuel_price import FuelPrice, PriceBreakdown, CountryEconomics, Vignette
 
 __all__ = [
     "Announcement",

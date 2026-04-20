@@ -924,9 +924,11 @@ export default function VehicleDetailPage() {
 
       {/* ===== TRIPS ===== */}
 
-      {tab === "trips" && (
-        <TripsDashboard vehicleId={vehicleId} />
-      )}
+      {tab === "trips" && (() => {
+        const to = new Date();
+        const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+        return <TripsDashboard vehicleId={vehicleId} dateRange={{ from, to }} summarySubtitle="Last 30 Days" />;
+      })()}
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
       {/* ===== STATISTICS (Helicopter View) ===== */}

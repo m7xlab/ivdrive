@@ -5,7 +5,33 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-04-15
+## [v1.0.21] - 2026-04-20
+
+### Added 🌟
+- **Incognito Mode**: Added a privacy feature that stops location tracking. When enabled, the background collector bypasses all Skoda API position requests and prevents saving `VehiclePosition` records, while continuing to log battery and charging statistics.
+- **Sync Disable**: Added a UI toggle in the Vehicle Settings allowing users to easily pause all background telemetry collection for specific vehicles.
+- **Enhanced Settings UI**: Added hidden accessibility labels to password forms and built-in visibility toggles (eye icons) for password inputs.
+
+### Changed ⚙️
+- **Trips vs Statistics View Refactor**: Swapped the Trips module behavior: the Main Vehicle page now efficiently displays the last 30 days of trips (reducing frontend load), while the Advanced Statistics dashboard is now dedicated to full historical pagination.
+- **Geocoding Session Cache**: Implemented a `sessionStorage` cache mechanism for the reverse-geocoding API to prevent aggressive and redundant backend queries during UI refreshes.
+
+### Fixed 🐛
+- **Average Efficiency Bug**: Fixed the `Avg. Efficiency` logic in the Trips Dashboard to use a mathematically accurate weighted average (Total kWh / Total Distance * 100) and ignore corrupted or null trip segments, instead of falsely averaging the averages.
+- **Leaflet Map Crash**: Fixed an `Uncaught TypeError: Cannot read properties of undefined (reading '_leaflet_pos')` crash in the Trips map by disabling CSS transition animations (`animate: false`) during fast UI navigation.
+- **Energy Economics Engine Refactor**: Completely replaced the legacy `EnergyPrice` table with a robust 4-table relational architecture (`fuel_prices`, `price_breakdowns`, `economics`, `vignette_prices`). The backend background task now asynchronously ingests and processes granular weekly data across 33 European countries for precise EV vs. ICE cost comparisons.
+- **Frontend State Isolation**: Refactored the vehicle settings dashboard to strictly isolate edit forms per vehicle, preventing configuration state bleed when multiple vehicles are present.
+
+
+### Architecture & Performance 🚀
+- **Backend API Caching**: Integrated a robust Valkey-backed `CacheMiddleware` in `main.py`. Heavy read-only analytical endpoints (`/statistics`, `/analytics`, `/history`, `/trips`) are now natively cached server-side with a 60-second TTL. This drastically reduces PostgreSQL database load during concurrent dashboard mounting and rapid user navigation.
+- **Memory Leak Prevention**: Resolved a critical memory leak in the new `CacheMiddleware`. It now strictly verifies `isinstance(response, JSONResponse)` before caching, guaranteeing that large data streams (like `StreamingResponse` or `FileResponse`) are never unsafely buffered into RAM.
+- **Frontend Cache Deduplication**: Implemented a 60-second in-memory `requestCache` within `apiFetch` for all GET requests to prevent redundant over-fetching when React components mount simultaneously.
+- **Smart Cache Invalidation**: The frontend cache automatically and surgically invalidates itself whenever a user performs a mutation (`POST/PUT/PATCH/DELETE`). The invalidation explicitly parses the request URL to clear only the specific vehicle's data, eliminating stale UI dashboards after setting updates or trip edits.
+- **Native Database Pagination**: Completely rewrote the `/overview/visited` endpoint. Instead of fetching unbounded datasets from Postgres and slicing them in Python, it now leverages SQLAlchemy `union_all` to merge positions and charging sessions directly on the database engine, applying `.offset(skip).limit(limit)` natively for optimal chronological pagination.
+- **Universal Pagination Limits**: Added a standard `skip` offset parameter across all list-returning backend endpoints (Battery, Range, Charging, Trips, etc.) to allow frontends to securely paginate through massive historical datasets without hitting memory limits.
+
+
 
 ### Added 🌟
 - **Data Sovereignty (Extract My Data)**: Users can now download a complete JSON snapshot of all their vehicle telemetry and trip data spanning the last 12 months.
@@ -13,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data Privacy UI**: Added a dedicated "Data & Privacy" settings panel, completely hidden if storage flags are disabled, allowing users to request and download their exports.
 
 ### Changed ⚙️
+- **Trips vs Statistics View Refactor**: Swapped the Trips module behavior: the Main Vehicle page now efficiently displays the last 30 days of trips (reducing frontend load), while the Advanced Statistics dashboard is now dedicated to full historical pagination.
+- **Geocoding Session Cache**: Implemented a `sessionStorage` cache mechanism for the reverse-geocoding API to prevent aggressive and redundant backend queries during UI refreshes.
+
+### Fixed 🐛
+- **Average Efficiency Bug**: Fixed the `Avg. Efficiency` logic in the Trips Dashboard to use a mathematically accurate weighted average (Total kWh / Total Distance * 100) and ignore corrupted or null trip segments, instead of falsely averaging the averages.
+- **Leaflet Map Crash**: Fixed an `Uncaught TypeError: Cannot read properties of undefined (reading '_leaflet_pos')` crash in the Trips map by disabling CSS transition animations (`animate: false`) during fast UI navigation.
 - **Frontend API Refactor**: Split the monolithic 900-line `api.ts` file into smaller, logical domain modules (`auth.ts`, `vehicles.ts`, `statistics.ts`, `settings.ts`, etc.) while retaining backward compatibility via a barrel file export.
 - **Centralized Error Handling**: Overhauled `apiFetch` in the frontend to automatically throw standardized `ApiError` instances on non-OK responses, removing thousands of lines of boilerplate `!res.ok` checks.
 
@@ -21,7 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Secure Logout Cookies**: Ensure the `secure=True` flag is properly mirrored on `delete_cookie` calls during logout when running outside of debug mode.
 - **Memory Leak in API Responses**: Ensured the original fetch `Response.body` stream is cancelled and consumed after cloning it to parse error messages.
 
-## [v1.0.21-beta] - 2026-04-12
 
 ### Security 🔒
 - **HTTP-Only Cookie Migration**: Entirely removed `localStorage` token management in favor of secure, backend-issued `HttpOnly` and `SameSite=Lax` cookies for `access_token` and `refresh_token` to prevent XSS-based token theft.

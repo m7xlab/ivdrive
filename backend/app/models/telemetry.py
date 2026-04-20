@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Any
@@ -68,6 +68,7 @@ class ChargingSession(Base):
     __tablename__ = "charging_sessions"
     __table_args__ = (
         UniqueConstraint("user_vehicle_id", "session_start", name="uq_charging_sessions_vehicle_start"),
+        Index("ix_cs_vehicle_session_start", "user_vehicle_id", "session_start"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -144,6 +145,9 @@ class VehicleState(Base):
 
 class VehiclePosition(Base):
     __tablename__ = "vehicle_positions"
+    __table_args__ = (
+        Index("ix_vp_vehicle_captured_at", "user_vehicle_id", "captured_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_vehicle_id: Mapped[uuid.UUID] = mapped_column(
@@ -395,6 +399,7 @@ class DriveConsumption(Base):
     first_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumption: Mapped[float | None] = mapped_column(Float)
+    temperature_celsius: Mapped[float | None] = mapped_column(Float)
 
     drive: Mapped["Drive"] = relationship()
 
@@ -500,17 +505,4 @@ class CollectorRawResponse(Base):
     user_vehicle: Mapped["UserVehicle"] = relationship()  # noqa: F821
 
 
-class EnergyPrice(Base):
-    """
-    Weekly electricity and petrol prices per country from fuel-prices.eu.
-    Used for cost/savings calculations.
-    """
-    __tablename__ = "energy_prices"
 
-    country_code: Mapped[str] = mapped_column(String(2), primary_key=True)
-    country_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    electricity_price_eur_kwh: Mapped[float] = mapped_column(Float, nullable=False)
-    petrol_price_eur_l: Mapped[float] = mapped_column(Float, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )

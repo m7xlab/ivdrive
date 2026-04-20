@@ -2,6 +2,7 @@ name: PR Agent (Gemini)
 
 on:
   pull_request:
+    branches: [main, development]
     types: [opened, reopened, ready_for_review]
   issue_comment:
 

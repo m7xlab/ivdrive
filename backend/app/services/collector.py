@@ -132,14 +132,15 @@ class DataCollector:
             replace_existing=True,
         )
 
-        from app.services.energy import fetch_and_store_energy_prices
+
+
+        from app.scripts.fetch_fuel_prices import fetch_and_store_fuel_prices
         self._scheduler.add_job(
-            fetch_and_store_energy_prices,
+            fetch_and_store_fuel_prices,
             "cron",
-            day_of_week="mon",
-            hour=2,
+            hour=16,
             minute=0,
-            id="fetch_energy_prices",
+            id="fetch_fuel_prices",
             replace_existing=True,
         )
         
@@ -147,14 +148,14 @@ class DataCollector:
         asyncio.create_task(self._initial_energy_prices_check())
 
     async def _initial_energy_prices_check(self) -> None:
-        from app.services.energy import fetch_and_store_energy_prices
-        from app.models.telemetry import EnergyPrice
+        from app.scripts.fetch_fuel_prices import fetch_and_store_fuel_prices
+        from app.models.fuel_price import FuelPrice
         from sqlalchemy import select
         async with async_session() as session:
-            result = await session.execute(select(EnergyPrice).limit(1))
+            result = await session.execute(select(FuelPrice).limit(1))
             if not result.scalar_one_or_none():
-                logger.info("Energy prices table is empty, fetching initial data...")
-                await fetch_and_store_energy_prices()
+                logger.info("Fuel prices table is empty, fetching initial data...")
+                await fetch_and_store_fuel_prices()
 
     async def _watchdog_listen_task(self) -> None:
         """Restart the pub/sub listener task if it has died unexpectedly."""
@@ -584,7 +585,11 @@ class DataCollector:
                     charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id)
 
                 driving = await _safe(api.get_driving_range(vin), "driving_range", user_vehicle_id)
-                position = await _safe(api.get_position(vin), "position", user_vehicle_id)
+                
+                position = None
+                if not vehicle.incognito_mode:
+                    position = await _safe(api.get_position(vin), "position", user_vehicle_id)
+                
                 status_resp = await _safe(api.get_vehicle_status(vin), "vehicle_status", user_vehicle_id)
                 if not ac_resp:
                     ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id)
@@ -599,7 +604,7 @@ class DataCollector:
                 temp_c = None
                 weather_code = None
                 elevation_m = None
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.type == "VEHICLE" and pos.gps_coordinates:
                             lat = pos.gps_coordinates.latitude
@@ -765,7 +770,7 @@ class DataCollector:
                         session.add(VehicleState(**vs_data))
 
                 # --- Position ---
-                if position and position.positions:
+                if not vehicle.incognito_mode and position and position.positions:
                     for pos in position.positions:
                         if pos.gps_coordinates:
                             session.add(VehiclePosition(
@@ -883,7 +888,13 @@ class DataCollector:
                     soc = float(driving.primary_engine_range.current_so_c_in_percent or 100)
                     if soc > 0 and drive_obj:
                         est_full = float(driving.total_range_in_km) / (soc / 100.0)
-                        consumption_val = 16.5 + random.uniform(-2, 3)
+                        
+                        # Calculate accurate consumption (kWh/100km) from estimated full range and battery capacity
+                        capacity_kwh = getattr(vehicle, "battery_capacity_kwh", None) or 77.0
+                        consumption_val = None
+                        if est_full > 0 and capacity_kwh > 0:
+                            consumption_val = (capacity_kwh / est_full) * 100
+                        
                         # DriveRangeEstimatedFull: scoped by drive_id (no user_vehicle_id column)
                         await _update_or_insert_duration_state(
                             session=session,
@@ -902,13 +913,14 @@ class DataCollector:
                             session=session,
                             model_cls=DriveConsumption,
                             user_vehicle_id=user_vehicle_id,
-                            match_keys={"consumption": consumption_val},
-                            volatile_keys=[],
+                            match_keys={},
+                            volatile_keys=["temperature_celsius", "consumption"],
                             now=now,
                             max_gap_s=max_gap_s,
                             extra_filter=(DriveConsumption.drive_id == drive_obj.id),
                             drive_id=drive_obj.id,
                             consumption=consumption_val,
+                            temperature_celsius=temp_c,
                         )
 
                 if ac_resp and ac_resp.state:

@@ -38,20 +38,22 @@ async def get_efficiency_curve(
     """Returns average consumption mapped by temperature to visualize the 'Winter Penalty'."""
     await get_user_vehicle(user.id, vehicle_id, db)
     
+    from sqlalchemy import table, column
+    v_stats = table("v_winter_penalty_stats",
+        column("user_vehicle_id"),
+        column("temperature"),
+        column("avg_consumption"),
+        column("data_points")
+    )
+    
     stmt = (
         select(
-            func.round(Trip.avg_temp_celsius).label("temp"),
-            func.avg(Trip.kwh_consumed / Trip.distance_km * 100).label("avg_consumption_kwh_100km"),
-            func.count(Trip.id).label("trip_count")
+            v_stats.c.temperature.label("temp"),
+            v_stats.c.avg_consumption.label("avg_consumption_kwh_100km"),
+            v_stats.c.data_points.label("trip_count")
         )
-        .where(
-            Trip.user_vehicle_id == vehicle_id,
-            Trip.distance_km > 0,
-            Trip.kwh_consumed > 0,
-            Trip.avg_temp_celsius.isnot(None)
-        )
-        .group_by("temp")
-        .order_by("temp")
+        .where(v_stats.c.user_vehicle_id == vehicle_id)
+        .order_by(v_stats.c.temperature)
     )
     
     result = await db.execute(stmt)
@@ -609,16 +611,31 @@ async def get_advanced_analytics_overview(
     veh = v_res.scalar_one_or_none()
     if veh:
         country_code = getattr(veh, "country_code", "LT")
-        from app.models.telemetry import EnergyPrice
-        price_res = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == country_code))
-        energy_price = price_res.scalar_one_or_none()
-
-        if not energy_price and country_code != "LT":
-            price_res_fallback = await db.execute(select(EnergyPrice).where(EnergyPrice.country_code == "LT"))
-            energy_price = price_res_fallback.scalar_one_or_none()
-
-    elec_price = getattr(energy_price, "electricity_price_eur_kwh", 0.25)
-    petrol_price = getattr(energy_price, "petrol_price_eur_l", 1.65)
+        from app.models.fuel_price import FuelPrice, CountryEconomics
+        
+        # Get latest electricity price for country
+        eco_res = await db.execute(
+            select(CountryEconomics)
+            .where(CountryEconomics.country_code == country_code)
+            .order_by(CountryEconomics.date.desc())
+            .limit(1)
+        )
+        eco = eco_res.scalar_one_or_none()
+        elec_price = float(eco.electricity_price_kwh_eur) if eco and eco.electricity_price_kwh_eur else 0.25
+        
+        # Get latest petrol price for country
+        fuel_res = await db.execute(
+            select(FuelPrice)
+            .where(FuelPrice.country_code == country_code)
+            .where(FuelPrice.fuel_type == "Euro95")
+            .order_by(FuelPrice.week_date.desc())
+            .limit(1)
+        )
+        fuel = fuel_res.scalar_one_or_none()
+        petrol_price = float(fuel.price_eur_liter) if fuel and fuel.price_eur_liter else 1.65
+    else:
+        elec_price = 0.25
+        petrol_price = 1.65
 
     # 4. Actual Charging Prices
     actual_price_sql = text("""

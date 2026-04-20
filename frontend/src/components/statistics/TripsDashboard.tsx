@@ -12,6 +12,7 @@ import "leaflet/dist/leaflet.css";
 export interface TripsDashboardProps {
   vehicleId: string;
   dateRange?: { from: Date; to: Date }; // Statistics page usage
+  summarySubtitle?: string;
 }
 
 interface TripAnalyticsItem {
@@ -46,7 +47,7 @@ function MapAutoBounds({ trips }: { trips: TripAnalyticsItem[] }) {
         bounds.push(pos[0], pos[1]);
       }
     });
-    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30, 30] });
+    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30, 30], animate: false });
   }, [trips, map]);
   return null;
 }
@@ -57,7 +58,7 @@ function MapController({ activeTripId, trips }: { activeTripId: number | null, t
         const activeTrip = trips.find(t => t.trip_id === activeTripId);
         const pos = activeTrip ? getPolylinePositions(activeTrip) : null;
         if (pos) {
-            map.flyTo(pos[0], 13);
+            map.flyTo(pos[0], 13, { animate: false });
         }
     }, [activeTripId, trips, map]);
     return null;
@@ -93,7 +94,7 @@ function getPolylinePositions(trip: TripAnalyticsItem): [[number, number], [numb
 }
 
 // --- Main Component ---
-export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
+export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsDashboardProps) {
   const [allTrips, setAllTrips] = useState<TripAnalyticsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTripId, setActiveTripId] = useState<number | null>(null);
@@ -179,20 +180,29 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
     return displayTrips.slice(0, visibleCount);
   }, [displayTrips, visibleCount, dateRange]);
 
-  const summary = useMemo(() => ({
-    totalTrips: displayTrips.length,
-    totalDistance: displayTrips.reduce((acc, trip) => acc + (trip.distance_km || 0), 0),
-    totalTime: displayTrips.reduce((acc, trip) => acc + (trip.duration_minutes || 0), 0),
-    avgEfficiency: displayTrips.filter(t => t.efficiency_kwh_100km).reduce((acc, trip, _, arr) => acc + (trip.efficiency_kwh_100km || 0) / arr.length, 0)
-  }), [displayTrips]);
+  const summary = useMemo(() => {
+    const validTrips = displayTrips.filter(t => t.distance_km > 0 && t.kwh_used != null && t.kwh_used > 0);
+    const totalDist = validTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
+    const totalKwh = validTrips.reduce((acc, t) => acc + (t.kwh_used || 0), 0);
+    const calculatedEff = totalDist > 0 ? (totalKwh / totalDist) * 100 : 0;
+
+    return {
+      totalTrips: displayTrips.length,
+      totalDistance: displayTrips.reduce((acc, trip) => acc + (trip.distance_km || 0), 0),
+      totalTime: displayTrips.reduce((acc, trip) => acc + (trip.duration_minutes || 0), 0),
+      avgEfficiency: calculatedEff
+    };
+  }, [displayTrips]);
 
   // Lazy geocoding
   useEffect(() => {
+    let isMounted = true;
     const newLocations = new Map(locations);
     let changed = false;
 
     const resolve = async () => {
       for (const trip of visibleTrips) {
+        if (!isMounted) break;
         const coords = [
           { lat: trip.start_latitude, lon: trip.start_longitude },
           { lat: trip.destination_latitude, lon: trip.destination_longitude }
@@ -200,16 +210,30 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
         for (const { lat, lon } of coords) {
           if (lat == null || lon == null) continue;
           const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+          
           if (!newLocations.has(key)) {
-            const name = await fetchLocationName(lat, lon);
-            newLocations.set(key, name);
-            changed = true;
+            // Check session storage first to avoid API calls on refresh
+            const cached = sessionStorage.getItem(`geo_${key}`);
+            if (cached) {
+              newLocations.set(key, cached);
+              changed = true;
+            } else {
+              const name = await fetchLocationName(lat, lon);
+              if (!isMounted) break;
+              newLocations.set(key, name);
+              sessionStorage.setItem(`geo_${key}`, name);
+              changed = true;
+            }
           }
         }
       }
-      if (changed) setLocations(newLocations);
+      if (isMounted && changed) setLocations(newLocations);
     };
     resolve();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [visibleTrips, fetchLocationName]);
 
   if (loading) {
@@ -226,7 +250,10 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
       {dateRange && (
         <div className="glass rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-iv-text">Trip Summary</h3>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-sm font-semibold text-iv-text">Trip Summary</h3>
+              {summarySubtitle && <span className="text-xs font-medium text-iv-muted">({summarySubtitle})</span>}
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-iv-surface/60 rounded-xl p-4 border border-iv-border/50">

@@ -22,6 +22,8 @@ import {
   Sliders,
   Monitor,
   RefreshCcw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
@@ -35,6 +37,7 @@ interface SettingsVehicle {
   model: string | null;
   model_year: number | null;
   collection_enabled: boolean;
+  incognito_mode: boolean;
   active_interval_seconds: number;
   parked_interval_seconds: number;
   wltp_range_km: number | null;
@@ -103,6 +106,7 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   const [vehicles, setVehicles] = useState<SettingsVehicle[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
@@ -114,10 +118,14 @@ export default function SettingsPage() {
   const [reauthSpin, setReauthSpin] = useState("");
   const [reauthLoading, setReauthLoading] = useState(false);
   const [editingInterval, setEditingInterval] = useState<string | null>(null);
-  const [activeInterval, setActiveInterval] = useState(300);
-  const [parkedInterval, setParkedInterval] = useState(1800);
-  const [wltpRange, setWltpRange] = useState<string>("");
-  const [countryCode, setCountryCode] = useState<string>("");
+  const [editForms, setEditForms] = useState<Record<string, {
+    activeInterval: number;
+    parkedInterval: number;
+    collectionEnabled: boolean;
+    incognitoMode: boolean;
+    wltpRange: string;
+    countryCode: string;
+  }>>({});
 
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [geofencesLoading, setGeofencesLoading] = useState(true);
@@ -232,12 +240,16 @@ export default function SettingsPage() {
 
   const handleSaveInterval = async (id: string) => {
     try {
-      const parsedWltp = wltpRange !== "" ? parseFloat(wltpRange) : null;
+      const form = editForms[id];
+      if (!form) return;
+      const parsedWltp = form.wltpRange !== "" ? parseFloat(form.wltpRange) : null;
       await api.updateVehicle(id, {
-        active_interval_seconds: activeInterval,
-        parked_interval_seconds: parkedInterval,
+        active_interval_seconds: form.activeInterval,
+        parked_interval_seconds: form.parkedInterval,
+        collection_enabled: form.collectionEnabled,
+        incognito_mode: form.incognitoMode,
         wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? parsedWltp : null,
-        country_code: countryCode.trim() ? countryCode.trim().toUpperCase() : null,
+        country_code: form.countryCode.trim() ? form.countryCode.trim().toUpperCase() : null,
       });
       await loadVehicles();
       setEditingInterval(null);
@@ -474,19 +486,39 @@ export default function SettingsPage() {
                   <Timer size={12} className="text-iv-muted flex-shrink-0 mt-0.5" />
                   {editingInterval === v.id ? (
                     <div className="flex flex-col gap-2 flex-1">
+                      <div className="flex items-center justify-between gap-4 py-1">
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-iv-text block">Sync Enabled</span>
+                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Collect background telemetry from Skoda API. Disabling pauses all data collection.</span>
+                        </div>
+                        <label aria-label="Sync Enabled toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                          <input type="checkbox" checked={editForms[v.id]?.collectionEnabled ?? true} onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], collectionEnabled: e.target.checked } }))} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-green transition-colors"></div>
+                        </label>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-1 mb-2">
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-iv-text block">Incognito Mode</span>
+                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Pause GPS/location tracking while preserving battery & charging stats.</span>
+                        </div>
+                        <label aria-label="Incognito Mode toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                          <input type="checkbox" checked={editForms[v.id]?.incognitoMode ?? false} onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], incognitoMode: e.target.checked } }))} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-cyan transition-colors"></div>
+                        </label>
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-iv-muted w-28 flex-shrink-0">Active Telemetry</span>
-                        <input type="range" min={60} max={1800} step={60} value={activeInterval}
-                          onChange={(e) => setActiveInterval(Number(e.target.value))}
+                        <input type="range" min={60} max={1800} step={60} value={editForms[v.id]?.activeInterval ?? 300}
+                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], activeInterval: Number(e.target.value) } }))}
                           className="flex-1 accent-iv-green min-w-0" />
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(activeInterval)}</span>
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(editForms[v.id]?.activeInterval ?? 300)}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-iv-muted w-28 flex-shrink-0">Parked Check</span>
-                        <input type="range" min={300} max={7200} step={300} value={parkedInterval}
-                          onChange={(e) => setParkedInterval(Number(e.target.value))}
+                        <input type="range" min={300} max={7200} step={300} value={editForms[v.id]?.parkedInterval ?? 1800}
+                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], parkedInterval: Number(e.target.value) } }))}
                           className="flex-1 accent-iv-cyan min-w-0" />
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(parkedInterval)}</span>
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(editForms[v.id]?.parkedInterval ?? 1800)}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-iv-muted w-28 flex-shrink-0">WLTP Range (km)</span>
@@ -495,8 +527,8 @@ export default function SettingsPage() {
                           min={1}
                           max={2000}
                           step={1}
-                          value={wltpRange}
-                          onChange={(e) => setWltpRange(e.target.value)}
+                          value={editForms[v.id]?.wltpRange ?? ""}
+                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], wltpRange: e.target.value } }))}
                           placeholder="e.g. 510"
                           className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50"
                         />
@@ -507,8 +539,8 @@ export default function SettingsPage() {
                         <input
                           type="text"
                           maxLength={2}
-                          value={countryCode}
-                          onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                          value={editForms[v.id]?.countryCode ?? ""}
+                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], countryCode: e.target.value.toUpperCase() } }))}
                           placeholder="e.g. LT"
                           className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50 uppercase"
                         />
@@ -525,10 +557,17 @@ export default function SettingsPage() {
                     <button
                       onClick={() => {
                         setEditingInterval(v.id);
-                        setActiveInterval(v.active_interval_seconds);
-                        setParkedInterval(v.parked_interval_seconds);
-                        setWltpRange(v.wltp_range_km != null ? String(v.wltp_range_km) : "");
-                        setCountryCode(v.country_code || "");
+                        setEditForms(prev => ({
+                          ...prev,
+                          [v.id]: {
+                            activeInterval: v.active_interval_seconds,
+                            parkedInterval: v.parked_interval_seconds,
+                            collectionEnabled: v.collection_enabled ?? true,
+                            incognitoMode: v.incognito_mode ?? false,
+                            wltpRange: v.wltp_range_km != null ? String(v.wltp_range_km) : "",
+                            countryCode: v.country_code || ""
+                          }
+                        }));
                       }}
                       className="text-xs text-iv-muted hover:text-iv-text transition-colors text-left"
                     >
@@ -585,25 +624,41 @@ export default function SettingsPage() {
 
       {/* Change Password */}
       <SectionCard icon={KeyRound} title="Change Password">
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handlePasswordChange(); }}>
+          <input type="text" autoComplete="username" value={user?.email || ""} hidden readOnly />
           <div>
             <label htmlFor="pwd-current" className="block text-xs font-medium text-iv-muted mb-1.5">Current Password</label>
-            <input id="pwd-current" type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="Enter current password" className={inputClasses} />
+            <div className="relative">
+              <input id="pwd-current" type={showPasswords ? "text" : "password"} value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="Enter current password" className={inputClasses + " pr-10"} autoComplete="current-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="pwd-new" className="block text-xs font-medium text-iv-muted mb-1.5">New Password</label>
-            <input id="pwd-new" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className={inputClasses} />
+            <div className="relative">
+              <input id="pwd-new" type={showPasswords ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className={inputClasses + " pr-10"} autoComplete="new-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="pwd-confirm" className="block text-xs font-medium text-iv-muted mb-1.5">Confirm New Password</label>
-            <input id="pwd-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className={inputClasses} />
+            <div className="relative">
+              <input id="pwd-confirm" type={showPasswords ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className={inputClasses + " pr-10"} autoComplete="new-password" />
+              <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors">
+                {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div className="flex justify-end">
-            <button onClick={handlePasswordChange} disabled={passwordSaving || !oldPassword || !newPassword || !confirmPassword} className={btnPrimaryClasses}>
+            <button type="submit" disabled={passwordSaving || !oldPassword || !newPassword || !confirmPassword} className={btnPrimaryClasses}>
               {passwordSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Changing...</span> : "Change Password"}
             </button>
           </div>
-        </div>
+        </form>
       </SectionCard>
 
       {/* Two-Factor Authentication */}
