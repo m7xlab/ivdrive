@@ -116,7 +116,9 @@ async def csrf_middleware(request: Request, call_next):
             "/api/v1/auth/reset-password",
             "/api/v1/auth/invite-request"
         ]
-        if request.url.path not in exempt_paths:
+        # Strip trailing slash for consistent exemption matching
+        normalized_path = request.url.path.rstrip("/")
+        if normalized_path not in exempt_paths:
             csrf_cookie = request.cookies.get("csrf_token")
             csrf_header = request.headers.get("x-csrf-token")
             if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
