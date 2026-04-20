@@ -88,16 +88,11 @@ export function invalidateApiCache(vehicleId?: string) {
   }
   const matchString = `/api/v1/vehicles/${vehicleId}`;
   for (const key of requestCache.keys()) {
-    try {
-      // Safely parse regardless of relative/absolute API_BASE
-      const url = new URL(key, "http://localhost");
-      if (url.pathname === matchString || url.pathname.startsWith(`${matchString}/`)) {
-        requestCache.delete(key);
-      }
-    } catch {
-      if (key.includes(matchString)) {
-        requestCache.delete(key);
-      }
+    // Using a simple substring match ensures environment-agnostic cache invalidation.
+    // It cleanly avoids hardcoded origins (like localhost) and robustly handles 
+    // both relative paths and absolute URLs across Docker, Helm, or production edge nodes.
+    if (key.includes(matchString)) {
+      requestCache.delete(key);
     }
   }
 }
