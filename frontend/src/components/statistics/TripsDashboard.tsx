@@ -12,6 +12,7 @@ import "leaflet/dist/leaflet.css";
 export interface TripsDashboardProps {
   vehicleId: string;
   dateRange?: { from: Date; to: Date }; // Statistics page usage
+  summarySubtitle?: string;
 }
 
 interface TripAnalyticsItem {
@@ -93,7 +94,7 @@ function getPolylinePositions(trip: TripAnalyticsItem): [[number, number], [numb
 }
 
 // --- Main Component ---
-export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
+export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsDashboardProps) {
   const [allTrips, setAllTrips] = useState<TripAnalyticsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTripId, setActiveTripId] = useState<number | null>(null);
@@ -249,7 +250,10 @@ export function TripsDashboard({ vehicleId, dateRange }: TripsDashboardProps) {
       {dateRange && (
         <div className="glass rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-iv-text">Trip Summary</h3>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-sm font-semibold text-iv-text">Trip Summary</h3>
+              {summarySubtitle && <span className="text-xs font-medium text-iv-muted">({summarySubtitle})</span>}
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-iv-surface/60 rounded-xl p-4 border border-iv-border/50">

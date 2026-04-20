@@ -85,14 +85,12 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             ))}
           </Tabs.List>
 
-          {activeTab !== "trips" && (
-            <div className="flex items-center gap-3 justify-center md:justify-start self-start md:self-auto">
-              <span className="text-xs font-medium text-iv-text-muted uppercase tracking-wider whitespace-nowrap hidden sm:inline-block">
-                Period
-              </span>
-              <DateRangePicker value={dateRange} onChange={setDateRange} />
-            </div>
-          )}
+          <div className="flex items-center gap-3 justify-center md:justify-start self-start md:self-auto">
+            <span className="text-xs font-medium text-iv-text-muted uppercase tracking-wider whitespace-nowrap hidden sm:inline-block">
+              Period
+            </span>
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
+          </div>
         </div>
 
         <div className="animate-in fade-in duration-500">
@@ -110,7 +108,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           
           <Tabs.Content value="trips">
-            <TripsDashboard vehicleId={vehicleId} />
+            <TripsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="movement">
             <MovementDashboard vehicleId={vehicleId} dateRange={range} />
