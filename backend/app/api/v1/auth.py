@@ -195,6 +195,7 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
+    csrf_token = str(uuid.uuid4())
     
     response.set_cookie(
         key="access_token",
@@ -211,6 +212,13 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
         secure=not settings.debug if hasattr(settings, "debug") else False,
         samesite="lax",
         max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=not settings.debug if hasattr(settings, "debug") else False,
+        samesite="lax",
     )
 
     return LoginResponse(
@@ -268,8 +276,10 @@ async def verify_2fa_login(response: Response, body: TwoFactorLoginRequest, db: 
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
+    csrf_token = str(uuid.uuid4())
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -329,8 +339,10 @@ async def verify_recovery_code_login(response: Response, body: RecoveryCodeLogin
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
+    csrf_token = str(uuid.uuid4())
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -371,8 +383,10 @@ async def refresh(request: Request, response: Response, body: RefreshRequest = N
 
     access_token = create_access_token(subject)
     new_refresh = create_refresh_token(subject)
+    csrf_token = str(uuid.uuid4())
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
     response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh,
@@ -392,6 +406,12 @@ async def logout(response: Response, request: Request, body: RefreshRequest = No
     response.delete_cookie(
         key="refresh_token", 
         httponly=True, 
+        secure=not settings.debug if hasattr(settings, "debug") else False,
+        samesite="lax"
+    )
+    response.delete_cookie(
+        key="csrf_token", 
+        httponly=False, 
         secure=not settings.debug if hasattr(settings, "debug") else False,
         samesite="lax"
     )

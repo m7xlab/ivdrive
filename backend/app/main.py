@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 import sys
 
+import secrets
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -101,6 +102,31 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+        exempt_paths = [
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh",
+            "/api/v1/auth/login/verify-2fa",
+            "/api/v1/auth/login/verify-recovery-code",
+            "/api/v1/auth/register",
+            "/api/v1/auth/forgot-password",
+            "/api/v1/auth/reset-password",
+            "/api/v1/auth/invite-request"
+        ]
+        # Strip trailing slash for consistent exemption matching
+        normalized_path = request.url.path.rstrip("/")
+        if normalized_path not in exempt_paths:
+            csrf_cookie = request.cookies.get("csrf_token")
+            csrf_header = request.headers.get("x-csrf-token")
+            if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF token missing or incorrect"}
+                )
+    return await call_next(request)
 
 app.add_middleware(CacheMiddleware)
 

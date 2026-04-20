@@ -102,6 +102,13 @@ export function invalidateApiCache(vehicleId?: string) {
   }
 }
 
+export function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  if (match) return decodeURIComponent(match[2]);
+  return null;
+}
+
 export async function apiFetch(
   path: string,
   options: RequestInit = {}
@@ -110,6 +117,14 @@ export async function apiFetch(
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
+
+  const method = options.method?.toUpperCase() || "GET";
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const csrfToken = getCookie("csrf_token");
+    if (csrfToken) {
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+  }
 
   const fetchOptions: RequestInit = {
     ...options,
