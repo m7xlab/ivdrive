@@ -5,7 +5,7 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-04-19
+## [Unreleased] - 2026-04-20
 
 ### Added 🌟
 - **Incognito Mode**: Added a privacy feature that stops location tracking. When enabled, the background collector bypasses all Skoda API position requests and prevents saving `VehiclePosition` records, while continuing to log battery and charging statistics.
@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Settings UI**: Added hidden accessibility labels to password forms and built-in visibility toggles (eye icons) for password inputs.
 
 ### Changed ⚙️
+- **Trips vs Statistics View Refactor**: Swapped the Trips module behavior: the Main Vehicle page now efficiently displays the last 30 days of trips (reducing frontend load), while the Advanced Statistics dashboard is now dedicated to full historical pagination.
+- **Geocoding Session Cache**: Implemented a `sessionStorage` cache mechanism for the reverse-geocoding API to prevent aggressive and redundant backend queries during UI refreshes.
+
+### Fixed 🐛
+- **Average Efficiency Bug**: Fixed the `Avg. Efficiency` logic in the Trips Dashboard to use a mathematically accurate weighted average (Total kWh / Total Distance * 100) and ignore corrupted or null trip segments, instead of falsely averaging the averages.
+- **Leaflet Map Crash**: Fixed an `Uncaught TypeError: Cannot read properties of undefined (reading '_leaflet_pos')` crash in the Trips map by disabling CSS transition animations (`animate: false`) during fast UI navigation.
 - **Energy Economics Engine Refactor**: Completely replaced the legacy `EnergyPrice` table with a robust 4-table relational architecture (`fuel_prices`, `price_breakdowns`, `economics`, `vignette_prices`). The backend background task now asynchronously ingests and processes granular weekly data across 33 European countries for precise EV vs. ICE cost comparisons.
 - **Frontend State Isolation**: Refactored the vehicle settings dashboard to strictly isolate edit forms per vehicle, preventing configuration state bleed when multiple vehicles are present.
 
@@ -35,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data Privacy UI**: Added a dedicated "Data & Privacy" settings panel, completely hidden if storage flags are disabled, allowing users to request and download their exports.
 
 ### Changed ⚙️
+- **Trips vs Statistics View Refactor**: Swapped the Trips module behavior: the Main Vehicle page now efficiently displays the last 30 days of trips (reducing frontend load), while the Advanced Statistics dashboard is now dedicated to full historical pagination.
+- **Geocoding Session Cache**: Implemented a `sessionStorage` cache mechanism for the reverse-geocoding API to prevent aggressive and redundant backend queries during UI refreshes.
+
+### Fixed 🐛
+- **Average Efficiency Bug**: Fixed the `Avg. Efficiency` logic in the Trips Dashboard to use a mathematically accurate weighted average (Total kWh / Total Distance * 100) and ignore corrupted or null trip segments, instead of falsely averaging the averages.
+- **Leaflet Map Crash**: Fixed an `Uncaught TypeError: Cannot read properties of undefined (reading '_leaflet_pos')` crash in the Trips map by disabling CSS transition animations (`animate: false`) during fast UI navigation.
 - **Frontend API Refactor**: Split the monolithic 900-line `api.ts` file into smaller, logical domain modules (`auth.ts`, `vehicles.ts`, `statistics.ts`, `settings.ts`, etc.) while retaining backward compatibility via a barrel file export.
 - **Centralized Error Handling**: Overhauled `apiFetch` in the frontend to automatically throw standardized `ApiError` instances on non-OK responses, removing thousands of lines of boilerplate `!res.ok` checks.
 
