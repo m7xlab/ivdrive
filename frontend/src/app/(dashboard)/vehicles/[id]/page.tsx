@@ -927,7 +927,7 @@ export default function VehicleDetailPage() {
       {tab === "trips" && (() => {
         const to = new Date();
         const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return <TripsDashboard vehicleId={vehicleId} dateRange={{ from, to }} />;
+        return <TripsDashboard vehicleId={vehicleId} dateRange={{ from, to }} summarySubtitle="Last 30 Days" />;
       })()}
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
