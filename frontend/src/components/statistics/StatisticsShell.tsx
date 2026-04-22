@@ -16,6 +16,7 @@ import { MovementDashboard } from "./MovementDashboard";
 import { DrivingStatisticsDashboard } from "./DrivingStatisticsDashboard";
 import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
 import { MileageKMDashboard } from "./MileageKMDashboard";
+import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
 
 export interface TimelineRange {
   from: Date;
@@ -46,6 +47,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
     { id: "movement", label: "Movement" },
     { id: "driving-stats", label: "Driving Stats" },
     { id: "charging-stats", label: "Charging Stats" },
+    { id: "charging-curve", label: "Charging Curve" },
     { id: "mileage", label: "Mileage" },
   ];
 
@@ -118,6 +120,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           <Tabs.Content value="charging-stats">
             <ChargingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="charging-curve">
+            <ChargingCurveDashboard vehicleId={vehicleId} />
           </Tabs.Content>
           <Tabs.Content value="mileage">
             <MileageKMDashboard vehicleId={vehicleId} dateRange={range} />

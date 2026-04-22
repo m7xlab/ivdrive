@@ -570,6 +570,91 @@ async def get_time_budget(
         "offline_seconds":  round(state_seconds.get("OFFLINE", 0)),
     }
 
+@router.get("/{vehicle_id}/analytics/charging-curve-integrals")
+async def get_charging_curve_integrals(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Plot Charging Power (kW) over SoC (%) and calculate the "wasted time"
+    (time spent charging from 80% to 100%).
+    """
+    await get_user_vehicle(user.id, vehicle_id, db)
+    
+    # 1. Curve data: Average Power kW per SoC %
+    # Using ChargingState for a more consistent representation across all sessions
+    stmt_curve = (
+        select(
+            ChargingState.battery_pct.label("soc"),
+            func.avg(ChargingState.charge_power_kw).label("avg_power"),
+            func.max(ChargingState.charge_power_kw).label("max_power"),
+            func.count(ChargingState.id).label("samples")
+        )
+        .where(
+            ChargingState.user_vehicle_id == vehicle_id,
+            ChargingState.state == "CHARGING",
+            ChargingState.charge_power_kw > 0,
+            ChargingState.battery_pct.is_not(None)
+        )
+        .group_by(ChargingState.battery_pct)
+        .order_by(ChargingState.battery_pct)
+    )
+    result_curve = await db.execute(stmt_curve)
+    curve_data = result_curve.all()
+    
+    curve = [
+        {
+            "soc_pct": row.soc,
+            "avg_power_kw": round(float(row.avg_power), 2),
+            "max_power_kw": round(float(row.max_power), 2),
+            "samples": row.samples
+        }
+        for row in curve_data
+    ]
+
+    # 2. Time wasted calculation: duration of charging >= 80%
+    stmt_time = (
+        select(
+            ChargingState.battery_pct,
+            ChargingState.first_date,
+            ChargingState.last_date
+        )
+        .where(
+            ChargingState.user_vehicle_id == vehicle_id,
+            ChargingState.state == "CHARGING"
+        )
+    )
+    result_time = await db.execute(stmt_time)
+    time_rows = result_time.all()
+
+    fast_charge_seconds = 0.0
+    wasted_seconds = 0.0
+    
+    for row in time_rows:
+        duration = (row.last_date - row.first_date).total_seconds()
+        duration = max(0.0, duration)
+        # Avoid absurd durations from gaps, cap at say 30 mins (1800s) per state
+        duration = min(duration, 1800.0) 
+        
+        soc = row.battery_pct or 0
+        if soc >= 80:
+            wasted_seconds += duration
+        else:
+            fast_charge_seconds += duration
+
+    wasted_minutes = round(wasted_seconds / 60)
+    fast_charge_minutes = round(fast_charge_seconds / 60)
+
+    return {
+        "curve": curve,
+        "metrics": {
+            "wasted_minutes_80_100": wasted_minutes,
+            "fast_charge_minutes_0_80": fast_charge_minutes,
+            "total_charging_minutes": wasted_minutes + fast_charge_minutes
+        }
+    }
+
 @router.get("/{vehicle_id}/analytics/advanced-overview")
 async def get_advanced_analytics_overview(
     vehicle_id: UUID,
