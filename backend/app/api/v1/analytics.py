@@ -614,34 +614,31 @@ async def get_charging_curve_integrals(
     ]
 
     # 2. Time wasted calculation: duration of charging >= 80%
-    stmt_time = (
+    from sqlalchemy import case
+    stmt_metrics = (
         select(
-            ChargingState.battery_pct,
-            ChargingState.first_date,
-            ChargingState.last_date
+            case(
+                (ChargingState.battery_pct >= 80, "wasted"),
+                else_="fast"
+            ).label("category"),
+            func.sum(
+                func.least(
+                    func.greatest(0, func.extract("epoch", ChargingState.last_date - ChargingState.first_date)),
+                    1800
+                )
+            ).label("total_seconds")
         )
         .where(
             ChargingState.user_vehicle_id == vehicle_id,
             ChargingState.state == "CHARGING"
         )
+        .group_by("category")
     )
-    result_time = await db.execute(stmt_time)
-    time_rows = result_time.all()
-
-    fast_charge_seconds = 0.0
-    wasted_seconds = 0.0
+    res = await db.execute(stmt_metrics)
+    metrics_map = {row.category: row.total_seconds for row in res.all()}
     
-    for row in time_rows:
-        duration = (row.last_date - row.first_date).total_seconds()
-        duration = max(0.0, duration)
-        # Avoid absurd durations from gaps, cap at say 30 mins (1800s) per state
-        duration = min(duration, 1800.0) 
-        
-        soc = row.battery_pct or 0
-        if soc >= 80:
-            wasted_seconds += duration
-        else:
-            fast_charge_seconds += duration
+    wasted_seconds = metrics_map.get("wasted", 0.0) or 0.0
+    fast_charge_seconds = metrics_map.get("fast", 0.0) or 0.0
 
     wasted_minutes = round(wasted_seconds / 60)
     fast_charge_minutes = round(fast_charge_seconds / 60)

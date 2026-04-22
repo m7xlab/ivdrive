@@ -29,11 +29,13 @@ export function ChargingCurveDashboard({ vehicleId }: { vehicleId: string }) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const controller = new AbortController();
     try {
       // Assuming api.fetchWrapper can be used or just use native fetch if not defined
       const token = localStorage.getItem("access_token");
       const res = await fetch(`/api/v1/vehicles/${vehicleId}/analytics/charging-curve-integrals`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal
       });
       if (res.ok) {
         const json = await res.json();
@@ -41,15 +43,28 @@ export function ChargingCurveDashboard({ vehicleId }: { vehicleId: string }) {
       } else {
         setData(null);
       }
-    } catch {
-      setData(null);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setData(null);
+      }
     } finally {
       setLoading(false);
     }
+    
+    return controller;
   }, [vehicleId]);
 
   useEffect(() => {
-    fetchData();
+    let activeController: AbortController | null = null;
+    fetchData().then(controller => {
+      activeController = controller;
+    });
+    
+    return () => {
+      if (activeController) {
+        activeController.abort();
+      }
+    };
   }, [fetchData]);
 
   if (loading) {
