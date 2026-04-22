@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Loader2 } from "lucide-react";
 
 interface HVACMetric {
   speed_profile: string;
@@ -42,14 +42,8 @@ export function HVACIsolationDashboard({ vehicleId }: { vehicleId: string }) {
 
   if (loading) {
     return (
-      <div className="glass rounded-2xl border border-iv-border p-6 mt-6">
-        <Skeleton className="h-6 w-1/4 mb-4" />
-        <Skeleton className="h-4 w-2/3 mb-6" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </div>
+      <div className="flex items-center justify-center py-12 glass rounded-2xl border border-iv-border p-6 mt-6">
+        <Loader2 className="h-8 w-8 animate-spin text-iv-muted" />
       </div>
     );
   }
