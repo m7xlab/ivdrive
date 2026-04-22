@@ -758,3 +758,88 @@ async def get_advanced_analytics_overview(
             "user_avg_electricity_eur_kwh": actual_avg_price,
         }
     }
+
+
+@router.get("/{vehicle_id}/analytics/hvac-isolation")
+async def get_hvac_isolation(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Analyzes trips with similar speeds to isolate the kWh cost of heating/cooling.
+    """
+    await get_user_vehicle(user.id, vehicle_id, db)
+    
+    query = text("""
+        SELECT distance_km, kwh_consumed, avg_temp_celsius, start_date, end_date
+        FROM trips
+        WHERE user_vehicle_id = :vid
+          AND distance_km > 2
+          AND kwh_consumed IS NOT NULL AND kwh_consumed > 0
+          AND avg_temp_celsius IS NOT NULL
+          AND end_date IS NOT NULL
+    """)
+    
+    res = await db.execute(query, {"vid": str(vehicle_id)})
+    rows = res.fetchall()
+    
+    buckets = {
+        "city": {"cold": [], "optimal": []},
+        "mixed": {"cold": [], "optimal": []},
+        "highway": {"cold": [], "optimal": []}
+    }
+    
+    for r in rows:
+        dist = r.distance_km
+        kwh = r.kwh_consumed
+        temp = r.avg_temp_celsius
+        duration_h = (r.end_date - r.start_date).total_seconds() / 3600.0
+        
+        if duration_h <= 0:
+            continue
+            
+        speed = dist / duration_h
+        eff = (kwh / dist) * 100.0
+        
+        s_cat = "mixed"
+        if speed < 50:
+            s_cat = "city"
+        elif speed > 90:
+            s_cat = "highway"
+            
+        t_cat = None
+        if temp <= 5:
+            t_cat = "cold"
+        elif 15 <= temp <= 25:
+            t_cat = "optimal"
+            
+        if t_cat:
+            buckets[s_cat][t_cat].append(eff)
+            
+    results = []
+    for s_cat, t_data in buckets.items():
+        cold_list = t_data["cold"]
+        opt_list = t_data["optimal"]
+        
+        if len(cold_list) > 0 and len(opt_list) > 0:
+            avg_cold = sum(cold_list) / len(cold_list)
+            avg_opt = sum(opt_list) / len(opt_list)
+            
+            diff = avg_cold - avg_opt
+            
+            results.append({
+                "speed_profile": s_cat,
+                "avg_speed_desc": "0-50 km/h" if s_cat == "city" else "50-90 km/h" if s_cat == "mixed" else "90+ km/h",
+                "cold_trips": len(cold_list),
+                "optimal_trips": len(opt_list),
+                "optimal_kwh_100km": round(avg_opt, 1),
+                "cold_kwh_100km": round(avg_cold, 1),
+                "hvac_cost_kwh_100km": round(diff, 1) if diff > 0 else 0,
+                "message": f"Heating costs ~{round(diff, 1) if diff > 0 else 0} kWh/100km at ≤5°C for {s_cat} driving."
+            })
+            
+    return {
+        "metrics": results,
+        "summary": "Compared cold (≤5°C) vs optimal (15-25°C) temperatures across similar speed profiles to isolate HVAC/heating auxiliary power usage."
+    }

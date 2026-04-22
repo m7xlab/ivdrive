@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-04-22
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Charging Curve Integrals**: Implemented a new backend endpoint to map SoC vs. Power (kW) and accurately calculate time wasted charging from 80% to 100%. Added a visual Recharts dashboard to the Statistics view.
 
 ## [v1.0.21.1] - 2026-04-20
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v1.0.21] - 2026-04-20
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Incognito Mode**: Added a privacy feature that stops location tracking. When enabled, the background collector bypasses all Skoda API position requests and prevents saving `VehiclePosition` records, while continuing to log battery and charging statistics.
 - **Sync Disable**: Added a UI toggle in the Vehicle Settings allowing users to easily pause all background telemetry collection for specific vehicles.
 - **Enhanced Settings UI**: Added hidden accessibility labels to password forms and built-in visibility toggles (eye icons) for password inputs.
@@ -44,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Data Sovereignty (Extract My Data)**: Users can now download a complete JSON snapshot of all their vehicle telemetry and trip data spanning the last 12 months.
 - **Secure Export Infrastructure**: Exports are bundled into AES-256 encrypted `.zip` archives with dynamically generated passwords. Supports both Google Cloud Storage (`USE_GCS_STORAGE`) and S3-compatible endpoints (`USE_S3_STORAGE`).
 - **Data Privacy UI**: Added a dedicated "Data & Privacy" settings panel, completely hidden if storage flags are disabled, allowing users to request and download their exports.
@@ -84,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v1.0.20] - 2026-03-24
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Admin Platform Statistics Dashboard**: Introduced a comprehensive global metrics dashboard for administrators under the `/admin` page. Displays total users, fleet size, sync error rates, connector health, and total telemetry tracking volume.
 - **Fleet Distribution Visualization**: Added visual Unicode country flags (e.g. 🇱🇹, 🇬🇧, 🇫🇷) directly to the admin dashboard's fleet distribution metrics.
 
@@ -94,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v1.0.19.1] - 2026-03-23
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Re-Authentication UI**: Added a new "Re-Auth" button in the Settings dashboard. Users can now easily re-authenticate their vehicles (with existing or updated credentials) if their Skoda token expires or is invalidated.
 - **Raw Data Collection Toggle**: Introduced a `COLLECT_RAW_DATA` environment variable to gracefully enable/disable raw Skoda API response logging without altering the database schema.
 
@@ -108,6 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Analytics Overhaul**: The `v_charging_sessions_analytics` view was replaced. Charging session calculations now rely directly on the `charging_sessions` table as the authoritative source. This addresses calculation discrepancies regarding charging times.
 
 ### Added 🌟
+- **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.
 - **Dynamic Energy Prices Integration**: Implemented automatic tracking of electricity and petrol prices across 33 European countries via `fuel-prices.eu` API. Background collector keeps prices updated weekly in a new `energy_prices` table.
 - **Smart Energy Region Detection**: Integrated Nominatim reverse-geocoding. At the end of every trip, the vehicle's ISO country code is automatically retrieved from GPS coordinates and saved to the user's `user_vehicles.country_code` setting.
 - **Actual Running Costs Calculation**: The dashboard now calculates running costs based on your real `actual_cost_eur` and `energy_kwh` values from completed charging sessions. Fallbacks exist to public average estimated costs when actual data is missing.

@@ -17,6 +17,8 @@ import { DrivingStatisticsDashboard } from "./DrivingStatisticsDashboard";
 import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
 import { MileageKMDashboard } from "./MileageKMDashboard";
 import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
+import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
+
 
 export interface TimelineRange {
   from: Date;
@@ -48,6 +50,8 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
     { id: "driving-stats", label: "Driving Stats" },
     { id: "charging-stats", label: "Charging Stats" },
     { id: "charging-curve", label: "Charging Curve" },
+    { id: "hvac-isolation", label: "HVAC Isolation" },
+
     { id: "mileage", label: "Mileage" },
   ];
 
