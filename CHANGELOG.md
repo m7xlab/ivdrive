@@ -5,6 +5,16 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-04-22
+
+### Added 🌟
+- **Charging Curve Integrals**: Implemented a new backend endpoint to map SoC vs. Power (kW) and accurately calculate time wasted charging from 80% to 100%. Added a visual Recharts dashboard to the Statistics view.
+
+## [v1.0.21.1] - 2026-04-20
+
+### Fixed 🐛
+- **Data Extraction AES Encryption Crash**: Safely reverted an aggressive in-memory password clearing mechanism inside the threaded worker that caused a Python scope collision (`UnboundLocalError`) during the AES-256 zip encryption process, resulting in silent failures for user data exports.
+
 ## [v1.0.21] - 2026-04-20
 
 ### Added 🌟
