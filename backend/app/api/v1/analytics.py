@@ -573,6 +573,8 @@ async def get_time_budget(
 @router.get("/{vehicle_id}/analytics/charging-curve-integrals")
 async def get_charging_curve_integrals(
     vehicle_id: UUID,
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -597,6 +599,14 @@ async def get_charging_curve_integrals(
             ChargingState.charge_power_kw > 0,
             ChargingState.battery_pct.is_not(None)
         )
+    )
+    if from_date:
+        stmt_curve = stmt_curve.where(ChargingState.first_date >= from_date)
+    if to_date:
+        stmt_curve = stmt_curve.where(ChargingState.first_date <= to_date)
+        
+    stmt_curve = (
+        stmt_curve
         .group_by(ChargingState.battery_pct)
         .order_by(ChargingState.battery_pct)
     )
@@ -615,6 +625,11 @@ async def get_charging_curve_integrals(
 
     # 2. Time wasted calculation: duration of charging >= 80%
     from sqlalchemy import case
+    
+    # We want average time per charging session.
+    # We'll calculate the sum of duration for each category, and also count the number of distinct charging days/sessions.
+    # To simplify, we sum the time, then divide by the approximate number of sessions.
+    
     stmt_metrics = (
         select(
             case(
@@ -632,23 +647,49 @@ async def get_charging_curve_integrals(
             ChargingState.user_vehicle_id == vehicle_id,
             ChargingState.state == "CHARGING"
         )
-        .group_by("category")
     )
+    if from_date:
+        stmt_metrics = stmt_metrics.where(ChargingState.first_date >= from_date)
+    if to_date:
+        stmt_metrics = stmt_metrics.where(ChargingState.first_date <= to_date)
+        
+    stmt_metrics = stmt_metrics.group_by("category")
+    
     res = await db.execute(stmt_metrics)
     metrics_map = {row.category: row.total_seconds for row in res.all()}
+    
+    # Let's count approximate distinct charging sessions in this period
+    # Grouping by date of first_date is a simple proxy for distinct sessions
+    stmt_sessions = (
+        select(func.count(func.distinct(func.date(ChargingState.first_date))))
+        .where(
+            ChargingState.user_vehicle_id == vehicle_id,
+            ChargingState.state == "CHARGING"
+        )
+    )
+    if from_date:
+        stmt_sessions = stmt_sessions.where(ChargingState.first_date >= from_date)
+    if to_date:
+        stmt_sessions = stmt_sessions.where(ChargingState.first_date <= to_date)
+        
+    res_sessions = await db.execute(stmt_sessions)
+    session_count = res_sessions.scalar() or 1
+    if session_count < 1:
+        session_count = 1
     
     wasted_seconds = metrics_map.get("wasted", 0.0) or 0.0
     fast_charge_seconds = metrics_map.get("fast", 0.0) or 0.0
 
-    wasted_minutes = round(wasted_seconds / 60)
-    fast_charge_minutes = round(fast_charge_seconds / 60)
+    wasted_minutes = round((wasted_seconds / session_count) / 60)
+    fast_charge_minutes = round((fast_charge_seconds / session_count) / 60)
 
     return {
         "curve": curve,
         "metrics": {
             "wasted_minutes_80_100": wasted_minutes,
             "fast_charge_minutes_0_80": fast_charge_minutes,
-            "total_charging_minutes": wasted_minutes + fast_charge_minutes
+            "total_charging_minutes": wasted_minutes + fast_charge_minutes,
+            "session_count": session_count
         }
     }
 
