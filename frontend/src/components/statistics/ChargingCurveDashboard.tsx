@@ -16,6 +16,8 @@ interface Metrics {
   wasted_minutes_80_100: number;
   fast_charge_minutes_0_80: number;
   total_charging_minutes: number;
+  peak_power_kw?: number;
+  avg_power_kw?: number;
 }
 
 interface ChargingCurveData {
@@ -93,13 +95,35 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
         Charging power across different battery levels (SoC), highlighting the time spent charging the last 20%.
       </p>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex items-center gap-4 rounded-lg border border-iv-border bg-iv-surface p-4">
+          <div className="rounded-lg bg-iv-green/15 p-3">
+            <Zap className="h-6 w-6 text-iv-green" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-iv-muted">Peak Power</p>
+            <p className="text-2xl font-bold text-iv-text">{data.metrics.peak_power_kw || 0} kW</p>
+            <p className="text-xs text-iv-muted">max observed</p>
+          </div>
+        </div>
+
         <div className="flex items-center gap-4 rounded-lg border border-iv-border bg-iv-surface p-4">
           <div className="rounded-lg bg-iv-cyan/15 p-3">
             <Zap className="h-6 w-6 text-iv-cyan" />
           </div>
           <div>
-            <p className="text-xs font-medium text-iv-muted">Fast Charging (0-80%)</p>
+            <p className="text-xs font-medium text-iv-muted">Avg Fast Charging</p>
+            <p className="text-2xl font-bold text-iv-text">{data.metrics.avg_power_kw || 0} kW</p>
+            <p className="text-xs text-iv-muted">across whole curve</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 rounded-lg border border-iv-border bg-iv-surface p-4">
+          <div className="rounded-lg bg-iv-cyan/15 p-3">
+            <Clock className="h-6 w-6 text-iv-cyan" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-iv-muted">Time (0-80%)</p>
             <p className="text-2xl font-bold text-iv-text">{data.metrics.fast_charge_minutes_0_80} min</p>
             <p className="text-xs text-iv-muted">avg time per session</p>
           </div>
