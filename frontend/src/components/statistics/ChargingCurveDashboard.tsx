@@ -58,7 +58,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
     }
     
     return controller;
-  }, [vehicleId, dateRange?.from, dateRange?.to]);
+  }, [vehicleId, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
   useEffect(() => {
     let activeController: AbortController | null = null;
