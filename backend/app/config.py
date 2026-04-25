@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     valkey_password: str | None = None
     valkey_host: str = "localhost"
 
+    # JWT — non-credential, safe to have defaults
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
+    # CORS — non-credential, safe to have defaults; override via CORS_ORIGINS env
     cors_origins: list[str] = ["http://localhost:3000"]
 
     log_level: str = "info"
@@ -28,6 +30,7 @@ class Settings(BaseSettings):
     # When true, log each statistics/overview API request (route, params, result count) to container stdout
     statistics_query_debug: bool = False
 
+    # Skoda OAuth — credentials, must come from env
     skoda_base_url: str = "https://mysmob.api.connect.skoda-auto.cz"
     skoda_auth_client_id: str = "7f045eee-7003-4379-9968-9355ed2adb06@apps_vw-dilab_com"
     skoda_auth_redirect_uri: str = "myskoda://redirect/login/"
@@ -35,20 +38,26 @@ class Settings(BaseSettings):
         "address badge birthdate cars driversLicense dealers email "
         "mileage mbb nationalIdentifier openid phone profession profile vin"
     )
+
+    # Polling — non-credential, safe to have defaults; override per-vehicle via API
     default_parked_interval_seconds: int = 1800
     default_active_interval_seconds: int = 300
     collector_debug: bool = False
     collect_raw_data: bool = False
     skoda_client_debug: bool = False
 
-    # Registration & Invites
+    # Registration mode — non-credential, safe to have default
     service_registration: str = "invite_only"  # open / invite_only
-    smtp_host: str | None = "smtp.eu.mailgun.org"
+
+    # SMTP — credentials, must come from env
+    smtp_host: str | None = None
     smtp_port: int = 587
-    smtp_user: str | None = "support@m7xlab.top"
-    smtp_pass: str | None = "jHdOxPg1Hn9sff1Q5P09L0TYjzX2zp"
-    smtp_from: str | None = "support@m7xlab.top"
-    app_base_url: str = "https://ivdrive.eu"
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
+    smtp_from: str | None = None
+
+    # App — non-credential, safe to have default
+    app_base_url: str | None = None
 
     # Try parent dir so pytest/uvicorn run from backend/ still find iVDrive/.env
     model_config = {"env_file": (".env", "../.env"), "env_file_encoding": "utf-8", "extra": "ignore"}
