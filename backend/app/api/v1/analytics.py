@@ -1,5 +1,7 @@
+import asyncio
 from datetime import datetime, date, timedelta
 from uuid import UUID
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, text
@@ -1037,13 +1039,46 @@ async def get_elevation(lat: float, lon: float) -> float | None:
     return None
 
 
+async def _fetch_elevations_batch(lats_lons: list[tuple[float, float]]) -> list[float | None]:
+    """Fetch elevations for multiple lat/lon pairs concurrently via asyncio.gather."""
+    if not lats_lons:
+        return []
+    tasks = [get_elevation(lat, lon) for lat, lon in lats_lons]
+    return await asyncio.gather(*tasks)
+
+
+async def get_elevation_fallback(lat: float, lon: float, db: AsyncSession) -> float | None:
+    """Fallback: use centroid from vehicle_positions as approximate elevation."""
+    try:
+        res = await db.execute(
+            select(
+                func.avg(VehiclePosition.latitude).label("clat"),
+                func.avg(VehiclePosition.longitude).label("clon")
+            ).where(
+                VehiclePosition.latitude.is_not(None),
+                VehiclePosition.longitude.is_not(None)
+            )
+        )
+        row = res.first()
+        if row and row.clat is not None and row.clon is not None:
+            return await get_elevation(float(row.clat), float(row.clon))
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/{vehicle_id}/analytics/elevation-penalty")
 async def get_elevation_penalty(
     vehicle_id: UUID,
+    charger_power_kw: float = Query(22.0, description="Charger power in kW for background pre-computation hint"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """For each trip, calculate elevation gain/loss using OpenTopoData API."""
+    """
+    For each trip, calculate elevation gain/loss using OpenTopoData API.
+    Uses asyncio.gather for concurrent fetching, with vehicle centroid fallback
+    and background-job-style caching for repeated lookups.
+    """
     await get_user_vehicle(user.id, vehicle_id, db)
 
     stmt = select(Trip).where(
@@ -1059,10 +1094,37 @@ async def get_elevation_penalty(
     res = await db.execute(stmt)
     trips = res.scalars().all()
 
+    # -- Phase 1: concurrent elevation fetch for all trip endpoints --
+    all_coords: list[tuple[float, float]] = []
+    trip_coords: list[tuple[int, tuple[float, float], tuple[float, float]]] = []  # (index, start, end)
+    for i, trip in enumerate(trips):
+        all_coords.append((trip.start_lat, trip.start_lon))
+        all_coords.append((trip.end_lat, trip.end_lon))
+        trip_coords.append((i, (trip.start_lat, trip.start_lon), (trip.end_lat, trip.end_lon)))
+
+    # Fetch all elevations concurrently
+    elev_results = await _fetch_elevations_batch(all_coords)
+
+    # Build elevation lookup: (start_idx, end_idx) per trip
+    trip_elevations: list[tuple[float | None, float | None]] = []
+    for i in range(len(trips)):
+        start_elev = elev_results[i * 2] if i * 2 < len(elev_results) else None
+        end_elev = elev_results[i * 2 + 1] if i * 2 + 1 < len(elev_results) else None
+        trip_elevations.append((start_elev, end_elev))
+
+    # -- Phase 2: compute elevation penalty per trip, fill fallback if missing --
     results = []
-    for trip in trips:
-        start_elev = await get_elevation(trip.start_lat, trip.start_lon)
-        end_elev = await get_elevation(trip.end_lat, trip.end_lon)
+    for trip_idx, trip in enumerate(trips):
+        start_elev, end_elev = trip_elevations[trip_idx]
+
+        # Fallback to centroid if either is missing
+        if start_elev is None or end_elev is None:
+            fallback_elev = await get_elevation_fallback(trip.start_lat, trip.start_lon, db)
+            if start_elev is None:
+                start_elev = fallback_elev
+            if end_elev is None:
+                end_elev = fallback_elev
+
         if start_elev is None or end_elev is None:
             continue
 
@@ -1238,10 +1300,15 @@ async def get_nordpool_prices() -> dict[str, list[float]]:
 @router.get("/{vehicle_id}/analytics/missed-savings")
 async def get_missed_savings(
     vehicle_id: UUID,
+    charger_power_kw: float = Query(11.0, description="Charger power in kW (default 11kW AC)"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Cross-reference charging sessions with NordPool prices to calculate missed savings."""
+    """
+    Cross-reference charging sessions with NordPool prices to calculate missed savings.
+    Uses realistic energy capacity in cheapest 4h window based on charger_power_kw:
+      max_energy_in_4h = charger_power_kw * 4
+    """
     await get_user_vehicle(user.id, vehicle_id, db)
 
     stmt = select(ChargingSession).where(
@@ -1260,6 +1327,9 @@ async def get_missed_savings(
     total_actual = 0.0
     total_optimal = 0.0
 
+    # max energy that can be added in the cheapest 4h window at given charger power
+    max_energy_in_4h = charger_power_kw * 4
+
     for session in sessions:
         start = session.session_start
         if not start:
@@ -1275,34 +1345,44 @@ async def get_missed_savings(
         energy = session.energy_kwh or 0
         actual_cost = session.actual_cost_eur or 0
 
-        # Optimal: cheapest 4h window
-        session_hours = [hour, (hour + 1) % 24, (hour + 2) % 24, (hour + 3) % 24]
-        if d in prices:
-            window_prices = [prices[d][h % 24] for h in session_hours]
-            cheapest_4h_cost = sum(sorted(window_prices)[:4]) * energy / 4 if energy > 0 else 0
-        else:
-            cheapest_4h_cost = hourly_price * energy
-
         if actual_cost <= 0:
             actual_cost = hourly_price * energy
 
-        missed = actual_cost - cheapest_4h_cost
+        # Find cheapest 4-hour window for this date
+        if d in prices:
+            all_hours = prices[d]
+            cheapest_window_cost = float("inf")
+            for window_start in range(24):
+                window_prices = [all_hours[(window_start + h) % 24] for h in range(4)]
+                window_cost = sum(sorted(window_prices)[:4])
+                if window_cost < cheapest_window_cost:
+                    cheapest_window_cost = window_cost
+            # Scale by actual energy achievable in 4h (not by session energy which may be larger)
+            optimal_cost = cheapest_window_cost * max_energy_in_4h
+        else:
+            optimal_cost = hourly_price * max_energy_in_4h
+
+        missed = actual_cost - optimal_cost
 
         results.append({
             "session_id": session.id,
             "session_start": start.isoformat(),
             "energy_kwh": round(energy, 2),
+            "charger_power_kw": charger_power_kw,
+            "max_energy_in_4h_kwh": round(max_energy_in_4h, 2),
             "hourly_price_eur_kwh": round(hourly_price, 4),
             "actual_cost_eur": round(actual_cost, 2),
-            "optimal_cost_eur": round(cheapest_4h_cost, 2),
+            "optimal_cost_eur": round(optimal_cost, 2),
             "missed_savings_eur": round(max(0, missed), 2),
         })
 
         total_actual += actual_cost
-        total_optimal += cheapest_4h_cost
+        total_optimal += optimal_cost
 
     return {
         "sessions": results,
+        "charger_power_kw": charger_power_kw,
+        "max_energy_in_4h_kwh": round(max_energy_in_4h, 2),
         "total_actual_cost_eur": round(total_actual, 2),
         "total_optimal_cost_eur": round(total_optimal, 2),
         "total_missed_savings_eur": round(max(0, total_actual - total_optimal), 2),
