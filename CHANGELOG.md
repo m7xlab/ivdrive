@@ -5,7 +5,10 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-04-22
+## [Unreleased] - 2026-04-25
+
+### Fixed 🐛
+- **Car Overview Charging Power**: Fixed an indexing bug on the Car Overview dashboard where the "Charging Power (now)" metric card was incorrectly displaying the oldest historical value instead of the current real-time charging power.
 
 ### Added 🌟
 - **Charging Curve Integrals**: Implemented a new backend endpoint to map SoC vs. Power (kW) and accurately calculate time wasted charging from 80% to 100%. Added a visual Recharts dashboard to the Statistics view.
