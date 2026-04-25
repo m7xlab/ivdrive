@@ -499,14 +499,6 @@ export default function SettingsPage() {
                     <Gauge size={14} />
                     <span className="hidden sm:inline">Calibrate</span>
                   </button>
-                  <button
-                    onClick={() => setCalibrationExpanded(v.id)}
-                    className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
-                    title="Efficiency Calibration"
-                  >
-                    <Gauge size={14} />
-                    <span className="hidden sm:inline">Calibrate</span>
-                  </button>
                 </div>
 
                 {/* ── Intervals row ── */}
