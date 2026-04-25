@@ -492,7 +492,7 @@ export function CarOverviewDashboard({
             <span className="text-sm font-medium">Charging Power (now)</span>
           </div>
           <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-iv-text">{charging.length > 0 && charging[0].charge_power_kw ? charging[0].charge_power_kw : "0"}</span>
+            <span className="text-3xl font-bold text-iv-text">{charging.length > 0 && charging[0].charge_power_kw != null ? charging[0].charge_power_kw : "0"}</span>
             <span className="text-lg text-iv-muted mb-0.5">kW</span>
           </div>
         </div>

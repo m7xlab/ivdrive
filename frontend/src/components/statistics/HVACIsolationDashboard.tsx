@@ -30,7 +30,7 @@ interface HVACResponse {
   summary: string;
 }
 
-export function HVACIsolationDashboard({ vehicleId }: { vehicleId: string }) {
+export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<HVACResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,7 +38,8 @@ export function HVACIsolationDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchHVAC = async () => {
       try {
         setLoading(true);
-        const res = await api.getHVACIsolation(vehicleId);
+        const opts = dateRange ? { fromDate: dateRange.from.toISOString(), toDate: dateRange.to.toISOString() } : undefined;
+        const res = await api.getHVACIsolation(vehicleId, opts);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch HVAC isolation data", err);
@@ -47,7 +48,7 @@ export function HVACIsolationDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchHVAC();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
   if (loading) {
     return (

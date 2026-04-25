@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed 🐛
 - **Car Overview Charging Power**: Fixed an indexing bug on the Car Overview dashboard where the "Charging Power (now)" metric card was incorrectly displaying the oldest historical value instead of the current real-time charging power.
+- **Analytics API Safety & Alignment**: Addressed several PR Agent findings: added safe division checks for speed calculations, prevented negative HVAC penalty outputs, added strict null-checks to frontend metrics, and fully integrated date filtering into the HVAC Isolation endpoint and dashboard.
 
 ### Added 🌟
 - **HVAC Auxiliary Power Isolation**: Added new endpoint and frontend dashboard to analyze and isolate heating costs by comparing trips with similar speeds but different temperatures.

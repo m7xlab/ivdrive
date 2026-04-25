@@ -201,8 +201,12 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getHVACIsolation(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/hvac-isolation`);
+  async getHVACIsolation(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (opts?.fromDate) params.set("from_date", opts.fromDate);
+    if (opts?.toDate) params.set("to_date", opts.toDate);
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/hvac-isolation?${params.toString()}`);
     return res.json();
   }
 };

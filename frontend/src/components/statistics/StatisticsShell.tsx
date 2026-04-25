@@ -129,7 +129,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             <ChargingCurveDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="hvac-isolation">
-            <HVACIsolationDashboard vehicleId={vehicleId} />
+            <HVACIsolationDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="mileage">
             <MileageKMDashboard vehicleId={vehicleId} dateRange={range} />
