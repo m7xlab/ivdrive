@@ -199,6 +199,17 @@ export function CarOverviewDashboard({
   const [wltpKm, setWltpKm] = useState<number | null>(null);
   const [efficiencyData, setEfficiencyData] = useState<Array<{ time: string; efficiency_pct: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const [vampireDrain, setVampireDrain] = useState<{
+    avg_drain_pct_per_day: number;
+    drain_kwh_per_day: number;
+    drain_kwh_per_week: number;
+    drain_kwh_per_month: number;
+    cost_per_day_eur: number;
+    cost_per_week_eur: number;
+    cost_per_month_eur: number;
+    battery_capacity_kwh: number;
+    electricity_price_eur_kwh: number;
+  } | null>(null);
 
   const fromISO = toISO(dateRange.from);
   const toISOVal = toISO(dateRange.to);
@@ -211,7 +222,7 @@ export function CarOverviewDashboard({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons] = await Promise.all([
+      const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd] = await Promise.all([
         api.getBatteryHistory(vehicleId, 10000, fromISO, toISOVal),
         api.getRangeHistory(vehicleId, 10000, fromISO, toISOVal),
         api.getChargingHistory(vehicleId, 10000, fromISO, toISOVal),
@@ -236,6 +247,7 @@ export function CarOverviewDashboard({
         api.getOutsideTemperature(vehicleId, 10000, fromISO, toISOVal),
         api.getBatteryTemperature(vehicleId, 10000, fromISO, toISOVal),
         api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal),
+        api.getVampireDrain(vehicleId).catch(() => null),
       ]);
       setBattery(b ?? []);
       setRange(r ?? []);
@@ -249,6 +261,7 @@ export function CarOverviewDashboard({
       setRangesStep(rStep ?? []);
       setOutsideTemp(oTemp ?? []);
       setBatteryTemp(bTemp ?? []);
+      setVampireDrain(vd ?? null);
     } catch (err) {
       console.error('CarOverview Fetch Error:', err);
       setBattery([]);
@@ -1090,6 +1103,34 @@ export function CarOverviewDashboard({
       </div>
 
       {/* Period summary (existing stats table + bar charts when available) */}
+      {/* Vampire Drain section — always shown when data available */}
+      {vampireDrain && (
+        <div className="glass rounded-2xl border border-iv-border p-6">
+          <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
+            <Battery size={14} /> Vampire Drain (Parked Standby)
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            {([
+              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(4)}%/hr`, color: "text-iv-yellow" },
+              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: `@ ${vampireDrain.electricity_price_eur_kwh}€/kWh`, color: "text-iv-text" },
+              { label: "Weekly Cost", value: `${vampireDrain.cost_per_week_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
+              { label: "Monthly Cost", value: `${vampireDrain.cost_per_month_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },
+            ] as const).map((item) => (
+              <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
+                <p className="text-xs text-iv-text-muted uppercase tracking-wider">{item.label}</p>
+                <p className={`text-xl font-bold mt-1 ${item.color}`}>{item.value}</p>
+                <p className="text-xs text-iv-muted">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-iv-text-muted">
+            <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}%</span> of your{" "}
+            <span className="font-bold text-iv-text">{vampireDrain.battery_capacity_kwh} kWh battery</span> is lost daily to vampire drain.
+            Yearly cost: <span className="text-iv-yellow">{(vampireDrain.cost_per_month_eur * 12).toFixed(2)} €</span>.
+          </p>
+        </div>
+      )}
+
       {stats.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2">

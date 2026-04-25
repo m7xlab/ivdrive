@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { subDays, startOfDay, endOfDay } from "date-fns";
 import { cn } from "@/lib/cn";
@@ -59,7 +59,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
     { id: "charging-stats", label: "Charging Stats" },
     { id: "charging-curve", label: "Charging Curve" },
     { id: "hvac-isolation", label: "HVAC Isolation" },
-    { id: "charging-curve-integrals", label: "Charging Curve" },
+    { id: "charging-curve-integrals", label: "Curve Int." },
     { id: "elevation-penalty", label: "Elevation" },
     { id: "speed-temp-matrix", label: "Speed × Temp" },
     { id: "missed-savings", label: "Charge Windows" },
@@ -67,9 +67,40 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
     { id: "ice-tco", label: "ICE vs EV" },
     { id: "route-efficiency", label: "Route Efficiency" },
     { id: "predictive-soc", label: "Arrival SoC" },
-
     { id: "mileage", label: "Mileage" },
   ];
+
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollArrows = useCallback(() => {
+    const el = tabListRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 8);
+  }, []);
+
+  useEffect(() => {
+    updateScrollArrows();
+    const el = tabListRef.current;
+    el?.addEventListener("scroll", updateScrollArrows, { passive: true });
+    window.addEventListener("resize", updateScrollArrows);
+    return () => {
+      el?.removeEventListener("scroll", updateScrollArrows);
+      window.removeEventListener("resize", updateScrollArrows);
+    };
+  }, [updateScrollArrows]);
+
+  const scrollBy = (dir: -1 | 1) => {
+    tabListRef.current?.scrollBy({ left: dir * 200, behavior: "smooth" });
+  };
+
+  // Keyboard arrow navigation for desktop
+  const handleTabKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowRight") { e.preventDefault(); scrollBy(1); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); scrollBy(-1); }
+  };
 
   if (!dateRange) {
     return (
@@ -90,22 +121,46 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
     <div className="space-y-6">
       <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-          <Tabs.List className="flex flex-nowrap gap-2 rounded-xl bg-iv-surface p-1.5 border border-iv-border w-full md:w-auto overflow-x-auto no-scrollbar">
-            {TABS.map((t) => (
-              <Tabs.Trigger
-                key={t.id}
-                value={t.id}
-                className={cn(
-                  "rounded-lg px-4 py-2 text-sm font-semibold transition-all",
-                  activeTab === t.id
-                    ? "bg-iv-charcoal text-iv-cyan shadow-sm border border-iv-border"
-                    : "text-iv-text-muted hover:text-iv-text hover:bg-iv-charcoal/40"
-                )}
+          <div className="relative flex items-center gap-1">
+            {canScrollLeft && (
+              <button
+                onClick={() => scrollBy(-1)}
+                className="shrink-0 rounded-lg px-1.5 py-2 text-sm text-iv-muted hover:text-iv-text hover:bg-iv-surface border border-iv-border transition-all"
+                aria-label="Scroll tabs left"
               >
-                {t.label}
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
+                ‹
+              </button>
+            )}
+            <Tabs.List
+              ref={tabListRef}
+              onKeyDown={handleTabKeyDown}
+              className="flex flex-nowrap gap-2 rounded-xl bg-iv-surface p-1.5 border border-iv-border w-full md:w-auto overflow-x-auto no-scrollbar"
+            >
+              {TABS.map((t) => (
+                <Tabs.Trigger
+                  key={t.id}
+                  value={t.id}
+                  className={cn(
+                    "rounded-lg px-4 py-2 text-sm font-semibold transition-all shrink-0",
+                    activeTab === t.id
+                      ? "bg-iv-charcoal text-iv-cyan shadow-sm border border-iv-border"
+                      : "text-iv-text-muted hover:text-iv-text hover:bg-iv-charcoal/40"
+                  )}
+                >
+                  {t.label}
+                </Tabs.Trigger>
+              ))}
+            </Tabs.List>
+            {canScrollRight && (
+              <button
+                onClick={() => scrollBy(1)}
+                className="shrink-0 rounded-lg px-1.5 py-2 text-sm text-iv-muted hover:text-iv-text hover:bg-iv-surface border border-iv-border transition-all"
+                aria-label="Scroll tabs right"
+              >
+                ›
+              </button>
+            )}
+          </div>
 
           <div className="flex items-center gap-3 justify-center md:justify-start self-start md:self-auto">
             <span className="text-xs font-medium text-iv-text-muted uppercase tracking-wider whitespace-nowrap hidden sm:inline-block">

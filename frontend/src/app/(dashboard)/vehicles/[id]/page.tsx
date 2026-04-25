@@ -575,6 +575,11 @@ export default function VehicleDetailPage() {
               : <RefreshCcw size={16} />}
             <span className="hidden sm:inline">Refresh</span>
           </button>
+          <Link href={`/vehicles/${params.id}/statistics`}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-cyan hover:border-iv-cyan/40 hover:bg-iv-cyan/10 transition-all">
+            <TrendingUp size={16} />
+            <span className="hidden sm:inline">Advanced</span>
+          </Link>
           <button onClick={() => setShowDeleteModal(true)}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-danger hover:border-iv-danger/40 hover:bg-iv-danger/10 transition-all">
             <Trash2 size={16} />
