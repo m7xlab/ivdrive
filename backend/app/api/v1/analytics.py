@@ -1014,57 +1014,29 @@ import httpx
 _elevation_cache: dict[str, float] = {}
 
 
-async def get_elevation(lat: float, lon: float) -> float | None:
-    """Fetch elevation from OpenTopoData API with caching."""
-    cache_key = f"{round(lat, 3)}_{round(lon, 3)}"
-    if cache_key in _elevation_cache:
-        return _elevation_cache[cache_key]
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.opentopodata.org/v1/elevations",
-                params={"locations": f"{lat},{lon}"}
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                results = data.get("results", [])
-                if results:
-                    elev = results[0].get("elevation")
-                    if elev is not None:
-                        _elevation_cache[cache_key] = float(elev)
-                        return float(elev)
-    except Exception:
-        pass
-    return None
-
-
-async def _fetch_elevations_batch(lats_lons: list[tuple[float, float]]) -> list[float | None]:
-    """Fetch elevations for multiple lat/lon pairs concurrently via asyncio.gather."""
-    if not lats_lons:
-        return []
-    tasks = [get_elevation(lat, lon) for lat, lon in lats_lons]
-    return await asyncio.gather(*tasks)
-
-
-async def get_elevation_fallback(lat: float, lon: float, db: AsyncSession) -> float | None:
-    """Fallback: use centroid from vehicle_positions as approximate elevation."""
+async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: AsyncSession) -> float | None:
+    """Get elevation from vehicle_positions nearest to given lat/lon."""
+    if lat is None or lon is None:
+        return None
     try:
         res = await db.execute(
-            select(
-                func.avg(VehiclePosition.latitude).label("clat"),
-                func.avg(VehiclePosition.longitude).label("clon")
-            ).where(
-                VehiclePosition.latitude.is_not(None),
-                VehiclePosition.longitude.is_not(None)
-            )
+            text("""
+                SELECT elevation_m FROM vehicle_positions
+                WHERE user_vehicle_id = :vid
+                  AND elevation_m IS NOT NULL
+                  AND latitude IS NOT NULL
+                  AND longitude IS NOT NULL
+                ORDER BY (
+                    (latitude - :lat)^2 + (longitude - :lon)^2
+                ) ASC
+                LIMIT 1
+            """),
+            {"vid": str(vehicle_id), "lat": lat, "lon": lon}
         )
         row = res.first()
-        if row and row.clat is not None and row.clon is not None:
-            return await get_elevation(float(row.clat), float(row.clon))
+        return float(row[0]) if row else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 @router.get("/{vehicle_id}/analytics/elevation-penalty")
@@ -1081,6 +1053,7 @@ async def get_elevation_penalty(
     """
     await get_user_vehicle(user.id, vehicle_id, db)
 
+    # Fetch all trips in one query
     stmt = select(Trip).where(
         Trip.user_vehicle_id == vehicle_id,
         Trip.start_lat.is_not(None),
@@ -1094,75 +1067,63 @@ async def get_elevation_penalty(
     res = await db.execute(stmt)
     trips = res.scalars().all()
 
-    # -- Phase 1: concurrent elevation fetch for all trip endpoints --
-    all_coords: list[tuple[float, float]] = []
-    trip_coords: list[tuple[int, tuple[float, float], tuple[float, float]]] = []  # (index, start, end)
-    for i, trip in enumerate(trips):
-        all_coords.append((trip.start_lat, trip.start_lon))
-        all_coords.append((trip.end_lat, trip.end_lon))
-        trip_coords.append((i, (trip.start_lat, trip.start_lon), (trip.end_lat, trip.end_lon)))
+    if not trips:
+        return {
+            "trips": [],
+            "summary": {"total_trips": 0, "total_uphill_kwh": 0, "total_downhill_kwh": 0, "net_energy_kwh": 0},
+            "message": "No trips with GPS data available for elevation analysis."
+        }
 
-    # Fetch all elevations concurrently
-    elev_results = await _fetch_elevations_batch(all_coords)
-
-    # Build elevation lookup: (start_idx, end_idx) per trip
-    trip_elevations: list[tuple[float | None, float | None]] = []
-    for i in range(len(trips)):
-        start_elev = elev_results[i * 2] if i * 2 < len(elev_results) else None
-        end_elev = elev_results[i * 2 + 1] if i * 2 + 1 < len(elev_results) else None
-        trip_elevations.append((start_elev, end_elev))
-
-    # -- Phase 2: compute elevation penalty per trip, fill fallback if missing --
+    # Batch-fetch all elevations using direct SQL (single round-trip per trip, 2 coords)
     results = []
-    for trip_idx, trip in enumerate(trips):
-        start_elev, end_elev = trip_elevations[trip_idx]
+    for trip in trips:
+        start_elev = await _get_nearest_elevation(trip.start_lat, trip.start_lon, vehicle_id, db)
+        end_elev   = await _get_nearest_elevation(trip.end_lat,   trip.end_lon,   vehicle_id, db)
 
-        # Fallback to centroid if either is missing
-        if start_elev is None or end_elev is None:
-            fallback_elev = await get_elevation_fallback(trip.start_lat, trip.start_lon, db)
-            if start_elev is None:
-                start_elev = fallback_elev
-            if end_elev is None:
-                end_elev = fallback_elev
-
-        if start_elev is None or end_elev is None:
+        if start_elev is None and end_elev is None:
+            # No elevation data at all for this trip — skip it
             continue
 
+        # Use 0 as fallback for missing end if start exists (and vice versa)
+        start_elev = start_elev if start_elev is not None else (end_elev or 0)
+        end_elev   = end_elev   if end_elev   is not None else (start_elev or 0)
+
         elev_change = end_elev - start_elev
-        distance = trip.distance_km or 1
+        distance     = trip.distance_km or 1
 
         if elev_change >= 0:
-            uphill_kwh = round(elev_change * 0.20 / 100 * distance, 3)
+            uphill_kwh    = round(elev_change * 0.20 / 100 * distance, 3)
             downhill_kwh = 0.0
         else:
-            uphill_kwh = 0.0
+            uphill_kwh    = 0.0
             downhill_kwh = round(abs(elev_change) * 0.15 / 100 * distance, 3)
 
         net_kwh = round(uphill_kwh - downhill_kwh, 3)
 
         results.append({
-            "trip_id": trip.id,
-            "start_date": trip.start_date.isoformat() if trip.start_date else None,
-            "distance_km": round(distance, 1),
+            "trip_id":           trip.id,
+            "start_date":        trip.start_date.isoformat() if trip.start_date else None,
+            "distance_km":       round(distance, 1),
             "start_elevation_m": start_elev,
-            "end_elevation_m": end_elev,
+            "end_elevation_m":   end_elev,
             "elevation_change_m": round(elev_change, 1),
             "uphill_kwh_per_100km": uphill_kwh,
             "downhill_kwh_per_100km": downhill_kwh,
             "net_energy_kwh": net_kwh,
         })
 
-    uphill_sum = sum(r["uphill_kwh_per_100km"] for r in results)
+    uphill_sum   = sum(r["uphill_kwh_per_100km"]    for r in results)
     downhill_sum = sum(r["downhill_kwh_per_100km"] for r in results)
 
     return {
         "trips": results,
         "summary": {
-            "total_trips": len(results),
-            "total_uphill_kwh": round(uphill_sum, 2),
+            "total_trips":       len(results),
+            "total_uphill_kwh":  round(uphill_sum, 2),
             "total_downhill_kwh": round(downhill_sum, 2),
-            "net_energy_kwh": round(uphill_sum - downhill_sum, 2),
-        }
+            "net_energy_kwh":    round(uphill_sum - downhill_sum, 2),
+        },
+        "method": "vehicle_positions.elevation_m via nearest-point SQL",
     }
 
 
