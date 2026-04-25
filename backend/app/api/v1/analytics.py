@@ -814,26 +814,27 @@ async def get_hvac_isolation(
     """
     await get_user_vehicle(user.id, vehicle_id, db)
     
-    conditions = [
-        "user_vehicle_id = :vid",
-        "distance_km > 2",
-        "kwh_consumed IS NOT NULL AND kwh_consumed > 0",
-        "avg_temp_celsius IS NOT NULL",
-        "end_date IS NOT NULL"
-    ]
-    params = {"vid": str(vehicle_id)}
+    stmt = select(
+        Trip.distance_km,
+        Trip.kwh_consumed,
+        Trip.avg_temp_celsius,
+        Trip.start_date,
+        Trip.end_date
+    ).where(
+        Trip.user_vehicle_id == vehicle_id,
+        Trip.distance_km > 2,
+        Trip.kwh_consumed.is_not(None),
+        Trip.kwh_consumed > 0,
+        Trip.avg_temp_celsius.is_not(None),
+        Trip.end_date.is_not(None)
+    )
 
     if from_date:
-        conditions.append("start_date >= :from_date")
-        params["from_date"] = from_date
+        stmt = stmt.where(Trip.start_date >= from_date)
     if to_date:
-        conditions.append("start_date <= :to_date")
-        params["to_date"] = to_date
-
-    query_str = f"SELECT distance_km, kwh_consumed, avg_temp_celsius, start_date, end_date FROM trips WHERE {' AND '.join(conditions)}"
-    query = text(query_str)
-    
-    res = await db.execute(query, params)
+        stmt = stmt.where(Trip.start_date <= to_date)
+        
+    res = await db.execute(stmt)
     rows = res.fetchall()
     
     buckets = {
