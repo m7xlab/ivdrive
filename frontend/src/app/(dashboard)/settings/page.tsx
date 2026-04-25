@@ -167,6 +167,7 @@ export default function SettingsPage() {
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
 
   const [showCommands, setShowCommands] = useState(false);
+  const [calibrationExpanded, setCalibrationExpanded] = useState<string | null>(null);
 
   useEffect(() => { if (user) setDisplayName(user.display_name || ""); }, [user]);
 
@@ -590,6 +591,14 @@ export default function SettingsPage() {
                       : <Trash2 size={14} />}
                     <span className="hidden sm:inline">Remove</span>
                   </button>
+                  <button
+                    onClick={() => setCalibrationExpanded(v.id)}
+                    className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
+                    title="Efficiency Calibration"
+                  >
+                    <Gauge size={14} />
+                    <span className="hidden sm:inline">Calibrate</span>
+                  </button>
                 </div>
 
                 {/* ── Intervals row ── */}
@@ -703,6 +712,80 @@ export default function SettingsPage() {
                     </button>
                   )}
                 </div>
+
+                {/* ── Efficiency Calibration (inline) ── */}
+                {calibrationExpanded === v.id && (
+                  <div className="border-t border-iv-border/50 pt-3 space-y-3">
+                    <p className="text-xs text-iv-muted">Tune analytics calculations. Pre-filled with app defaults — adjust only if needed.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                      {[
+                        { key: "charger_power_kw", label: "Charger Power (kW)", step: "1", min: "1", max: "350" },
+                        { key: "ice_l_per_100km", label: "ICE Fuel (L/100km)", step: "0.1", min: "1", max: "20" },
+                        { key: "uphill_kwh_per_100km_per_100m", label: "Uphill (kWh/100km/100m)", step: "0.01", min: "0.01", max: "2" },
+                        { key: "downhill_kwh_per_100km_per_100m", label: "Downhill Regen", step: "0.01", min: "0.01", max: "2" },
+                        { key: "speed_city_threshold_kmh", label: "City Speed (km/h)", step: "5", min: "10", max: "150" },
+                        { key: "speed_highway_threshold_kmh", label: "Highway Speed (km/h)", step: "5", min: "50", max: "250" },
+                        { key: "temp_cold_max_celsius", label: "Cold Temp (°C)", step: "1", min: "-20", max: "30" },
+                        { key: "temp_optimal_min_celsius", label: "Optimal Min (°C)", step: "1", min: "-10", max: "40" },
+                        { key: "temp_optimal_max_celsius", label: "Optimal Max (°C)", step: "1", min: "-10", max: "50" },
+                      ].map(({ key, label, step, min, max }) => {
+                        const f = (editForms[v.id] ?? {}) as unknown as Record<string, number | null>;
+                        const defaults: Record<string, number> = {
+                          charger_power_kw: 22.0, ice_l_per_100km: 8.0,
+                          uphill_kwh_per_100km_per_100m: 0.20, downhill_kwh_per_100km_per_100m: 0.15,
+                          speed_city_threshold_kmh: 50.0, speed_highway_threshold_kmh: 90.0,
+                          temp_cold_max_celsius: 5.0, temp_optimal_min_celsius: 15.0, temp_optimal_max_celsius: 25.0,
+                        };
+                        const displayVal = (k: string, d = 2) => {
+                          const val = f[k] ?? (v as unknown as Record<string, unknown>)[k] as number ?? defaults[k];
+                          return val != null ? Number(val).toFixed(d) : "";
+                        };
+                        return (
+                          <div key={key} className="flex flex-col gap-1">
+                            <span className="text-iv-muted text-[10px]">{label}</span>
+                            <input
+                              type="number" step={step} min={min} max={max}
+                              value={displayVal(key, key.includes("threshold") || key.includes("temp") ? 0 : 2)}
+                              onChange={e => {
+                                const val = e.target.value === "" ? null : Number(e.target.value);
+                                setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], [key]: val } }));
+                              }}
+                              className="bg-iv-bg border border-iv-border rounded px-2 py-1.5 text-iv-text text-xs w-full"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const f = (editForms[v.id] ?? {}) as unknown as Record<string, number | null>;
+                          const defaults: Record<string, number> = {
+                            charger_power_kw: 22.0, ice_l_per_100km: 8.0,
+                            uphill_kwh_per_100km_per_100m: 0.20, downhill_kwh_per_100km_per_100m: 0.15,
+                            speed_city_threshold_kmh: 50.0, speed_highway_threshold_kmh: 90.0,
+                            temp_cold_max_celsius: 5.0, temp_optimal_min_celsius: 15.0, temp_optimal_max_celsius: 25.0,
+                          };
+                          const calData: Record<string, number | null> = {};
+                          Object.keys(defaults).forEach(k => {
+                            const v2 = f[k];
+                            if (v2 !== undefined) calData[k] = v2;
+                          });
+                          await api.updateVehicle(v.id, calData);
+                          await loadVehicles();
+                          setCalibrationExpanded(null);
+                          showToast("success", "Calibration saved");
+                        }}
+                        className="rounded-xl bg-iv-green px-4 py-2 text-xs font-semibold text-white hover:bg-iv-green/90"
+                      >Save</button>
+                      <button
+                        onClick={() => setCalibrationExpanded(null)}
+                        className="rounded-xl border border-iv-border px-4 py-2 text-xs font-medium text-iv-muted hover:bg-iv-surface hover:text-iv-text"
+                      >Cancel</button>
+                    </div>
+                  </div>
+                )}
+
               </div>
             ))
           )}
