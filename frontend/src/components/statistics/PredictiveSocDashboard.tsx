@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Cell,
 } from "recharts";
 
 interface PredictiveSocResponse {

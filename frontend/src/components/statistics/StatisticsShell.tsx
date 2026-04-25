@@ -134,17 +134,18 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             <Tabs.List
               ref={tabListRef}
               onKeyDown={handleTabKeyDown}
-              className="flex flex-nowrap gap-2 rounded-xl bg-iv-surface p-1.5 border border-iv-border w-full md:w-auto overflow-x-auto no-scrollbar"
+              className="flex flex-nowrap gap-1.5 rounded-xl bg-iv-surface p-1.5 border border-iv-border w-full md:w-auto overflow-x-auto no-scrollbar scroll-smooth"
+              style={{ scrollPaddingLeft: "0.5rem", scrollPaddingRight: "0.5rem" }}
             >
               {TABS.map((t) => (
                 <Tabs.Trigger
                   key={t.id}
                   value={t.id}
                   className={cn(
-                    "rounded-lg px-4 py-2 text-sm font-semibold transition-all shrink-0",
+                    "rounded-lg px-3 py-2 text-[13px] font-semibold transition-all shrink-0 whitespace-nowrap",
                     activeTab === t.id
                       ? "bg-iv-charcoal text-iv-cyan shadow-sm border border-iv-border"
-                      : "text-iv-text-muted hover:text-iv-text hover:bg-iv-charcoal/40"
+                      : "text-iv-text-muted hover:text-iv-text hover:bg-iv-charcoal/40 border border-transparent hover:border-iv-border/50"
                   )}
                 >
                   {t.label}
