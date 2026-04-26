@@ -441,7 +441,13 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
                 tickFormatter={(v) => format(new Date(v), "d MMM")}
                 interval="preserveStartEnd"
               />
-              <YAxis tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} axisLine={false} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                className="text-iv-muted"
+                tickLine={false}
+                axisLine={false}
+                domain={["auto", "auto"]}
+              />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
