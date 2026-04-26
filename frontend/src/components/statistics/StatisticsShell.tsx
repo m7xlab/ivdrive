@@ -19,6 +19,8 @@ import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
 import { VampireDrainDashboard } from "./VampireDrainDashboard"; // used by CarOverviewDashboard
 import { IceTcoDashboard } from "./IceTcoDashboard";
+import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
+import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
 
 
 export interface TimelineRange {
@@ -37,6 +39,8 @@ const TABS = [
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
   { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
   { id: "ice-tco",             label: "ICE vs EV",           icon: "⛽" },
+  { id: "route-efficiency",    label: "Route Efficiency",   icon: "🛣️" },
+  { id: "predictive-soc",      label: "Arrival SoC",         icon: "🎯" },
 ] as const;
 
 const TAB_MIN_WIDTH = 120; // px, min width per tab button
@@ -203,6 +207,12 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           <Tabs.Content value="ice-tco">
             <IceTcoDashboard vehicleId={vehicleId} />
+          </Tabs.Content>
+          <Tabs.Content value="route-efficiency">
+            <RouteEfficiencyDashboard vehicleId={vehicleId} />
+          </Tabs.Content>
+          <Tabs.Content value="predictive-soc">
+            <PredictiveSocDashboard vehicleId={vehicleId} />
           </Tabs.Content>
         </Tabs.Root>
       </div>
