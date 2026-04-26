@@ -1560,8 +1560,6 @@ async def get_predictive_soc(
     )
     charge = charge_res.scalar_one_or_none()
     current_soc = float(charge.battery_pct) if charge and charge.battery_pct else 50.0
-    v_res = await db.execute(select(UserVehicle).where(UserVehicle.id == vehicle_id))
-    veh = v_res.scalar_one_or_none()
     if veh:
         cap = getattr(veh, "battery_capacity_kwh", None)
         if cap and cap > 0:

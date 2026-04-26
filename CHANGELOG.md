@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed 🐛
 - **speed-temp-matrix**: Now uses per-vehicle calibration for speed/temp thresholds (was hardcoded `<50/>90` km/h and `<5/15-25/>25` °C), matching HVAC Isolation behavior.
+- **predictive-soc**: Removed duplicate `UserVehicle` query — the function was fetching the same vehicle from DB twice unnecessarily.
 - **Vehicle WLTP Fallback Removed**: Removed hardcoded ENYAQ model/trim-based WLTP range fallbacks from `get_overview_wltp`. Now returns `null` when no user-defined or drive-derived WLTP value exists — frontend already handles null gracefully.
 - **Vehicle country_code Default Removed**: Removed hardcoded `"LT"` default from vehicle creation. Country code is now stored as `null` when not provided; analytics endpoints fall back to `"LT"` for fuel/economics queries.
 - **Analytics API Safety & Alignment**: Addressed several PR Agent findings: added safe division checks for speed calculations, prevented negative HVAC penalty outputs, added strict null-checks to frontend metrics, and fully integrated date filtering into the HVAC Isolation endpoint and dashboard.
