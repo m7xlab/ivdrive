@@ -11,6 +11,10 @@ import {
   Gauge,
   TrendingUp,
   BarChart3,
+  Bolt,
+  MapPin,
+  Cloud,
+  Clock,
 } from "lucide-react";
 import {
   AreaChart,
@@ -219,6 +223,18 @@ export function CarOverviewDashboard({
   const [batteryTemp, setBatteryTemp] = useState<Array<{ time: string; battery_temperature: number }>>([]);
   const [outsideTemp, setOutsideTemp] = useState<Array<{ time: string; outside_temp_celsius: number }>>([]);
 
+  interface PulseData {
+    status: string;
+    battery_pct: number;
+    remaining_range_km: number;
+    temperature_celsius: number | null;
+    weather_code: string | null;
+    is_online: boolean;
+    charging_power_kw: number;
+    remaining_charge_time_min: number;
+  }
+  const [pulse, setPulse] = useState<PulseData | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -282,13 +298,29 @@ export function CarOverviewDashboard({
   }, [vehicleId, fromISO, toISOVal]);
 
   useEffect(() => {
+    // Pulse: live real-time (30s refresh)
+    const fetchPulse = async () => {
+      try {
+        const data = await api.getAnalyticsPulse(vehicleId);
+        setPulse(data);
+      } catch { /* ignore */ }
+    };
+    fetchPulse();
+    const pulseInterval = setInterval(fetchPulse, 30000);
+
+    // Rest of car overview data
     fetchData();
     const isLive = !toISOVal || new Date(toISOVal) >= new Date();
-    if (!isLive) return;
+    let overviewInterval: ReturnType<typeof setInterval> | null = null;
+    if (!isLive) {
+      overviewInterval = setInterval(fetchData, 60000);
+    }
 
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchData, toISOVal]);
+    return () => {
+      clearInterval(pulseInterval);
+      if (overviewInterval) clearInterval(overviewInterval);
+    };
+  }, [fetchData]);
 
   const toggle = (id: StateToggleId) => {
     setGlobalToggles((prev) => {
@@ -476,6 +508,74 @@ export function CarOverviewDashboard({
 
   return (
     <div className="space-y-6">
+      {/* ── Live Pulse KPI Row ── */}
+      {pulse ? (
+        <div className="glass rounded-xl border border-iv-border/60 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bolt size={16} className="text-iv-green" />
+              <h3 className="text-sm font-semibold text-iv-text">Live Pulse</h3>
+            </div>
+            <div className={`px-3 py-1 rounded-full text-xs font-semibold ${pulse.is_online ? "bg-iv-green/10 text-iv-green" : "bg-rose-500/10 text-rose-400"}`}>
+              {pulse.is_online ? "● ONLINE" : "OFFLINE"}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Battery SoC */}
+            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
+              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
+                <Bolt size={12} className="text-iv-green" /> Battery SoC
+              </p>
+              <p className="text-2xl font-bold text-iv-text">{pulse.battery_pct}<span className="text-sm font-normal text-iv-muted">%</span></p>
+              <div className="w-full bg-iv-charcoal h-1.5 rounded-full mt-2 overflow-hidden">
+                <div className="bg-iv-green h-full" style={{ width: `${pulse.battery_pct}%` }} />
+              </div>
+            </div>
+
+            {/* Est. Full Range */}
+            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
+              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
+                <MapPin size={12} className="text-iv-cyan" /> Est. Full Range
+              </p>
+              <p className="text-2xl font-bold text-iv-text">{pulse.remaining_range_km}<span className="text-sm font-normal text-iv-muted">km</span></p>
+              {pulse.battery_pct > 0 && (
+                <p className="text-xs text-iv-muted mt-1">Max: {Math.round((pulse.remaining_range_km / pulse.battery_pct) * 100)} km</p>
+              )}
+            </div>
+
+            {/* Charging Power OR Motion Status */}
+            {pulse.status === "CHARGING" || pulse.status === "READY_FOR_CHARGING" ? (
+              <div className="bg-iv-surface rounded-xl p-4 border border-emerald-500/20">
+                <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
+                  <Zap size={12} className="text-emerald-400" /> Charging Power
+                </p>
+                <p className="text-2xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-sm font-normal text-iv-muted">kW</span></p>
+                <p className="text-xs text-emerald-400 mt-1">{pulse.remaining_charge_time_min} min to target</p>
+              </div>
+            ) : (
+              <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
+                <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
+                  <Car size={12} className="text-iv-muted" /> Motion Status
+                </p>
+                <p className="text-sm font-bold text-iv-text">{pulse.status}</p>
+              </div>
+            )}
+
+            {/* Local Weather */}
+            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
+              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
+                <Cloud size={12} className="text-amber-400" /> Ambient Temp
+              </p>
+              <p className="text-2xl font-bold text-iv-text">
+                {pulse.temperature_celsius !== null ? `${pulse.temperature_celsius}°` : "--"}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="h-32 animate-pulse rounded-xl bg-iv-surface border border-iv-border" />
+      )}
+
       {/* Global state toggles: apply to all charts below, persisted across refresh */}
       
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
