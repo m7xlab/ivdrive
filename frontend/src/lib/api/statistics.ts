@@ -160,11 +160,6 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getAnalyticsChargingCosts(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-costs`);
-    return res.json();
-  },
-
   async getAnalyticsChargingSessions(id: string, limit: number = 10) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-sessions?limit=${limit}`);
     return res.json();

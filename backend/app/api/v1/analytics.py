@@ -97,7 +97,6 @@ async def get_efficiency_curve(
         for row in data
     ]
 
-@router.get("/{vehicle_id}/analytics/charging-costs")
 @router.get("/{vehicle_id}/analytics/charging-sessions")
 async def get_charging_sessions(
     vehicle_id: UUID,
