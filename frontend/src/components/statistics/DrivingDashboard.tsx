@@ -15,6 +15,7 @@ import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import L from "leaflet";
 import { api } from "@/lib/api";
+import { settingsApi } from "@/lib/api/settings";
 import type { TimelineRange } from "./StatisticsShell";
 
 // Fix Leaflet default icon in Next.js
@@ -260,7 +261,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
         api.getTimeBudget(vehicleId),
         // ── visited locations: no date filter ── all-time for map
         api.getVisitedLocations(vehicleId, 5000),
-        api.getGeofences().catch(() => [] as Geofence[]),
+        settingsApi.getGeofences().catch(() => [] as Geofence[]),
       ]);
 
       setTrips(tripsData.status === "fulfilled" ? (tripsData.value ?? []) : []);
