@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vampire Drain Calculation**: Fixed broken calculation that used non-existent `BatteryHealth.hv_battery_soc` field. Now correctly uses `ChargingState` with `state=CONNECT_CABLE` intervals, median instead of mean, drain rate capped at 0.15%/hr to exclude driving consumption.
 - **Settings Efficiency Calibration UX**: Store input values as raw strings instead of parsing to Number on every keystroke — eliminates cursor jumping when typing decimal values like "0."
 
+### Added 🌟
+- **Charging Analysis Tab**: Merged `ChargingCurve` and `ChargingCurveIntegrals` into a single `Charging Analysis` tab — combines power curve (LineChart) and bracket time analysis (BarChart) with shared KPIs. Eliminates tab-switching for the same charging data.
+
 ### Removed 🚫
 - **Charge Windows / NordPool**: Removed the NordPool-based charging optimization feature. The `get_nordpool_prices()` and `get_missed_savings()` backend endpoints, `ChargingCostsDashboard`, and `MissedSavingsDashboard` frontend components have been deleted. NordPool only covers ~10 EU countries and was misleading for users in unsupported regions. Economics now rely solely on per-country `CountryEconomics.electricity_price_kwh_eur`.
 
