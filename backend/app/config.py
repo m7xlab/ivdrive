@@ -111,7 +111,9 @@ class Settings(BaseSettings):
         smtp_provided = [k for k, v in smtp_fields.items() if v is not None and v != ""]
         if smtp_provided and len(smtp_provided) < len(smtp_fields):
             smtp_missing = [k for k, v in smtp_fields.items() if v is None or v == ""]
-            missing.append(f"SMTP partially configured — missing: {', '.join(smtp_missing)}")
+            # SMTP is optional — only warn, don't block startup
+            import warnings
+            warnings.warn(f"SMTP partially configured — missing: {', '.join(smtp_missing)}. Email notifications will be disabled.")
 
         if missing:
             lines = [

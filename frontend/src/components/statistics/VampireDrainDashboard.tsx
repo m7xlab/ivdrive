@@ -98,14 +98,10 @@ export function VampireDrainDashboard({ vehicleId }: { vehicleId: string }) {
           <p className="text-sm text-iv-text-muted">
             <span className="font-bold text-iv-text">{data.avg_drain_pct_per_day}% of your {data.battery_capacity_kwh} kWh battery</span> is lost
             per day to vampire drain (systems, standby, etc.).
-            Over a year, this costs approximately <span className="text-iv-yellow">{round(data.cost_per_month_eur * 12, 2)} €</span>.
+            Over a year, this costs approximately <span className="text-iv-yellow">{Number(data.cost_per_month_eur * 12).toFixed(2)} €</span>.
           </p>
         </div>
       </div>
     </div>
   );
-}
-
-function round(v: number, d: number) {
-  return Math.round(v * Math.pow(10, d)) / Math.pow(10, d);
 }
