@@ -615,7 +615,6 @@ export function CarOverviewDashboard({
       </div>
 
       {/* ── Levels & Range ── */}
-      <SectionDivider label="Levels & Range" />
       {levelsRangeData.length > 0 && (
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
@@ -773,7 +772,6 @@ export function CarOverviewDashboard({
       )}
 
       {/* ── Consumption & Range at 100% SoC ── */}
-      <SectionDivider label="Consumption & Range at 100% SoC" />
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <TrendingUp size={14} /> Consumption & Range extrapolated to 100% SoC
@@ -909,7 +907,6 @@ export function CarOverviewDashboard({
       </div>
 
       {/* ── Efficiency ── */}
-      <SectionDivider label="Efficiency" />
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <BarChart3 size={14} /> Efficiency
@@ -1011,7 +1008,6 @@ export function CarOverviewDashboard({
       </div>
 
       {/* ── Charging Power & Rate ── */}
-      <SectionDivider label="Charging Power" />
       {chargingChartData.length > 0 && (
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
@@ -1130,7 +1126,6 @@ export function CarOverviewDashboard({
 
 
       {/* ── States Timeline ── */}
-      <SectionDivider label="States Timeline" />
       <div className="glass rounded-xl p-5 border border-iv-border">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <Activity size={14} /> States Timeline
@@ -1297,8 +1292,6 @@ export function CarOverviewDashboard({
       )}
 
       {/* ── Period Summary ── */}
-      <SectionDivider label="Period Summary" />
-
       {stats.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2">
