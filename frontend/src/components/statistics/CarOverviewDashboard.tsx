@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useId } from "react";
 import { format } from "date-fns";
 import {
   Wifi,
@@ -1184,6 +1184,9 @@ export function CarOverviewDashboard({
       {/* Period summary (existing stats table + bar charts when available) */}
       {/* ── Winter Penalty ── */}
       <SectionDivider label="Winter Penalty" />
+      {(() => {
+        const winterGradientId = useId();
+        return (
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <ThermometerSnowflake size={14} /> Winter Penalty
@@ -1193,7 +1196,7 @@ export function CarOverviewDashboard({
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={winterEfficiency} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                 <defs>
-                  <linearGradient id="colorWinter" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id={winterGradientId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00D4FF" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#00D4FF" stopOpacity={0} />
                   </linearGradient>
@@ -1227,7 +1230,7 @@ export function CarOverviewDashboard({
                   stroke="#00D4FF"
                   strokeWidth={2}
                   fillOpacity={1}
-                  fill="url(#colorWinter)"
+                  fill={`url(#${winterGradientId})`}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1238,6 +1241,8 @@ export function CarOverviewDashboard({
           </div>
         )}
       </div>
+        );
+      })()}
 
       {/* ── Vampire Drain ── */}
       <SectionDivider label="Vampire Drain" />
