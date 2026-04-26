@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added 🌟
 - **Charging Analysis Tab**: Merged `ChargingCurve` and `ChargingCurveIntegrals` into a single `Charging Analysis` tab — combines power curve (LineChart) and bracket time analysis (BarChart) with shared KPIs. Eliminates tab-switching for the same charging data.
+- **Driving Summary Tab**: Merged `Trips`, `Movement`, `DrivingStats`, `Mileage` into a single `Driving Summary` tab — KPI row (Distance/Energy/Charged/Efficiency), mileage trend, time budget, recent trips, top places, historical data.
 
 ### Removed 🚫
 - **Charge Windows / NordPool**: Removed the NordPool-based charging optimization feature. The `get_nordpool_prices()` and `get_missed_savings()` backend endpoints, `ChargingCostsDashboard`, and `MissedSavingsDashboard` frontend components have been deleted. NordPool only covers ~10 EU countries and was misleading for users in unsupported regions. Economics now rely solely on per-country `CountryEconomics.electricity_price_kwh_eur`.
