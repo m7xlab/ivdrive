@@ -519,7 +519,7 @@ export function CarOverviewDashboard({
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-sm font-semibold text-iv-text flex items-center gap-2">
-              <Battery size={16} className="text-iv-green" />
+              <Battery size={14} className="text-iv-green" />
               Live Pulse
             </h3>
             <p className="text-xs text-iv-muted mt-0.5">Real-time vehicle state</p>
