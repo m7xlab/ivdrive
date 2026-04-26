@@ -5,11 +5,11 @@ import { format, parseISO } from "date-fns";
 import {
   Loader2, Route, Zap, BatteryCharging, Timer, Calendar,
   Car, ParkingSquare, Zap as ZapIcon, KeyRound, WifiOff,
-  MapPin, Clock, TrendingUp, Home, Briefcase
+  MapPin, Clock, TrendingUp,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, BarChart, Bar,
 } from "recharts";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
@@ -17,13 +17,18 @@ import L from "leaflet";
 import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
 
-// Fix Leaflet default icon not loading in Next.js
+// Fix Leaflet default icon in Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
+
+export interface DrivingDashboardProps {
+  vehicleId: string;
+  dateRange?: TimelineRange;
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -167,14 +172,6 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
           pointCount: count,
         },
       });
-    } else {
-      const last = events[events.length - 1];
-      if (last?.type === "move") {
-        (last.data as MoveEvent).endTime = new Date(anchor.timestamp);
-        (last.data as MoveEvent).durationMs = (last.data as MoveEvent).endTime.getTime() - (last.data as MoveEvent).startTime.getTime();
-      } else {
-        events.push({ type: "move", data: { startTime: anchorTime, endTime: anchorTime, durationMs: 0 } });
-      }
     }
     i = j;
   }
@@ -210,8 +207,8 @@ function formatDateTime(date: Date): string {
 function StayIcon({ label, isCharging }: { label: string; isCharging: boolean }) {
   if (isCharging) return <Zap size={15} className="text-iv-green" />;
   const l = label.toLowerCase();
-  if (l.includes("home")) return <Home size={15} className="text-iv-cyan" />;
-  if (l.includes("work")) return <Briefcase size={15} className="text-iv-cyan" />;
+  if (l.includes("home")) return <ParkingSquare size={15} className="text-iv-cyan" />;
+  if (l.includes("work") || l.includes("office")) return <MapPin size={15} className="text-iv-cyan" />;
   return <MapPin size={15} className="text-iv-muted" />;
 }
 
@@ -229,7 +226,8 @@ function formatPeriodLabel(iso: string, period: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: TimelineRange }) {
+export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps) {
+  // ── State ──────────────────────────────────────────────────────────────────
   const [trips, setTrips] = useState<TripAnalyticsItem[]>([]);
   const [stats, setStats] = useState<StatisticsRow[]>([]);
   const [odometer, setOdometer] = useState<OdometerItem[]>([]);
@@ -238,6 +236,9 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ── Data fetching ────────────────────────────────────────────────────────────
+  // odometer + visited locations fetched WITHOUT date filter (full history for trends)
+  // stats + trips are filtered by dateRange
   const fromISO = dateRange?.from?.toISOString() ?? undefined;
   const toISO = dateRange?.to?.toISOString() ?? undefined;
 
@@ -254,9 +255,11 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
       ] = await Promise.allSettled([
         api.getTripsAnalytics(vehicleId, 200, fromISO, toISO),
         api.getStatistics(vehicleId, "day", 30, fromISO, toISO),
-        api.getOdometer(vehicleId, 5000, fromISO, toISO),
+        // ── odometer: no date filter ── full history for mileage trend
+        api.getOdometer(vehicleId, 5000),
         api.getTimeBudget(vehicleId),
-        api.getVisitedLocations(vehicleId, 2000, fromISO, toISO),
+        // ── visited locations: no date filter ── all-time for map
+        api.getVisitedLocations(vehicleId, 5000),
         api.getGeofences().catch(() => [] as Geofence[]),
       ]);
 
@@ -273,7 +276,13 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
     }
   }, [vehicleId, fromISO, toISO]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    const isLive = !toISO || new Date(toISO) >= new Date();
+    if (!isLive) return;
+    const interval = setInterval(fetchData, 60000);
+    return () => clearInterval(interval);
+  }, [fetchData, toISO]);
 
   // ── Timeline (from MovementDashboard) ───────────────────────────────────────
   const timeline = useMemo(() => buildActivityTimeline(visitedLocations, geofences), [visitedLocations, geofences]);
@@ -281,9 +290,13 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
+  // Latest stats row (most recent day)
   const latestStats = stats.length > 0 ? stats[0] : null;
+
+  // Historical stats (last 7 days, skip today)
   const historicalStats = stats.length > 1 ? stats.slice(1, 8) : [];
 
+  // KPI values
   const totalDistance = latestStats ? latestStats.total_distance_km.toFixed(1) : "—";
   const totalDrives = latestStats ? String(latestStats.drives_count) : "—";
   const energyUsed = latestStats ? latestStats.total_kwh_consumed.toFixed(1) : "—";
@@ -291,29 +304,34 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
     ? ((latestStats.total_kwh_consumed / latestStats.total_distance_km) * 100).toFixed(1)
     : "—";
 
+  // Mileage trend chart data (all odometer readings, reversed → chronological)
   const mileageChartData = useMemo(() => {
-    return [...odometer].reverse().slice(0, 30).map((o) => ({
-      date: format(parseISO(o.captured_at), "d MMM"),
-      km: o.mileage_in_km,
-    }));
+    return [...odometer]
+      .reverse()
+      .slice(0, 60)
+      .map((o) => ({
+        date: format(parseISO(o.captured_at), "d MMM"),
+        km: o.mileage_in_km,
+      }));
   }, [odometer]);
 
+  // Time budget
   const tb = timeBudget;
   const totalS = tb
-    ? Math.max(tb.parked_seconds + tb.driving_seconds + tb.charging_seconds +
-        tb.ignition_seconds + tb.offline_seconds, 1)
+    ? Math.max(tb.parked_seconds + tb.driving_seconds + tb.charging_seconds + tb.ignition_seconds + tb.offline_seconds, 1)
     : 1;
 
   const timeBudgetBuckets = tb
     ? [
-        { label: "Parked",    seconds: tb.parked_seconds,   barColor: "bg-iv-text-muted/50", textColor: "text-iv-text",   icon: <ParkingSquare size={14} className="text-iv-muted" /> },
+        { label: "Parked",    seconds: tb.parked_seconds,   barColor: "bg-iv-text-muted/50", textColor: "text-iv-text",  icon: <ParkingSquare size={14} className="text-iv-muted" /> },
         { label: "Driving",   seconds: tb.driving_seconds,  barColor: "bg-iv-cyan",          textColor: "text-iv-cyan",  icon: <Car size={14} className="text-iv-cyan" /> },
-        { label: "Charging",  seconds: tb.charging_seconds, barColor: "bg-iv-green",         textColor: "text-iv-green", icon: <ZapIcon size={14} className="text-iv-green" /> },
-        { label: "Ignition", seconds: tb.ignition_seconds, barColor: "bg-yellow-500/70",    textColor: "text-yellow-400", icon: <KeyRound size={14} className="text-yellow-400" /> },
-        { label: "Offline",  seconds: tb.offline_seconds,  barColor: "bg-iv-border",        textColor: "text-iv-muted", icon: <WifiOff size={14} className="text-iv-muted" /> },
+        { label: "Charging",   seconds: tb.charging_seconds, barColor: "bg-iv-green",         textColor: "text-iv-green", icon: <ZapIcon size={14} className="text-iv-green" /> },
+        { label: "Ignition",   seconds: tb.ignition_seconds, barColor: "bg-yellow-500/70",    textColor: "text-yellow-400", icon: <KeyRound size={14} className="text-yellow-400" /> },
+        { label: "Offline",    seconds: tb.offline_seconds,  barColor: "bg-iv-border",        textColor: "text-iv-muted", icon: <WifiOff size={14} className="text-iv-muted" /> },
       ]
     : [];
 
+  // Top places from visited locations
   const topPlaces = useMemo(() => {
     const map = new Map<string, { lat: number; lon: number; ms: number; count: number }>();
     for (const loc of visitedLocations) {
@@ -325,6 +343,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
     return [...map.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
   }, [visitedLocations]);
 
+  // Recent trips (last 10)
   const recentTrips = useMemo(() => {
     return [...trips].sort((a, b) => {
       const da = new Date(a.start_time).getTime();
@@ -333,10 +352,10 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
     }).slice(0, 10);
   }, [trips]);
 
-  // Map center fallback
-  const defaultCenter: [number, number] = [54.7, 25.3];
+  // Map center (all-time first visited location)
+  const defaultCenter: [number, number] = [54.7, 25.3]; // Lithuania fallback
   const mapCenter = visitedLocations.length > 0
-    ? [visitedLocations[0].latitude, visitedLocations[0].longitude] as [number, number]
+    ? [visitedLocations[visitedLocations.length - 1].latitude, visitedLocations[visitedLocations.length - 1].longitude] as [number, number]
     : defaultCenter;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -401,12 +420,12 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
         </div>
       </div>
 
-      {/* ── Mileage Trend ── */}
+      {/* ── Mileage Trend (all-time odometer, no date filter) ── */}
       {mileageChartData.length > 1 && (
         <div className="glass rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-iv-text">Mileage Trend</h3>
-            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Last 30 readings</span>
+            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All readings</span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={mileageChartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
@@ -424,39 +443,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
         </div>
       )}
 
-      {/* ── Time Budget ── */}
-      {timeBudgetBuckets.length > 0 && (
-        <div className="glass rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-iv-text">Time Budget</h3>
-            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All-time</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {timeBudgetBuckets.map((b) => (
-              <div key={b.label} className="bg-iv-surface/60 rounded-xl p-3 border border-iv-border/50 space-y-1">
-                <div className="flex items-center gap-1.5">
-                  {b.icon}
-                  <span className="text-[10px] font-semibold text-iv-muted uppercase">{b.label}</span>
-                </div>
-                <p className={`text-xl font-bold ${b.textColor}`}>{formatDuration(b.seconds)}</p>
-                <p className="text-xs text-iv-muted">{((b.seconds / totalS) * 100).toFixed(1)}%</p>
-              </div>
-            ))}
-          </div>
-          <div className="flex rounded-full overflow-hidden h-2.5 gap-px bg-iv-border/30">
-            {timeBudgetBuckets.map((b) => (
-              <div
-                key={b.label}
-                className={b.barColor}
-                style={{ width: `${(b.seconds / totalS) * 100}%` }}
-                title={`${b.label}: ${formatDuration(b.seconds)}`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Leaflet Map ── */}
+      {/* ── Visited Locations Map (all-time, geofences marked) ── */}
       {visitedLocations.length > 0 && (
         <div className="glass rounded-xl p-5 space-y-4">
           <h3 className="text-sm font-semibold text-iv-text">Visited Locations</h3>
@@ -523,6 +510,38 @@ export function DrivingDashboard({ vehicleId, dateRange }: { vehicleId: string; 
                   </p>
                 </div>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Time Budget (all-time) ── */}
+      {timeBudgetBuckets.length > 0 && (
+        <div className="glass rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-iv-text">Time Budget</h3>
+            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All-time</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {timeBudgetBuckets.map((b) => (
+              <div key={b.label} className="bg-iv-surface/60 rounded-xl p-3 border border-iv-border/50 space-y-1">
+                <div className="flex items-center gap-1.5">
+                  {b.icon}
+                  <span className="text-[10px] font-semibold text-iv-muted uppercase">{b.label}</span>
+                </div>
+                <p className={`text-xl font-bold ${b.textColor}`}>{formatDuration(b.seconds)}</p>
+                <p className="text-xs text-iv-muted">{((b.seconds / totalS) * 100).toFixed(1)}%</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex rounded-full overflow-hidden h-2.5 gap-px bg-iv-border/30">
+            {timeBudgetBuckets.map((b) => (
+              <div
+                key={b.label}
+                className={b.barColor}
+                style={{ width: `${(b.seconds / totalS) * 100}%` }}
+                title={`${b.label}: ${formatDuration(b.seconds)}`}
+              />
             ))}
           </div>
         </div>
