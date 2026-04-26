@@ -233,6 +233,16 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async getChargingEconomics(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/charging-economics${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
+    return res.json();
+  },
+
   async getRouteEfficiency(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/route-efficiency`);
     return res.json();

@@ -1360,6 +1360,113 @@ async def get_vampire_drain(
 
 
 # =============================================================================
+# TASK 6b: Charging Economics — Base Grid Cost vs DC Provider Markup
+# =============================================================================
+class ChargingEconomicsSession(BaseModel):
+    session_id: int
+    session_start: str | None
+    charging_type: str | None
+    energy_kwh: float | None
+    base_grid_cost_eur: float | None   # energy_kwh × electricity_price (home equivalent)
+    paid_eur: float | None              # what user actually paid
+    markup_eur: float | None            # DC provider extra charge
+    provider_name: str | None
+
+class ChargingEconomicsResponse(BaseModel):
+    sessions: list[ChargingEconomicsSession]
+    total_energy_kwh: float
+    total_base_grid_cost_eur: float
+    total_paid_eur: float
+    total_markup_eur: float
+    electricity_price_eur_kwh: float
+    country_code: str
+
+
+@router.get("/{vehicle_id}/analytics/charging-economics", response_model=ChargingEconomicsResponse)
+async def get_charging_economics(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    from_date: date | None = None,
+    to_date: date | None = None,
+):
+    """
+    Break down each charging session into:
+    - Base grid cost  : energy_kwh × country electricity price  (what it would cost at home)
+    - Paid            : actual_cost_eur or base_cost_eur         (what was actually charged)
+    - Markup          : paid − base grid cost                    (DC provider's extra fee)
+
+    Uses CountryEconomics.electricity_price_kwh_eur as the home-equivalent price.
+    """
+    vehicle = await get_user_vehicle(user.id, vehicle_id, db)
+    country_code = str(vehicle.country_code) if vehicle.country_code else "LT"
+
+    from app.models.fuel_price import CountryEconomics
+
+    # Fetch electricity price for the vehicle's country
+    elec_price = 0.25  # sensible EUR/kWh default
+    eco_res = await db.execute(
+        select(CountryEconomics)
+        .where(CountryEconomics.country_code == country_code)
+        .order_by(CountryEconomics.date.desc())
+        .limit(1)
+    )
+    eco = eco_res.scalar_one_or_none()
+    if eco and eco.electricity_price_kwh_eur:
+        elec_price = float(eco.electricity_price_kwh_eur)
+
+    # Fetch charging sessions
+    stmt = (
+        select(ChargingSession)
+        .where(ChargingSession.user_vehicle_id == vehicle_id)
+        .where(ChargingSession.energy_kwh.is_not(None))
+    )
+    if from_date:
+        stmt = stmt.where(ChargingSession.session_start >= from_date)
+    if to_date:
+        stmt = stmt.where(ChargingSession.session_start <= to_date)
+
+    stmt = stmt.order_by(ChargingSession.session_start.desc())
+    res = await db.execute(stmt)
+    sessions = res.scalars().all()
+
+    rows: list[ChargingEconomicsSession] = []
+    total_energy = 0.0
+    total_base = 0.0
+    total_paid = 0.0
+
+    for s in sessions:
+        energy = s.energy_kwh or 0.0
+        paid = float(s.actual_cost_eur if s.actual_cost_eur is not None else (s.base_cost_eur or 0.0))
+        base_cost = energy * elec_price
+        markup = paid - base_cost
+
+        rows.append(ChargingEconomicsSession(
+            session_id=s.id,
+            session_start=s.session_start.isoformat() if s.session_start else None,
+            charging_type=s.charging_type,
+            energy_kwh=round(energy, 2),
+            base_grid_cost_eur=round(base_cost, 3),
+            paid_eur=round(paid, 2),
+            markup_eur=round(markup, 2),
+            provider_name=s.provider_name,
+        ))
+        total_energy += energy
+        total_base += base_cost
+        total_paid += paid
+
+    return ChargingEconomicsResponse(
+        sessions=rows,
+        total_energy_kwh=round(total_energy, 2),
+        total_base_grid_cost_eur=round(total_base, 2),
+        total_paid_eur=round(total_paid, 2),
+        total_markup_eur=round(total_paid - total_base, 2),
+        electricity_price_eur_kwh=round(elec_price, 4),
+        country_code=country_code,
+    )
+
+
+# =============================================================================
 # TASK 7: Dynamic ICE-Equivalent TCO
 # =============================================================================
 @router.get("/{vehicle_id}/analytics/ice-tco")
