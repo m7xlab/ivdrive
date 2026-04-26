@@ -304,13 +304,15 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
     ? ((latestStats.total_kwh_consumed / latestStats.total_distance_km) * 100).toFixed(1)
     : "—";
 
-  // Mileage trend chart data (all odometer readings, reversed → chronological)
+  // Mileage trend chart data (last 60 odometer readings, reversed → chronological)
+  // Uses timestamp ms as x-axis value so Recharts can compute proper domain/spacing
+  // regardless of how many unique date labels exist
   const mileageChartData = useMemo(() => {
     return [...odometer]
       .reverse()
       .slice(0, 60)
       .map((o) => ({
-        date: format(parseISO(o.captured_at), "d MMM"),
+        t: new Date(o.captured_at).getTime(),  // numeric x-axis for proper domain
         km: o.mileage_in_km,
       }));
   }, [odometer]);
@@ -425,17 +427,27 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
         <div className="glass rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-iv-text">Mileage Trend</h3>
-            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All readings</span>
+            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Last 60 readings</span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={mileageChartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} />
+              <XAxis
+                dataKey="t"
+                tick={{ fontSize: 11 }}
+                className="text-iv-muted"
+                tickLine={false}
+                tickFormatter={(v) => format(new Date(v), "d MMM")}
+                interval="preserveStartEnd"
+              />
               <YAxis tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} axisLine={false} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
-                formatter={(value: number) => [`${value.toFixed(0)} km`, "Odometer"]}
+                formatter={(value: number, name: string, props: any) => {
+                  const dateStr = format(new Date(props.payload.t), "d MMM yyyy");
+                  return [`${value.toFixed(0)} km`, dateStr];
+                }}
               />
               <Line type="monotone" dataKey="km" stroke="var(--iv-cyan)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
             </LineChart>
