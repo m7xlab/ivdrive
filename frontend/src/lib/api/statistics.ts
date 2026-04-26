@@ -241,5 +241,13 @@ export const statisticsApi = {
   async getPredictiveSoc(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/predictive-soc`);
     return res.json();
+  },
+
+  async getSoHTrend(id: string, opts?: { fromDate?: string; toDate?: string }) {
+    const params = new URLSearchParams();
+    if (opts?.fromDate) params.set("from_date", opts.fromDate);
+    if (opts?.toDate) params.set("to_date", opts.toDate);
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/soh-trend?${params.toString()}`);
+    return res.json();
   }
 };

@@ -25,6 +25,7 @@ import { VampireDrainDashboard } from "./VampireDrainDashboard";
 import { IceTcoDashboard } from "./IceTcoDashboard";
 import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
 import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
+import { SoHDashboard } from "./SoHDashboard";
 
 
 export interface TimelineRange {
@@ -43,6 +44,7 @@ const TABS = [
   { id: "charging-curve",      label: "Charging Curve",     icon: "📉" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
   { id: "charging-curve-integrals", label: "Curve Int.",    icon: "🔋" },
+  { id: "soh-trend",           label: "Battery Health",     icon: "🔋" },
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
   { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
   { id: "vampire-drain",       label: "Vampire Drain",       icon: "🧛" },
@@ -216,6 +218,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           <Tabs.Content value="charging-curve-integrals">
             <ChargingCurveIntegralsDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="soh-trend">
+            <SoHDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="elevation-penalty">
             <ElevationPenaltyDashboard vehicleId={vehicleId} />

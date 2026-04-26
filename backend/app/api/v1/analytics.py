@@ -1669,3 +1669,149 @@ async def get_predictive_soc(
             for cat, v in temps_bucket.items()
         }
     }
+
+
+# =============================================================================
+# TASK 3: True Capacity Degradation (SoH) Tracking
+# =============================================================================
+@router.get("/{vehicle_id}/analytics/soh-trend")
+async def get_soh_trend(
+    vehicle_id: UUID,
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Calculate true battery capacity degradation over time using charging session data.
+    Formula: true_capacity = kwh_delivered / (end_soc - start_soc) * 100
+    
+    This endpoint analyzes charging sessions where we have meaningful SoC changes
+    (typically 20%->80% or similar) to extrapolate the true 100% battery capacity.
+    Tracking this over months shows the Battery Degradation Curve.
+    """
+    vehicle = await get_user_vehicle(user.id, vehicle_id, db)
+    
+    # Get battery capacity from vehicle spec, fallback to 77 kWh (Enyaq 80)
+    battery_capacity_kwh = float(vehicle.battery_capacity_kwh) if vehicle.battery_capacity_kwh else 77.0
+    
+    # Query charging sessions with meaningful SoC changes (>= 20% delta)
+    stmt = (
+        select(
+            ChargingSession.session_start,
+            ChargingSession.start_level,
+            ChargingSession.end_level,
+            ChargingSession.energy_kwh
+        )
+        .where(
+            ChargingSession.user_vehicle_id == vehicle_id,
+            ChargingSession.session_start.isnot(None),
+            ChargingSession.start_level.isnot(None),
+            ChargingSession.end_level.isnot(None),
+            ChargingSession.energy_kwh.isnot(None),
+            ChargingSession.energy_kwh > 0
+        )
+    )
+    
+    if from_date:
+        stmt = stmt.where(ChargingSession.session_start >= from_date)
+    if to_date:
+        stmt = stmt.where(ChargingSession.session_start <= to_date)
+        
+    stmt = stmt.order_by(ChargingSession.session_start.asc())
+    
+    result = await db.execute(stmt)
+    sessions = result.fetchall()
+    
+    if not sessions:
+        return {
+            "data_points": [],
+            "summary": {
+                "nominal_capacity_kwh": battery_capacity_kwh,
+                "current_estimate_kwh": None,
+                "degradation_pct": None,
+                "sessions_analyzed": 0
+            },
+            "message": "No charging sessions with valid SoC data available."
+        }
+    
+    data_points = []
+    valid_estimates = []
+    
+    for session in sessions:
+        session_start = session.session_start
+        start_soc = float(session.start_level)
+        end_soc = float(session.end_level)
+        energy_kwh = float(session.energy_kwh)
+        
+        soc_delta = end_soc - start_soc
+        
+        # Only analyze sessions with meaningful SoC change (>= 10%)
+        if soc_delta >= 10:
+            # Calculate true capacity: true_capacity = energy_kwh / soc_delta * 100
+            # e.g., 40kWh delivered for 20%->80% (60% delta) = 40/60*100 = 66.7kWh
+            true_capacity = (energy_kwh / soc_delta) * 100.0
+            
+            # Sanity check: capacity should be within 50%-150% of nominal
+            if 0.5 * battery_capacity_kwh <= true_capacity <= 1.5 * battery_capacity_kwh:
+                data_points.append({
+                    "date": session_start.isoformat() if session_start else None,
+                    "session_start_soc": round(start_soc, 1),
+                    "session_end_soc": round(end_soc, 1),
+                    "soc_delta_pct": round(soc_delta, 1),
+                    "energy_kwh": round(energy_kwh, 3),
+                    "estimated_capacity_kwh": round(true_capacity, 2)
+                })
+                valid_estimates.append(true_capacity)
+    
+    if not valid_estimates:
+        return {
+            "data_points": [],
+            "summary": {
+                "nominal_capacity_kwh": battery_capacity_kwh,
+                "current_estimate_kwh": None,
+                "degradation_pct": None,
+                "sessions_analyzed": len(sessions)
+            },
+            "message": "No valid capacity estimates found (need sessions with >= 10% SoC change)."
+        }
+    
+    # Calculate summary statistics
+    # Use recent sessions (last 10) for current estimate
+    recent_estimates = valid_estimates[-10:] if len(valid_estimates) > 10 else valid_estimates
+    current_estimate = sum(recent_estimates) / len(recent_estimates)
+    
+    # Degradation = (nominal - current) / nominal * 100
+    degradation_pct = ((battery_capacity_kwh - current_estimate) / battery_capacity_kwh) * 100.0
+    
+    # Also calculate trend over time (monthly averages)
+    from collections import defaultdict
+    monthly_estimates = defaultdict(list)
+    for dp in data_points:
+        if dp["date"]:
+            month_key = dp["date"][:7]  # YYYY-MM
+            monthly_estimates[month_key].append(dp["estimated_capacity_kwh"])
+    
+    monthly_trend = []
+    for month in sorted(monthly_estimates.keys()):
+        estimates = monthly_estimates[month]
+        avg_capacity = sum(estimates) / len(estimates)
+        monthly_trend.append({
+            "month": month,
+            "estimated_capacity_kwh": round(avg_capacity, 2),
+            "sample_count": len(estimates)
+        })
+    
+    return {
+        "data_points": data_points,
+        "monthly_trend": monthly_trend,
+        "summary": {
+            "nominal_capacity_kwh": battery_capacity_kwh,
+            "current_estimate_kwh": round(current_estimate, 2),
+            "degradation_pct": round(max(0, degradation_pct), 2),
+            "sessions_analyzed": len(sessions),
+            "valid_estimates": len(valid_estimates)
+        },
+        "formula": "true_capacity_kwh = energy_kwh_delivered / soc_delta * 100",
+        "message": f"Battery degradation: {round(max(0, degradation_pct), 1)}% (nominal {battery_capacity_kwh}kWh → estimated {round(current_estimate, 1)}kWh)"
+    }

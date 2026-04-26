@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from "recharts";
+import { Loader2, Zap, Clock, BatteryWarning, TrendingDown } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface CurvePoint {
@@ -33,7 +33,6 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
     setLoading(true);
     const controller = new AbortController();
     try {
-      // Assuming api.fetchWrapper can be used or just use native fetch if not defined
       const token = localStorage.getItem("access_token");
       let url = `/api/v1/vehicles/${vehicleId}/analytics/charging-curve-integrals`;
       if (dateRange?.from && dateRange?.to) {
@@ -56,7 +55,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
     } finally {
       setLoading(false);
     }
-    
+
     return controller;
   }, [vehicleId, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
@@ -65,13 +64,39 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
     fetchData().then(controller => {
       activeController = controller;
     });
-    
+
     return () => {
       if (activeController) {
         activeController.abort();
       }
     };
   }, [fetchData]);
+
+  // Calculate throttle point: where power drops significantly (typically 80% for fast charging)
+  const throttlePoint = useMemo(() => {
+    if (!data?.curve || data.curve.length < 3) return null;
+
+    const curve = [...data.curve].sort((a, b) => a.soc_pct - b.soc_pct);
+    let maxDrop = 0;
+    let throttleSoc = 80; // default
+
+    for (let i = 1; i < curve.length; i++) {
+      const prevPower = curve[i - 1].avg_power_kw;
+      const currPower = curve[i].avg_power_kw;
+      if (prevPower > 0) {
+        const drop = (prevPower - currPower) / prevPower;
+        if (drop > maxDrop && curve[i].soc_pct >= 60) {
+          maxDrop = drop;
+          throttleSoc = curve[i].soc_pct;
+        }
+      }
+    }
+
+    return {
+      soc: throttleSoc,
+      power: curve.find(c => c.soc_pct === throttleSoc)?.avg_power_kw || 0
+    };
+  }, [data?.curve]);
 
   if (loading) {
     return (
@@ -89,6 +114,9 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
     );
   }
 
+  const peakPower = data.metrics.peak_power_kw || Math.max(...(data.curve.map(c => c.max_power_kw) || [0]));
+  const avgPower = data.metrics.avg_power_kw || (data.curve.length > 0 ? data.curve.reduce((sum, c) => sum + c.avg_power_kw, 0) / data.curve.length : 0);
+
   return (
     <div className="space-y-6">
       <p className="text-sm text-iv-muted">
@@ -102,7 +130,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Peak Power</p>
-            <p className="text-2xl font-bold text-iv-text">{data.metrics.peak_power_kw || 0} kW</p>
+            <p className="text-2xl font-bold text-iv-text">{peakPower.toFixed(1)} kW</p>
             <p className="text-xs text-iv-muted">max observed</p>
           </div>
         </div>
@@ -113,7 +141,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Avg Fast Charging</p>
-            <p className="text-2xl font-bold text-iv-text">{data.metrics.avg_power_kw || 0} kW</p>
+            <p className="text-2xl font-bold text-iv-text">{avgPower.toFixed(1)} kW</p>
             <p className="text-xs text-iv-muted">across whole curve</p>
           </div>
         </div>
@@ -129,14 +157,14 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
         </div>
 
-        <div className="flex items-center gap-4 rounded-lg border border-iv-border bg-iv-surface p-4">
+        <div className="flex items-center gap-4 rounded-lg border border-iv-border bg-red-500/10 p-4">
           <div className="rounded-lg bg-red-500/15 p-3">
-            <Clock className="h-6 w-6 text-red-500" />
+            <TrendingDown className="h-6 w-6 text-red-500" />
           </div>
           <div>
-            <p className="text-xs font-medium text-iv-muted">Time Wasted (80-100%)</p>
+            <p className="text-xs font-medium text-red-400">Time Wasted (80-100%)</p>
             <p className="text-2xl font-bold text-red-400">{data.metrics.wasted_minutes_80_100} min</p>
-            <p className="text-xs text-iv-muted">avg time wasted per session</p>
+            <p className="text-xs text-red-400/70">avg time wasted per session</p>
           </div>
         </div>
       </div>
@@ -145,27 +173,100 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
         <div className="flex items-center gap-2 border-b border-iv-border px-4 py-3">
           <BatteryWarning className="h-5 w-5 text-iv-muted" />
           <h3 className="font-medium text-iv-text">Charging Power Curve</h3>
+          {throttlePoint && (
+            <span className="ml-auto flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400">
+              <TrendingDown className="h-3 w-3" />
+              Throttle at {throttlePoint.soc}% SoC
+            </span>
+          )}
         </div>
-        
+
         {data.curve.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-iv-muted">No curve data available.</div>
         ) : (
           <div className="p-4">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={data.curve} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+              <ComposedChart data={data.curve} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <defs>
+                  <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--iv-cyan)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--iv-cyan)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
-                <XAxis dataKey="soc_pct" tick={{ fontSize: 12 }} className="text-iv-muted" label={{ value: "State of Charge (%)", position: "insideBottom", offset: -5 }} />
-                <YAxis tick={{ fontSize: 12 }} className="text-iv-muted" label={{ value: "Power (kW)", angle: -90, position: "insideLeft" }} />
+                <XAxis
+                  dataKey="soc_pct"
+                  tick={{ fontSize: 12 }}
+                  className="text-iv-muted"
+                  label={{ value: "State of Charge (%)", position: "insideBottom", offset: -5 }}
+                  domain={[0, 100]}
+                />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  className="text-iv-muted"
+                  label={{ value: "Power (kW)", angle: -90, position: "insideLeft" }}
+                />
                 <Tooltip
                   contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   labelStyle={{ color: "var(--iv-muted)" }}
                   formatter={(value: number, name: string) => [value.toFixed(2), name === "avg_power_kw" ? "Avg Power (kW)" : "Max Power (kW)"]}
                   labelFormatter={(label) => `SoC: ${label}%`}
                 />
-                <Line type="monotone" dataKey="avg_power_kw" stroke="var(--iv-cyan)" strokeWidth={2} dot={false} name="avg_power_kw" />
-                <Line type="monotone" dataKey="max_power_kw" stroke="var(--iv-green)" strokeWidth={2} strokeDasharray="5 5" dot={false} name="max_power_kw" />
-              </LineChart>
+                {/* Throttle zone annotation (80-100%) */}
+                <ReferenceLine
+                  x={80}
+                  stroke="var(--iv-red)"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  label={{
+                    value: "80% Throttle",
+                    position: "top",
+                    fill: "var(--iv-red)",
+                    fontSize: 11,
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="avg_power_kw"
+                  stroke="none"
+                  fill="url(#powerGradient)"
+                  name="avg_power_kw"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="avg_power_kw"
+                  stroke="var(--iv-cyan)"
+                  strokeWidth={2}
+                  dot={true}
+                  name="avg_power_kw"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="max_power_kw"
+                  stroke="var(--iv-green)"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="max_power_kw"
+                />
+              </ComposedChart>
             </ResponsiveContainer>
+
+            {/* Throttle explanation */}
+            {throttlePoint && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
+                <TrendingDown className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-red-400">
+                    Throttle Point Detected at {throttlePoint.soc}% SoC ({throttlePoint.power.toFixed(1)} kW)
+                  </p>
+                  <p className="text-iv-muted mt-1">
+                    Above {throttlePoint.soc}%, charging power drops significantly. This is where most of your
+                    &quot;wasted time&quot; comes from — the last 20% takes almost as long as the first 80%.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

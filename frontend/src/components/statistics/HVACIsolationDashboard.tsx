@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Loader2, ThermometerSnowflake } from "lucide-react";
+import { Loader2, ThermometerSnowflake, Calculator, TrendingUp } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -79,8 +79,76 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
     "HVAC Cost": m.hvac_cost_kwh_100km,
   }));
 
+  // Calculate overall HVAC cost per degree
+  // Using cold threshold of 5°C and optimal range of 15-25°C (20°C delta)
+  const avgHvacCost = data.metrics.length > 0
+    ? data.metrics.reduce((sum, m) => sum + m.hvac_cost_kwh_100km, 0) / data.metrics.length
+    : 0;
+  const coldTempThreshold = 5; // °C
+  const optimalTempMin = 15; // °C
+  const tempDelta = optimalTempMin - coldTempThreshold; // 10°C
+  const hvacCostPerDegree = tempDelta > 0 ? avgHvacCost / tempDelta : 0;
+
   return (
     <div className="space-y-6 mt-6">
+      {/* Formula Breakdown Section */}
+      <div className="glass rounded-2xl border border-iv-border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Calculator className="h-5 w-5 text-iv-cyan" />
+          <h3 className="text-lg font-bold text-iv-text">HVAC Cost Formula Breakdown</h3>
+        </div>
+
+        <div className="bg-iv-surface/50 rounded-xl p-4 border border-iv-border">
+          <div className="font-mono text-sm space-y-3">
+            <div className="flex items-center gap-2 text-iv-text-muted">
+              <span className="text-iv-cyan">1.</span>
+              <span>Compare cold trips (≤{coldTempThreshold}°C) vs optimal trips (15-25°C)</span>
+            </div>
+            <div className="flex items-center gap-2 text-iv-text-muted">
+              <span className="text-iv-cyan">2.</span>
+              <span>Isolate HVAC consumption:</span>
+            </div>
+            <div className="flex items-center gap-2 ml-6 p-2 bg-iv-bg rounded border border-iv-border/50">
+              <span className="text-iv-text">HVAC_cost = cold_eff − optimal_eff</span>
+            </div>
+            <div className="flex items-center gap-2 text-iv-text-muted">
+              <span className="text-iv-cyan">3.</span>
+              <span>Per-degree cost calculation:</span>
+            </div>
+            <div className="flex items-center gap-2 ml-6 p-2 bg-iv-bg rounded border border-iv-border/50">
+              <span className="text-iv-text">
+                Cost_per_°C = HVAC_cost / {tempDelta}°C (temp delta: {optimalTempMin}°C − {coldTempThreshold}°C)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Summary metric */}
+        {hvacCostPerDegree > 0 && (
+          <div className="mt-4 flex items-center gap-4 rounded-xl bg-iv-cyan/10 border border-iv-cyan/30 p-4">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="h-8 w-8 text-iv-cyan" />
+              <div>
+                <p className="text-xs text-iv-text-muted uppercase tracking-wider">Heating Cost (≤5°C)</p>
+                <p className="text-2xl font-bold text-iv-cyan">
+                  ~{avgHvacCost.toFixed(1)} kWh/100km
+                </p>
+              </div>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider">Per °C</p>
+              <p className="text-xl font-bold text-iv-text">
+                ~{hvacCostPerDegree.toFixed(2)} kWh/100km/°C
+              </p>
+              <p className="text-xs text-iv-muted">
+                For {data.metrics[0]?.speed_profile || "mixed"} driving
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Main HVAC Dashboard */}
       <div className="glass rounded-2xl border border-iv-border p-6">
         <div className="flex items-center gap-2 mb-2">
           <ThermometerSnowflake className="h-5 w-5 text-iv-cyan" />
