@@ -343,7 +343,7 @@ export function CarOverviewDashboard({
         : (range.find((x) => x.timestamp === ts)?.range_km ?? null);
       const ot = outsideTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
       const bt = batteryTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
-      const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number } = {
+      const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number; battery_temp?: number } = {
         time: ts,
         timeMs,
         label: format(new Date(ts), "d MMM HH:mm"),

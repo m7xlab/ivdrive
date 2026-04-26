@@ -128,7 +128,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
               />
               <Bar dataKey="avg_kwh_100km" name="kWh/100km" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getColor(entry.avg_kwh_100km)} />
+                  <Cell key={`cell-${index}`} fill={getColor(entry.avg_kwh_100km!)} />
                 ))}
               </Bar>
             </BarChart>
