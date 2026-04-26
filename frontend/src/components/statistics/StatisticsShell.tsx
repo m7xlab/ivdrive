@@ -16,9 +16,8 @@ import { MovementDashboard } from "./MovementDashboard";
 import { DrivingStatisticsDashboard } from "./DrivingStatisticsDashboard";
 import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
 import { MileageKMDashboard } from "./MileageKMDashboard";
-import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
+import { ChargingAnalysisDashboard } from "./ChargingAnalysisDashboard";
 import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
-import { ChargingCurveIntegralsDashboard } from "./ChargingCurveIntegralsDashboard";
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
 import { VampireDrainDashboard } from "./VampireDrainDashboard";
@@ -40,9 +39,8 @@ const TABS = [
   { id: "movement",            label: "Movement",           icon: "🚗" },
   { id: "driving-stats",       label: "Driving Stats",       icon: "📈" },
   { id: "charging-stats",      label: "Charging Stats",     icon: "🔌" },
-  { id: "charging-curve",      label: "Charging Curve",     icon: "📉" },
+  { id: "charging-analysis", label: "Charging Analysis", icon: "⚡" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
-  { id: "charging-curve-integrals", label: "Curve Int.",    icon: "🔋" },
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
   { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
   { id: "vampire-drain",       label: "Vampire Drain",       icon: "🧛" },
@@ -208,14 +206,11 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           <Tabs.Content value="charging-stats">
             <ChargingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
-          <Tabs.Content value="charging-curve">
-            <ChargingCurveDashboard vehicleId={vehicleId} dateRange={range} />
+          <Tabs.Content value="charging-analysis">
+            <ChargingAnalysisDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="hvac-isolation">
             <HVACIsolationDashboard vehicleId={vehicleId} dateRange={range} />
-          </Tabs.Content>
-          <Tabs.Content value="charging-curve-integrals">
-            <ChargingCurveIntegralsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="elevation-penalty">
             <ElevationPenaltyDashboard vehicleId={vehicleId} />
