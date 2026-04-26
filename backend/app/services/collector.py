@@ -820,49 +820,67 @@ class DataCollector:
                             mileage_in_km=maint_resp.mileage_in_km,
                         ))
 
-                # --- Real metrics only: BatteryHealth, PowerUsage, ChargingCurve ---
-                # Only write records when we have real data from the API — no simulated/fake values
-                session.add(BatteryHealth(
-                    user_vehicle_id=user_vehicle_id,
-                    captured_at=now,
-                    twelve_v_battery_voltage=None,
-                    twelve_v_battery_soc=None,
-                    twelve_v_battery_soh=None,
-                    hv_battery_voltage=None,
-                    hv_battery_current=None,
-                    hv_battery_temperature=None,
-                    hv_battery_soh=None,
-                    hv_battery_degradation_pct=None,
-                    cell_voltage_min=None,
-                    cell_voltage_max=None,
-                    cell_voltage_avg=None,
-                    cell_temperature_min=None,
-                    cell_temperature_max=None,
-                    cell_temperature_avg=None,
-                    imbalance_mv=None,
-                ))
+                # --- BatteryHealth: only write when real data is available from status API ---
+                # The Skoda API provides SOC and estimated range during charging.
+                # Other fields (cell voltages, temperatures) are not exposed by the API.
+                if (
+                    status_resp and status_resp.overall
+                    and status_resp.overall.battery
+                ):
+                    batt = status_resp.overall.battery
+                    soc = getattr(batt, "state_of_charge_in_percent", None)
+                    if soc is not None:
+                        session.add(BatteryHealth(
+                            user_vehicle_id=user_vehicle_id,
+                            captured_at=now,
+                            # twelve_v fields — not exposed by Skoda API
+                            twelve_v_battery_voltage=None,
+                            twelve_v_battery_soc=None,
+                            twelve_v_battery_soh=None,
+                            # HV battery from status endpoint (when available)
+                            hv_battery_voltage=getattr(batt, "voltage", None),
+                            hv_battery_current=getattr(batt, "current", None),
+                            hv_battery_temperature=getattr(batt, "temperature", None),
+                            hv_battery_soh=getattr(batt, "soh", None),
+                            hv_battery_degradation_pct=None,
+                            # Cell-level data — not exposed by Skoda API
+                            cell_voltage_min=None,
+                            cell_voltage_max=None,
+                            cell_voltage_avg=None,
+                            cell_temperature_min=None,
+                            cell_temperature_max=None,
+                            cell_temperature_avg=None,
+                            imbalance_mv=None,
+                        ))
 
-                session.add(PowerUsage(
-                    user_vehicle_id=user_vehicle_id,
-                    captured_at=now,
-                    total_power_kw=None,
-                    motor_power_kw=None,
-                    hvac_power_kw=None,
-                    auxiliary_power_kw=None,
-                    battery_heater_power_kw=None,
-                ))
-
+                # --- PowerUsage: only write when charging (Skoda provides charge_power_kw) ---
                 if is_charging and charging and charging.status:
-                    session.add(ChargingCurve(
+                    session.add(PowerUsage(
                         user_vehicle_id=user_vehicle_id,
                         captured_at=now,
-                        soc_pct=None,
-                        power_kw=None,
-                        voltage_v=None,
-                        current_a=None,
-                        battery_temp_celsius=None,
-                        charger_temp_celsius=None,
+                        total_power_kw=charging.status.charge_power_in_kw,
+                        # Motor / HVAC / auxiliary — not exposed by Skoda API
+                        motor_power_kw=None,
+                        hvac_power_kw=None,
+                        auxiliary_power_kw=None,
+                        battery_heater_power_kw=None,
                     ))
+
+                # --- ChargingCurve: only write when charging with real power data ---
+                if is_charging and charging and charging.status and charging.status.battery:
+                    soc_pct = charging.status.battery.state_of_charge_in_percent
+                    if soc_pct is not None and charging.status.charge_power_in_kw is not None:
+                        session.add(ChargingCurve(
+                            user_vehicle_id=user_vehicle_id,
+                            captured_at=now,
+                            soc_pct=soc_pct,
+                            power_kw=charging.status.charge_power_in_kw,
+                            # Voltage / current / temps — not exposed by Skoda API
+                            voltage_v=None,
+                            current_a=None,
+                            battery_temp_celsius=getattr(charging.status.battery, "temperature", None),
+                            charger_temp_celsius=None,
+                        ))
 
                 # --- Legacy Grafana metrics ---
                 if is_charging and charging and charging.status and charging.status.charge_power_in_kw is not None:

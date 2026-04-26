@@ -91,10 +91,14 @@ class Settings(BaseSettings):
             missing.append("VALKEY_URL (or VALKEY_PASSWORD)")
 
         # Skoda OAuth — required for collector to function
-        if not self.skoda_auth_client_id:
-            missing.append("SKODA_AUTH_CLIENT_ID")
-        if not self.skoda_auth_redirect_uri:
-            missing.append("SKODA_AUTH_REDIRECT_URI")
+        # Only enforce if COLLECTOR_ENABLED is set to true (default behavior unchanged for existing deployments)
+        import os as _os
+        collector_enabled = _os.environ.get("COLLECTOR_ENABLED", "true").lower() in ("true", "1", "yes")
+        if collector_enabled:
+            if not self.skoda_auth_client_id:
+                missing.append("SKODA_AUTH_CLIENT_ID")
+            if not self.skoda_auth_redirect_uri:
+                missing.append("SKODA_AUTH_REDIRECT_URI")
 
         # SMTP — optional; warn if partially configured
         smtp_fields = {
