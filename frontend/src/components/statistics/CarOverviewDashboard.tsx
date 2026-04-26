@@ -510,70 +510,79 @@ export function CarOverviewDashboard({
     <div className="space-y-6">
       {/* ── Live Pulse KPI Row ── */}
       {pulse ? (
-        <div className="glass rounded-xl border border-iv-border/60 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bolt size={16} className="text-iv-green" />
-              <h3 className="text-sm font-semibold text-iv-text">Live Pulse</h3>
+        <div className="glass rounded-2xl border border-iv-border p-6 mt-6">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-lg font-bold text-iv-text flex items-center gap-2">
+                <Bolt className="w-5 h-5 text-iv-green" />
+                Live Pulse Telemetry
+              </h3>
+              <p className="text-sm text-iv-text-muted">Real-time status updates</p>
             </div>
-            <div className={`px-3 py-1 rounded-full text-xs font-semibold ${pulse.is_online ? "bg-iv-green/10 text-iv-green" : "bg-rose-500/10 text-rose-400"}`}>
-              {pulse.is_online ? "● ONLINE" : "OFFLINE"}
+            <div className={`px-3 py-1 rounded-full text-xs font-semibold ${pulse.is_online ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+              {pulse.is_online ? "• ONLINE" : "OFFLINE"}
             </div>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
             {/* Battery SoC */}
-            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
-              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
-                <Bolt size={12} className="text-iv-green" /> Battery SoC
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <Bolt className="w-4 h-4 text-iv-green" /> State of Charge
               </p>
-              <p className="text-2xl font-bold text-iv-text">{pulse.battery_pct}<span className="text-sm font-normal text-iv-muted">%</span></p>
-              <div className="w-full bg-iv-charcoal h-1.5 rounded-full mt-2 overflow-hidden">
+              <p className="text-3xl font-bold text-iv-text">{pulse.battery_pct}<span className="text-lg font-normal text-iv-text-muted">%</span></p>
+              <div className="w-full bg-iv-charcoal h-2 rounded-full mt-4 overflow-hidden">
                 <div className="bg-iv-green h-full" style={{ width: `${pulse.battery_pct}%` }} />
               </div>
             </div>
 
             {/* Est. Full Range */}
-            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
-              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
-                <MapPin size={12} className="text-iv-cyan" /> Est. Full Range
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-iv-cyan" /> Est. Full Range
               </p>
-              <p className="text-2xl font-bold text-iv-text">{pulse.remaining_range_km}<span className="text-sm font-normal text-iv-muted">km</span></p>
+              <p className="text-3xl font-bold text-iv-text">{pulse.remaining_range_km}<span className="text-lg font-normal text-iv-text-muted">km</span></p>
               {pulse.battery_pct > 0 && (
-                <p className="text-xs text-iv-muted mt-1">Max: {Math.round((pulse.remaining_range_km / pulse.battery_pct) * 100)} km</p>
+                <p className="text-sm text-iv-text-muted mt-3">
+                  Calculated Max: <span className="text-iv-text">{Math.round((pulse.remaining_range_km / pulse.battery_pct) * 100)} km</span>
+                </p>
               )}
             </div>
 
             {/* Charging Power OR Motion Status */}
             {pulse.status === "CHARGING" || pulse.status === "READY_FOR_CHARGING" ? (
-              <div className="bg-iv-surface rounded-xl p-4 border border-emerald-500/20">
-                <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
-                  <Zap size={12} className="text-emerald-400" /> Charging Power
+              <div className="bg-iv-surface rounded-xl p-5 border border-emerald-500/30">
+                <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                  <Zap className="w-4 h-4 text-emerald-400" /> Charging Speed
                 </p>
-                <p className="text-2xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-sm font-normal text-iv-muted">kW</span></p>
-                <p className="text-xs text-emerald-400 mt-1">{pulse.remaining_charge_time_min} min to target</p>
+                <p className="text-3xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-lg font-normal text-iv-text-muted">kW</span></p>
+                <p className="text-sm text-emerald-400 mt-3">{pulse.remaining_charge_time_min} mins to target</p>
               </div>
             ) : (
-              <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
-                <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
-                  <Car size={12} className="text-iv-muted" /> Motion Status
+              <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+                <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                  <Car className="w-4 h-4 text-iv-muted" /> Motion Status
                 </p>
-                <p className="text-sm font-bold text-iv-text">{pulse.status}</p>
+                <p className="text-xl font-bold text-iv-text mt-3">{pulse.status}</p>
               </div>
             )}
 
             {/* Local Weather */}
-            <div className="bg-iv-surface rounded-xl p-4 border border-iv-border/50">
-              <p className="text-xs text-iv-muted flex items-center gap-1.5 mb-2">
-                <Cloud size={12} className="text-amber-400" /> Ambient Temp
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <Cloud className="w-4 h-4 text-amber-400" /> Local Weather
               </p>
-              <p className="text-2xl font-bold text-iv-text">
+              <p className="text-3xl font-bold text-iv-text">
                 {pulse.temperature_celsius !== null ? `${pulse.temperature_celsius}°` : "--"}
               </p>
+              <p className="text-sm text-iv-text-muted mt-3">Ambient Temp</p>
             </div>
+
           </div>
         </div>
       ) : (
-        <div className="h-32 animate-pulse rounded-xl bg-iv-surface border border-iv-border" />
+        <div className="animate-pulse h-32 bg-iv-surface rounded-2xl border border-iv-border mt-6" />
       )}
 
       {/* Global state toggles: apply to all charts below, persisted across refresh */}
