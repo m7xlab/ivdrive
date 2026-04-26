@@ -17,7 +17,7 @@ import { ChargingAnalysisDashboard } from "./ChargingAnalysisDashboard";
 import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
-import { VampireDrainDashboard } from "./VampireDrainDashboard"; // used by CarOverviewDashboard
+import { MovementDashboard } from "./MovementDashboard";
 import { IceTcoDashboard } from "./IceTcoDashboard";
 import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
 import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
@@ -32,7 +32,8 @@ const TABS = [
   { id: "car-overview",        label: "Car Overview",       icon: "📊" },
   { id: "pulse",               label: "Live Pulse",         icon: "📡" },
   { id: "efficiency",          label: "Winter Penalty",      icon: "❄️" },
-  { id: "driving-summary",    label: "Driving Summary",   icon: "🚗" },
+  { id: "driving-summary",  label: "Driving Summary", icon: "🚗" },
+  { id: "movement",          label: "Movement",         icon: "📍" },
   { id: "charging-economics", label: "Charging Economics", icon: "🔌" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
@@ -188,6 +189,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
 
           <Tabs.Content value="driving-summary">
             <DrivingSummaryDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="movement">
+            <MovementDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="charging-economics">
             <ChargingEconomicsDashboard vehicleId={vehicleId} dateRange={range} />
