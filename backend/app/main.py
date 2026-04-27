@@ -15,6 +15,7 @@ from app.api.v1 import auth, commands, admin, notifications, geo
 from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
+from app.api.v1 import charging
 from app.config import settings
 from app.services.cache import cache_get, cache_set, init_cache, close_cache
 import asyncio
@@ -143,6 +144,7 @@ app.include_router(vehicles.router, prefix="/api/v1/vehicles", tags=["vehicles"]
 app.include_router(commands.router, prefix="/api/v1/vehicles", tags=["commands"])
 app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(analytics.router, prefix="/api/v1/vehicles", tags=["analytics"])
+app.include_router(charging.router, prefix="/api/v1/vehicles", tags=["charging"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(geo.router, prefix="/api/v1/geo", tags=["geo"])
