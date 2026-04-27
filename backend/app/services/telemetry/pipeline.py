@@ -263,7 +263,7 @@ class TelemetryPipeline:
                 raise
 
     async def _store_trip_end(self, event: TripEndEvent) -> None:
-        """Close the most recent open Trip record."""
+        """Close the oldest open Trip record."""
         async with async_session() as session:
             try:
                 result = await session.execute(
@@ -272,7 +272,7 @@ class TelemetryPipeline:
                         Trip.user_vehicle_id == UUID(event.user_vehicle_id),
                         Trip.end_date.is_(None),
                     )
-                    .order_by(Trip.start_date.desc())
+                    .order_by(Trip.start_date.asc())
                     .limit(1)
                 )
                 trip = result.scalar_one_or_none()
