@@ -58,9 +58,12 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
             # --- TRIPS LOGIC ---
             is_driving = latest_conn and (latest_conn.in_motion or latest_conn.ignition_on)
             
-            # Find open trip
+            # Find open trip — order ASC so we get the OLDEST open trip if multiple exist
             open_trip_res = await session.execute(
-                select(Trip).where(Trip.user_vehicle_id == user_vehicle_id, Trip.end_date.is_(None))
+                select(Trip)
+                .where(Trip.user_vehicle_id == user_vehicle_id, Trip.end_date.is_(None))
+                .order_by(Trip.start_date.asc())
+                .limit(1)
             )
             open_trip = open_trip_res.scalar_one_or_none()
 

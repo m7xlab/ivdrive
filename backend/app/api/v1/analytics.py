@@ -464,6 +464,7 @@ async def get_movement_stats(
             VehicleState.last_date > from_date,
         )
         .order_by(VehicleState.first_date)
+        .limit(10_000)
     )
     vs_result = await db.execute(vs_stmt)
     vs_rows = vs_result.scalars().all()
@@ -478,6 +479,7 @@ async def get_movement_stats(
             ChargingState.state == "CHARGING",
         )
         .order_by(ChargingState.first_date)
+        .limit(10_000)
     )
     cs_result = await db.execute(cs_stmt)
     cs_rows = cs_result.scalars().all()
