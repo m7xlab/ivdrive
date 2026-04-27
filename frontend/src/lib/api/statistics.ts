@@ -218,6 +218,11 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async getTripElevationStats(vehicleId: string, tripId: number) {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/trips/${tripId}/elevation-stats`);
+    return res.json();
+  },
+
   async getSpeedTempMatrix(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/speed-temp-matrix`);
     return res.json();

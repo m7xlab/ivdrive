@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-04-27
 
+### Added 🆕
+- **analytics.py**: New `GET /vehicles/{id}/trips/{trip_id}/elevation-stats` — elevation gain/loss per trip using `vehicle_positions.elevation_m`, physics-based kWh calculation (1700kg, g=9.81, 65% regen). Output: "Uphill energy: X.X kWh | Downhill regen: X.X kWh | Net: X.X kWh/100km".
+- **analytics.py**: New `GET /analytics/hvac-cost` — groups trips into 5 temperature bands (<-10°C, -10-0°C, 0-10°C, 10-20°C, >20°C) vs warm baseline to isolate HVAC cost. Output: "Heating costs you ~X.X kWh/100km at -5°C".
+- **frontend**: New `TripElevationCard` component — shown when a trip row is expanded in the trip list.
+- **frontend**: New `HVACCostCard` metric card on efficiency dashboard — "HVAC cost: ~X.X kWh/100km at -5°C".
+- **frontend**: `ChargingCurveIntegralsDashboard` now shows kW vs SoC line chart + "X minutes wasted on last 20%" callout.
+
 ### Fixed 🐛
 - **collector.py**: Assign `battery_temp` from `status_resp.overall.battery.temperature` before BatteryTemperature write block; add null guard to skip when None.
 - **analytics.py**: Replace dynamic `__import__('sqlalchemy').text()` calls with the already-imported top-level `text()` function.
