@@ -546,7 +546,7 @@ async def get_time_budget(
         WHERE user_vehicle_id = :vid
         GROUP BY state
     """
-    vs_result = await db.execute(__import__("sqlalchemy").text(vs_sql), {"vid": str(vehicle_id)})
+    vs_result = await db.execute(text(vs_sql), {"vid": str(vehicle_id)})
     vs_rows = vs_result.fetchall()
 
     state_seconds: dict[str, float] = {}
@@ -559,7 +559,7 @@ async def get_time_budget(
         FROM v_charging_sessions_analytics
         WHERE user_vehicle_id = :vid
     """
-    cs_result = await db.execute(__import__("sqlalchemy").text(cs_sql), {"vid": str(vehicle_id)})
+    cs_result = await db.execute(text(cs_sql), {"vid": str(vehicle_id)})
     charging_seconds = float(cs_result.scalar() or 0)
 
     return {
