@@ -83,8 +83,9 @@ async def get_efficiency_curve(
         )
         .where(v_stats.c.user_vehicle_id == vehicle_id)
         .order_by(v_stats.c.temperature)
+        .limit(1000)
     )
-    
+
     result = await db.execute(stmt)
     data = result.all()
     
@@ -229,7 +230,7 @@ async def get_battery_health(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = 100
+    limit: int = Query(default=100, ge=1, le=1000)
 ):
     """Return the latest battery health metrics including 12V and cell voltages."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -268,7 +269,7 @@ async def get_power_usage(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = 100
+    limit: int = Query(default=100, ge=1, le=1000)
 ):
     """Return detailed power consumption breakdown over time."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -299,7 +300,7 @@ async def get_charging_curves(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = 100
+    limit: int = Query(default=100, ge=1, le=1000)
 ):
     """Return charging curve points (power/voltage vs SoC)."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -449,6 +450,8 @@ async def get_movement_stats(
     vehicle_id: UUID,
     from_date: datetime = Query(...),
     to_date: datetime = Query(...),
+    limit: int = Query(default=1000, ge=1, le=10000),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -464,7 +467,8 @@ async def get_movement_stats(
             VehicleState.last_date > from_date,
         )
         .order_by(VehicleState.first_date)
-        .limit(10_000)
+        .limit(limit)
+        .offset(offset)
     )
     vs_result = await db.execute(vs_stmt)
     vs_rows = vs_result.scalars().all()
@@ -479,7 +483,8 @@ async def get_movement_stats(
             ChargingState.state == "CHARGING",
         )
         .order_by(ChargingState.first_date)
-        .limit(10_000)
+        .limit(limit)
+        .offset(offset)
     )
     cs_result = await db.execute(cs_stmt)
     cs_rows = cs_result.scalars().all()
@@ -538,7 +543,7 @@ async def get_time_budget(
         WHERE user_vehicle_id = :vid
         GROUP BY state
     """
-    vs_result = await db.execute(text(vs_sql), {"vid": str(vehicle_id)})
+    vs_result = await db.execute(__import__("sqlalchemy").text(vs_sql), {"vid": str(vehicle_id)})
     vs_rows = vs_result.fetchall()
 
     state_seconds: dict[str, float] = {}
@@ -551,7 +556,7 @@ async def get_time_budget(
         FROM v_charging_sessions_analytics
         WHERE user_vehicle_id = :vid
     """
-    cs_result = await db.execute(text(cs_sql), {"vid": str(vehicle_id)})
+    cs_result = await db.execute(__import__("sqlalchemy").text(cs_sql), {"vid": str(vehicle_id)})
     charging_seconds = float(cs_result.scalar() or 0)
 
     return {
