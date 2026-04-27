@@ -897,6 +897,129 @@ async def get_hvac_isolation(
     }
 
 
+
+# =============================================================================
+# TASK 2: HVAC / Auxiliary Power Isolation (temperature band group)
+# =============================================================================
+@router.get("/{vehicle_id}/analytics/hvac-cost")
+async def get_hvac_cost(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Groups trips into temperature bands and compares cold vs warm trips at similar
+    avg speeds to isolate HVAC/auxiliary power cost.
+    Bands: < -10°C, -10 to 0°C, 0-10°C, 10-20°C, > 20°C.
+    Output: "Heating costs you ~X.X kWh/100km at -5°C"
+    """
+    vehicle = await get_user_vehicle(user.id, vehicle_id, db)
+    cal = _calibration(vehicle)
+    city_thresh = cal["speed_city_threshold_kmh"]
+    hw_thresh = cal["speed_highway_threshold_kmh"]
+
+    # Temperature band edges
+    TEMP_BANDS = [
+        ("<-10°C",       -999,  -10),
+        ("-10-0°C",      -10,    0),
+        ("0-10°C",         0,   10),
+        ("10-20°C",      10,   20),
+        (">20°C",         20,  999),
+    ]
+
+    stmt = select(
+        Trip.distance_km,
+        Trip.kwh_consumed,
+        Trip.avg_temp_celsius,
+        Trip.start_date,
+        Trip.end_date,
+    ).where(
+        Trip.user_vehicle_id == vehicle_id,
+        Trip.distance_km > 2,
+        Trip.kwh_consumed.is_not(None),
+        Trip.kwh_consumed > 0,
+        Trip.avg_temp_celsius.is_not(None),
+        Trip.end_date.is_not(None),
+    )
+    res = await db.execute(stmt)
+    rows = res.fetchall()
+
+    # bucket[band_label][speed_cat] = list of efficiencies
+    bucket: dict[str, dict[str, list[float]]] = {
+        b[0]: {"city": [], "mixed": [], "highway": []}
+        for b in TEMP_BANDS
+    }
+
+    for r in rows:
+        dist = r.distance_km or 0
+        kwh = r.kwh_consumed or 0
+        temp = r.avg_temp_celsius or 0
+        duration_h = (r.end_date - r.start_date).total_seconds() / 3600.0
+        if duration_h < 0.001 or dist <= 0:
+            continue
+
+        speed = dist / duration_h
+        eff = (kwh / dist) * 100.0
+
+        s_cat = "mixed"
+        if speed < city_thresh:
+            s_cat = "city"
+        elif speed > hw_thresh:
+            s_cat = "highway"
+
+
+        for band_label, lo, hi in TEMP_BANDS:
+            if lo < temp <= hi or (lo == -999 and temp <= hi) or (hi == 999 and temp > lo):
+                bucket[band_label][s_cat].append(eff)
+                break
+
+    # For each band where we have both cold and warm data, compute cost
+    # Pick reference band = 10-20°C or 0-10°C as "no HVAC needed"
+    reference_bands = ["10-20°C", "0-10°C"]
+    reference_effs: list[float] = []
+    for rb in reference_bands:
+        for sc in ["city", "mixed", "highway"]:
+            reference_effs.extend(bucket[rb][sc])
+    ref_avg = (sum(reference_effs) / len(reference_effs)) if reference_effs else None
+
+
+    results: list[dict] = []
+    cold_ref_temp = -5.0  # representative cold temperature
+
+    for band_label, lo, hi in TEMP_BANDS:
+        band_data = bucket[band_label]
+        # Use city+mixed combined as representative
+        all_effs: list[float] = band_data["city"] + band_data["mixed"]
+        if not all_effs:
+            continue
+
+        band_avg = sum(all_effs) / len(all_effs)
+        count = len(all_effs)
+        diff = 0.0
+        if ref_avg is not None:
+            diff = max(0, band_avg - ref_avg)
+
+
+        results.append({
+            "band": band_label,
+            "representative_temp_celsius": cold_ref_temp if lo < 0 else (lo + hi) / 2,
+            "avg_kwh_100km": round(band_avg, 1),
+            "reference_kwh_100km": round(ref_avg, 1) if ref_avg else None,
+            "hvac_cost_kwh_100km": round(diff, 1) if diff > 0 else 0,
+            "trip_count": count,
+            "message": f"Heating costs you ~{round(diff, 1) if diff > 0 else 0} kWh/100km at {band_label.lower()}",
+        })
+
+
+    return {
+        "metrics": results,
+        "reference_band": "10-20°C (no HVAC needed baseline)",
+        "reference_kwh_100km": round(ref_avg, 1) if ref_avg else None,
+        "summary": f"HVAC cost: ~{round(results[0]['hvac_cost_kwh_100km'], 1) if results else 0} kWh/100km at {cold_ref_temp}°C" if results else "Not enough data to compute HVAC cost.",
+    }
+
+
+
 # =============================================================================
 # TASK 1: Charging Curve Integrals (v2 using charging_curves table)
 # =============================================================================
