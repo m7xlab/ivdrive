@@ -943,6 +943,9 @@ class DataCollector:
                         outside_temperature=temp_c,
                     )
 
+                # battery_temp sourced from the same Skoda field used in ChargingCurve
+                battery_temp = getattr(charging.status.battery, "temperature", None) if charging and charging.status and charging.status.battery else None
+
                 await _update_or_insert_duration_state(
                     session, BatteryTemperature, user_vehicle_id,
                     match_keys={"battery_temperature": battery_temp},
