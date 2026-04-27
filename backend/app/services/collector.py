@@ -951,14 +951,20 @@ class DataCollector:
                         outside_temperature=temp_c,
                     )
 
-                await _update_or_insert_duration_state(
-                    session, BatteryTemperature, user_vehicle_id,
-                    match_keys={"battery_temperature": battery_temp},
-                    volatile_keys=[],
-                    now=now,
-                    max_gap_s=max_gap_s,
-                    battery_temperature=battery_temp,
-                )
+                # Extract battery temperature from status endpoint
+                battery_temp = None
+                if status_resp and status_resp.overall and status_resp.overall.battery:
+                    battery_temp = getattr(status_resp.overall.battery, "temperature", None)
+
+                if battery_temp is not None:
+                    await _update_or_insert_duration_state(
+                        session, BatteryTemperature, user_vehicle_id,
+                        match_keys={"battery_temperature": battery_temp},
+                        volatile_keys=[],
+                        now=now,
+                        max_gap_s=max_gap_s,
+                        battery_temperature=battery_temp,
+                    )
 
                 # ── Raw API payload archive ─────────────────────────────────
                 # Serialize every response (pydantic → dict) and store as JSONB.
