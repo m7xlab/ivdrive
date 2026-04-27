@@ -5,6 +5,13 @@ All notable changes to the iVDrive project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-04-27
+
+### Fixed 🐛
+- **collector.py**: Assign `battery_temp` from `status_resp.overall.battery.temperature` before BatteryTemperature write block; add null guard to skip when None.
+- **analytics.py**: Replace dynamic `__import__('sqlalchemy').text()` calls with the already-imported top-level `text()` function.
+- **telemetry/pipeline.py**: Replace sequential for-await loop in `ingest_batch` with `asyncio.gather()` for concurrent event processing; adds missing telemetry package (`events.py`, `pipeline.py`, `__init__.py`).
+
 ## [Unreleased] - 2026-04-26
 
 ### Fixed 🐛
