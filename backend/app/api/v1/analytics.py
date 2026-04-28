@@ -1,4 +1,5 @@
 import asyncio
+from collections import OrderedDict
 from datetime import datetime, date, timedelta
 from uuid import UUID
 from typing import Any
@@ -1017,13 +1018,16 @@ async def get_charging_curve_integrals_v2(
 # =============================================================================
 # TASK 3: Elevation Penalty & Regen Efficiency
 # =============================================================================
-_elevation_cache: dict[str, float] = {}
+_elevation_cache: OrderedDict[str, float] = OrderedDict()
 
 
 async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: AsyncSession) -> float | None:
     """Get elevation from vehicle_positions nearest to given lat/lon."""
     if lat is None or lon is None:
         return None
+    cache_key = f"{lat:.4f},{lon:.4f}"
+    if cache_key in _elevation_cache:
+        return _elevation_cache[cache_key]
     try:
         res = await db.execute(
             text("""
@@ -1040,7 +1044,12 @@ async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: A
             {"vid": str(vehicle_id), "lat": lat, "lon": lon}
         )
         row = res.first()
-        return float(row[0]) if row else None
+        result = float(row[0]) if row else None
+        if result is not None:
+            _elevation_cache[cache_key] = result
+            if len(_elevation_cache) > 500:
+                _elevation_cache.popitem(last=False)
+        return result
     except Exception:
         return None
 

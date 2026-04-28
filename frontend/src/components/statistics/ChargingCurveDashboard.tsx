@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from "recharts";
 import { Loader2, Zap, Clock, BatteryWarning, TrendingDown } from "lucide-react";
 import { api } from "@/lib/api";
+import { statisticsApi } from "@/lib/api/statistics";
 
 interface CurvePoint {
   soc_pct: number;
@@ -31,45 +32,21 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const controller = new AbortController();
     try {
-      const token = localStorage.getItem("access_token");
-      let url = `/api/v1/vehicles/${vehicleId}/analytics/charging-curve-integrals`;
-      if (dateRange?.from && dateRange?.to) {
-        url += `?from_date=${dateRange.from.toISOString()}&to_date=${dateRange.to.toISOString()}`;
-      }
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal
+      const json = await statisticsApi.getChargingCurveIntegralsV2(vehicleId, {
+        fromDate: dateRange?.from?.toISOString(),
+        toDate: dateRange?.to?.toISOString(),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      } else {
-        setData(null);
-      }
+      setData(json);
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setData(null);
-      }
+      setData(null);
     } finally {
       setLoading(false);
     }
-
-    return controller;
   }, [vehicleId, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
   useEffect(() => {
-    let activeController: AbortController | null = null;
-    fetchData().then(controller => {
-      activeController = controller;
-    });
-
-    return () => {
-      if (activeController) {
-        activeController.abort();
-      }
-    };
+    fetchData();
   }, [fetchData]);
 
   // Calculate throttle point: where power drops significantly (typically 80% for fast charging)
