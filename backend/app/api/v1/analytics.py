@@ -1,5 +1,4 @@
 import asyncio
-from collections import OrderedDict
 from datetime import datetime, date, timedelta
 from uuid import UUID
 from typing import Any
@@ -103,7 +102,7 @@ async def get_charging_sessions(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = Query(default=20, le=10000)
+    limit: int = Query(default=20, ge=1, le=10000)
 ):
     """List recent charging sessions for the UI."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -230,7 +229,7 @@ async def get_battery_health(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = Query(default=100, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return the latest battery health metrics including 12V and cell voltages."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -269,7 +268,7 @@ async def get_power_usage(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = Query(default=100, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return detailed power consumption breakdown over time."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -300,7 +299,7 @@ async def get_charging_curves(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = Query(default=100, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return charging curve points (power/voltage vs SoC)."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -333,7 +332,7 @@ async def get_legacy_charging_power_curve(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    limit: int = Query(default=500, le=50000)
+    limit: int = Query(default=500, ge=1, le=10000)
 ):
     """Query 41 & 51: Real-time charging power curve."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -1018,16 +1017,13 @@ async def get_charging_curve_integrals_v2(
 # =============================================================================
 # TASK 3: Elevation Penalty & Regen Efficiency
 # =============================================================================
-_elevation_cache: OrderedDict[str, float] = OrderedDict()
+_elevation_cache: dict[str, float] = {}
 
 
 async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: AsyncSession) -> float | None:
     """Get elevation from vehicle_positions nearest to given lat/lon."""
     if lat is None or lon is None:
         return None
-    cache_key = f"{lat:.4f},{lon:.4f}"
-    if cache_key in _elevation_cache:
-        return _elevation_cache[cache_key]
     try:
         res = await db.execute(
             text("""
@@ -1044,12 +1040,7 @@ async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: A
             {"vid": str(vehicle_id), "lat": lat, "lon": lon}
         )
         row = res.first()
-        result = float(row[0]) if row else None
-        if result is not None:
-            _elevation_cache[cache_key] = result
-            if len(_elevation_cache) > 500:
-                _elevation_cache.popitem(last=False)
-        return result
+        return float(row[0]) if row else None
     except Exception:
         return None
 
@@ -1140,97 +1131,6 @@ async def get_elevation_penalty(
             "net_energy_kwh":    round(uphill_sum - downhill_sum, 2),
         },
         "method": "vehicle_positions.elevation_m via nearest-point SQL",
-    }
-
-
-# =============================================================================
-# TASK 3 (v2): Elevation Stats per trip — using vehicle_positions elevation_m
-# =============================================================================
-@router.get("/{vehicle_id}/trips/{trip_id}/elevation-stats")
-async def get_trip_elevation_stats(
-    vehicle_id: UUID,
-    trip_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """
-    Get all position records for a trip that have elevation data.
-    Calculate total elevation gain (sum of positive deltas) and loss (sum of negative deltas).
-    Physics: energy = m*g*h/3600 kWh. Use 1700kg vehicle mass, g=9.81. Regen efficiency ~0.65.
-    Output: "Uphill energy: X.X kWh | Downhill regen: X.X kWh | Net: X.X kWh/100km"
-    """
-    await get_user_vehicle(user.id, vehicle_id, db)
-
-    # Fetch the trip to verify it belongs to this vehicle and get timestamps
-    trip_res = await db.execute(
-        select(Trip).where(Trip.id == trip_id, Trip.user_vehicle_id == vehicle_id)
-    )
-    trip = trip_res.scalar_one_or_none()
-    if not trip:
-        raise HTTPException(status_code=404, detail="Trip not found")
-
-    # Fetch all position records for this trip with elevation
-    pos_stmt = (
-        select(VehiclePosition)
-        .where(
-            VehiclePosition.user_vehicle_id == vehicle_id,
-            VehiclePosition.captured_at >= trip.start_date,
-            VehiclePosition.captured_at <= (trip.end_date if trip.end_date else trip.start_date),
-            VehiclePosition.elevation_m.is_not(None),
-        )
-        .order_by(VehiclePosition.captured_at)
-    )
-    pos_res = await db.execute(pos_stmt)
-    positions = pos_res.scalars().all()
-
-    if len(positions) < 2:
-        return {
-            "trip_id": trip_id,
-            "position_count": len(positions),
-            "elevation_gain_m": 0,
-            "elevation_loss_m": 0,
-            "uphill_kwh": 0,
-            "downhill_regen_kwh": 0,
-            "net_kwh_per_100km": 0,
-            "message": "Not enough position records with elevation data for this trip."
-        }
-
-    # Calculate cumulative elevation gain/loss between consecutive positions
-    total_gain_m = 0.0
-    total_loss_m = 0.0
-    prev_elev: float | None = None
-
-    for pos in positions:
-        if pos.elevation_m is not None and prev_elev is not None:
-            delta = pos.elevation_m - prev_elev
-            if delta > 0:
-                total_gain_m += delta
-            else:
-                total_loss_m += abs(delta)
-        if pos.elevation_m is not None:
-            prev_elev = pos.elevation_m
-
-    # Physics constants
-    MASS_KG = 1700.0
-    G = 9.81
-    REGEN_EFF = 0.65
-
-    # energy kWh = m * g * h / 3_600_000
-    uphill_kwh = MASS_KG * G * total_gain_m / 3_600_000
-    downhill_kwh = MASS_KG * G * total_loss_m / 3_600_000 * REGEN_EFF
-
-    distance = trip.distance_km or 1.0
-    net_kwh_per_100km = round((uphill_kwh - downhill_kwh) / distance * 100, 3)
-
-    return {
-        "trip_id": trip_id,
-        "position_count": len(positions),
-        "elevation_gain_m": round(total_gain_m, 1),
-        "elevation_loss_m": round(total_loss_m, 1),
-        "uphill_kwh": round(uphill_kwh, 3),
-        "downhill_regen_kwh": round(downhill_kwh, 3),
-        "net_kwh_per_100km": net_kwh_per_100km,
-        "message": f"Uphill energy: {round(uphill_kwh, 1)} kWh | Downhill regen: {round(downhill_kwh, 1)} kWh | Net: {round(net_kwh_per_100km, 1)} kWh/100km",
     }
 
 

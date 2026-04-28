@@ -271,7 +271,7 @@ class TelemetryPipeline:
                         Trip.user_vehicle_id == UUID(event.user_vehicle_id),
                         Trip.end_date.is_(None),
                     )
-                    .order_by(Trip.start_date.desc())
+                    .order_by(Trip.start_date.asc())
                     .limit(1)
                 )
                 trip = result.scalar_one_or_none()
