@@ -73,6 +73,7 @@ import { LocationsDashboard } from "@/components/statistics/LocationsDashboard";
 import { VisitedDashboard } from "@/components/statistics/VisitedDashboard";
 import { MileageKMDashboard } from "@/components/statistics/MileageKMDashboard";
 import { TripsDashboard } from "@/components/statistics/TripsDashboard";
+import { HVACCostCard } from "@/components/statistics/HVACCostCard";
 import { VehicleCarousel } from "@/components/vehicle/VehicleCarousel";
 
 const LocationMap = dynamic(() => import("@/components/map"), {
@@ -1086,6 +1087,9 @@ export default function VehicleDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* HVAC Cost metric card */}
+              <HVACCostCard vehicleId={vehicleId} />
 
                <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
                  <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-3">

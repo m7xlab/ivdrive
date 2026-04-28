@@ -196,6 +196,11 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async getHVACCost(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/hvac-cost`);
+    return res.json();
+  },
+
   async getHVACIsolation(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }) {
     const params = new URLSearchParams();
     if (opts?.fromDate) params.set("from_date", opts.fromDate);
