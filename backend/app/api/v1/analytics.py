@@ -1026,6 +1026,7 @@ async def get_hvac_cost(
 @router.get("/{vehicle_id}/analytics/charging-curve-integrals-v2")
 async def get_charging_curve_integrals_v2(
     vehicle_id: UUID,
+    session_id: int | None = Query(None, description="Filter by specific charging session ID"),
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -1034,8 +1035,18 @@ async def get_charging_curve_integrals_v2(
     """
     Plot Charging Power (kW) over SoC (%) and calculate the 'wasted time'
     (time spent charging from 80% to 100%). Uses charging_curves table.
+    Optionally filter by specific charging session via session_id.
     """
     await get_user_vehicle(user.id, vehicle_id, db)
+
+    # Build base filter conditions
+    base_where = [
+        ChargingCurve.user_vehicle_id == vehicle_id,
+        ChargingCurve.power_kw.is_not(None),
+        ChargingCurve.soc_pct.is_not(None),
+    ]
+    if session_id is not None:
+        base_where.append(ChargingCurve.session_id == session_id)
 
     # Curve data: Average Power kW per SoC %
     stmt_curve = (
@@ -1045,18 +1056,15 @@ async def get_charging_curve_integrals_v2(
             func.max(ChargingCurve.power_kw).label("max_power"),
             func.count(ChargingCurve.id).label("samples")
         )
-        .where(
-            ChargingCurve.user_vehicle_id == vehicle_id,
-            ChargingCurve.power_kw.is_not(None),
-            ChargingCurve.soc_pct.is_not(None)
-        )
+        .where(*base_where)
+        .group_by(ChargingCurve.soc_pct)
+        .order_by(ChargingCurve.soc_pct)
     )
     if from_date:
         stmt_curve = stmt_curve.where(ChargingCurve.captured_at >= from_date)
     if to_date:
         stmt_curve = stmt_curve.where(ChargingCurve.captured_at <= to_date)
 
-    stmt_curve = stmt_curve.group_by(ChargingCurve.soc_pct).order_by(ChargingCurve.soc_pct)
     result_curve = await db.execute(stmt_curve)
     curve_data = result_curve.all()
 
@@ -1076,19 +1084,13 @@ async def get_charging_curve_integrals_v2(
             func.floor(ChargingCurve.soc_pct / 20).label("bracket"),
             func.count(ChargingCurve.id).label("count"),
             func.avg(ChargingCurve.power_kw).label("avg_power"),
+            func.min(ChargingCurve.captured_at).label("min_time"),
+            func.max(ChargingCurve.captured_at).label("max_time"),
         )
-        .where(
-            ChargingCurve.user_vehicle_id == vehicle_id,
-            ChargingCurve.power_kw.is_not(None),
-            ChargingCurve.soc_pct.is_not(None)
-        )
+        .where(*base_where)
+        .group_by("bracket")
+        .order_by("bracket")
     )
-    if from_date:
-        stmt_brackets = stmt_brackets.where(ChargingCurve.captured_at >= from_date)
-    if to_date:
-        stmt_brackets = stmt_brackets.where(ChargingCurve.captured_at <= to_date)
-
-    stmt_brackets = stmt_brackets.group_by("bracket").order_by("bracket")
     res_brackets = await db.execute(stmt_brackets)
 
     bracket_map = {row.bracket: row for row in res_brackets.all()}
@@ -1100,18 +1102,41 @@ async def get_charging_curve_integrals_v2(
         {"label": "80-100%", "key": 3.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
     ]
 
-    # Estimate: 5-min sampling interval
+    # Estimate: 5-min sampling interval fallback; use actual time when min/max are available
     for bd in bracket_defs:
         row = bracket_map.get(bd["key"])
         if row:
             avg_p = float(row.avg_power) if row.avg_power else 0
             count = row.count or 0
             bd["energy_kwh"] = round(avg_p * count / 12, 2)
-            bd["minutes"] = round(count * 5)
+            # Try to compute actual duration from timestamps
+            if row.min_time and row.max_time and hasattr(row.min_time, 'total_seconds'):
+                min_t = row.min_time
+                max_t = row.max_time
+                if min_t.tzinfo is not None and max_t.tzinfo is None:
+                    max_t = max_t.replace(tzinfo=min_t.tzinfo)
+                elif min_t.tzinfo is None and max_t.tzinfo is not None:
+                    min_t = min_t.replace(tzinfo=max_t.tzinfo)
+                actual_minutes = (max_t - min_t).total_seconds() / 60.0
+                if actual_minutes > 0:
+                    bd["minutes"] = round(actual_minutes)
+                else:
+                    bd["minutes"] = round(count * 5)
+            else:
+                bd["minutes"] = round(count * 5)
             bd["samples"] = count
 
     wasted_row = bracket_map.get(3.0)
-    wasted_minutes = round(wasted_row.count * 5) if wasted_row and wasted_row.count else 0
+    if wasted_row and hasattr(wasted_row, 'min_time') and wasted_row.min_time and wasted_row.max_time:
+        min_t = wasted_row.min_time
+        max_t = wasted_row.max_time
+        if min_t.tzinfo is not None and max_t.tzinfo is None:
+            max_t = max_t.replace(tzinfo=min_t.tzinfo)
+        elif min_t.tzinfo is None and max_t.tzinfo is not None:
+            min_t = min_t.replace(tzinfo=max_t.tzinfo)
+        wasted_minutes = round((max_t - min_t).total_seconds() / 60.0)
+    else:
+        wasted_minutes = round(wasted_row.count * 5) if wasted_row and wasted_row.count else 0
 
     total_energy = sum(b["energy_kwh"] for b in bracket_defs)
     total_minutes = sum(b["minutes"] for b in bracket_defs)

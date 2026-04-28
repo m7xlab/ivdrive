@@ -8,10 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-04-27
 
 ### Added 🆕
-- **analytics.py**: New `GET /analytics/hvac-cost` endpoint — groups trips into 5 temperature bands (<-10°C, -10-0°C, 0-10°C, 10-20°C, >20°C) and computes auxiliary power cost per band vs a warm baseline. Output: "Heating costs you ~X.X kWh/100km at -5°C".
-- **frontend**: New `HVACCostCard` component showing metric "HVAC cost: ~X.X kWh/100km at -5°C" on efficiency dashboard.
-- **frontend**: `ChargingCurveIntegralsDashboard` now shows kW vs SoC line chart + "X minutes wasted on last 20%" callout.
-
+- **analytics.py**: `GET /analytics/charging-curve-integrals-v2` now accepts optional `session_id` query param to filter charging curves by specific charging session.
+- **analytics.py**: `charging-curve-integrals-v2` now computes actual charging durations per SoC bracket using `min/max(captured_at)` timestamps instead of the 5-min sampling estimate.
 
 ### Fixed 🐛
 - **collector.py**: Assign `battery_temp` from `status_resp.overall.battery.temperature` before BatteryTemperature write block; add null guard to skip when None.

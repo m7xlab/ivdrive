@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -12,7 +12,8 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  Cell,
+  LineChart,
+  Line,
 } from "recharts";
 
 interface BracketData {
@@ -66,7 +67,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
     );
   }
 
-  if (!data || data.brackets.length === 0) {
+  if (!data || data.curve.length === 0) {
     return (
       <div className="glass rounded-2xl border border-iv-border p-6 mt-6">
         <div className="flex items-center gap-2 mb-2">
@@ -84,7 +85,8 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
     "Time (min)": b.minutes,
   }));
 
-  const COLORS = ["#3b82f6", "#22c55e", "#eab308", "#ef4444"];
+  const wastedMinutes = data.wasted_minutes_80_100;
+  const wastedPct = data.wasted_pct;
 
   return (
     <div className="space-y-6 mt-6">
@@ -93,14 +95,52 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
         {[
           { label: "Total Energy", value: `${data.total_energy_kwh} kWh`, color: "text-iv-cyan" },
           { label: "Total Time", value: `${data.total_minutes} min`, color: "text-iv-text" },
-          { label: "Wasted (80-100%)", value: `${data.wasted_minutes_80_100} min`, color: "text-iv-red" },
-          { label: "Wasted %", value: `${data.wasted_pct}%`, color: "text-iv-yellow" },
+          { label: "Wasted (80-100%)", value: `${wastedMinutes} min`, color: "text-iv-red" },
+          { label: "Wasted %", value: `${wastedPct}%`, color: "text-iv-yellow" },
         ].map((item) => (
           <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
             <p className="text-xs text-iv-text-muted uppercase tracking-wider">{item.label}</p>
             <p className={`text-xl font-bold mt-1 ${item.color}`}>{item.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* kW vs SoC% Line Chart */}
+      <div className="glass rounded-2xl border border-iv-border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <BatteryWarning className="h-5 w-5 text-iv-cyan" />
+          <h3 className="text-lg font-bold text-iv-text">Charging Power vs SoC</h3>
+        </div>
+        <div className="h-72 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data.curve} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
+              <XAxis dataKey="soc_pct" tick={{ fontSize: 12 }} className="text-iv-muted"
+                label={{ value: "SoC %", position: "insideBottom", offset: -5, style: { fill: "var(--iv-muted)" } }} />
+              <YAxis tick={{ fontSize: 12 }} className="text-iv-muted"
+                label={{ value: "Power (kW)", angle: -90, position: "insideLeft", style: { fill: "var(--iv-muted)" } }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                labelStyle={{ color: "var(--iv-muted)" }}
+                formatter={(value: number, name: string) => [value.toFixed(2), name === "avg_power_kw" ? "Avg Power (kW)" : "Max Power (kW)"]}
+                labelFormatter={(label) => `SoC: ${label}%`}
+              />
+              <Legend wrapperStyle={{ paddingTop: "16px" }} />
+              <Line type="monotone" dataKey="avg_power_kw" stroke="var(--iv-cyan)" strokeWidth={2} dot={false} name="avg_power_kw" />
+              <Line type="monotone" dataKey="max_power_kw" stroke="var(--iv-green)" strokeWidth={2} strokeDasharray="5 5" dot={false} name="max_power_kw" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        {/* Wasted time callout */}
+        {wastedMinutes > 0 && (
+          <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
+            <Clock className="h-5 w-5 text-iv-red flex-shrink-0" />
+            <p className="text-sm text-iv-text">
+              <span className="font-bold text-iv-red">{wastedMinutes} minutes wasted on last 20%</span>
+              <span className="text-iv-text-muted ml-2">(≈{wastedPct}% of total charging time)</span>
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Bar chart: energy and time per bracket */}
@@ -124,16 +164,6 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
           </ResponsiveContainer>
         </div>
       </div>
-
-      {/* Wasted time warning */}
-      {data.wasted_minutes_80_100 > 0 && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-          <p className="text-sm text-iv-text">
-            <span className="font-bold text-iv-red">Charging 80-100% wastes {data.wasted_minutes_80_100} minutes</span> per session
-            (≈{data.wasted_pct}% of total charging time). Consider stopping at 80% for daily drives.
-          </p>
-        </div>
-      )}
     </div>
   );
 }
