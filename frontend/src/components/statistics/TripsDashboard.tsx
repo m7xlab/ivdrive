@@ -376,10 +376,10 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                             <ChevronRight className="text-iv-cyan ml-1" size={10} />
                           )}
                       </div>
-                    </div>
                     {expandedTripId === trip.trip_id && (
                       <TripElevationCard vehicleId={vehicleId} tripId={trip.trip_id} distanceKm={trip.distance_km ?? 0} />
                     )}
+                  </div>
                 )
               })}
 
