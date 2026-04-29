@@ -1236,11 +1236,14 @@ async def get_elevation_penalty(
             "message": "No trips with GPS data available for elevation analysis."
         }
 
-    # Batch-fetch all elevations using direct SQL (single round-trip per trip, 2 coords)
+    # Batch-fetch all elevations concurrently — 2 SQL round-trips total (not 2*N)
+    start_elevs, end_elevs = await asyncio.gather(
+        asyncio.gather(*[_get_nearest_elevation(t.start_lat, t.start_lon, vehicle_id, db) for t in trips]),
+        asyncio.gather(*[_get_nearest_elevation(t.end_lat,   t.end_lon,   vehicle_id, db) for t in trips]),
+    )
+
     results = []
-    for trip in trips:
-        start_elev = await _get_nearest_elevation(trip.start_lat, trip.start_lon, vehicle_id, db)
-        end_elev   = await _get_nearest_elevation(trip.end_lat,   trip.end_lon,   vehicle_id, db)
+    for trip, start_elev, end_elev in zip(trips, start_elevs, end_elevs):
 
         if start_elev is None and end_elev is None:
             # No elevation data at all for this trip — skip it

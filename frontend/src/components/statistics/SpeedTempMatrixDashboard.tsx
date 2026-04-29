@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Component, ReactNode } from "react";
 import { api } from "@/lib/api";
-import { Loader2, Gauge } from "lucide-react";
+import { Loader2, Gauge, AlertTriangle } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -30,15 +30,40 @@ interface SpeedTempMatrixResponse {
   trip_counts: number[][];
 }
 
+// ── ErrorBoundary: catches render-time React errors ────────────────────────────
+interface EBState { hasError: boolean; errorMessage: string }
+class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+  static getDerivedStateFromError(err: Error): EBState {
+    return { hasError: true, errorMessage: err.message };
+  }
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center gap-2 p-4 text-red-400 text-sm">
+          <AlertTriangle size={14} />
+          <span>Chart error: {this.state.errorMessage}</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!vehicleId) return;
     const fetchData = async () => {
       try {
         setLoading(true);
         const res = await api.getSpeedTempMatrix(vehicleId);
+        console.error("[SpeedTempMatrix]", res);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch speed-temp matrix", err);
@@ -80,15 +105,27 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       temp: g.temp_category,
     }));
 
+  // Guard against empty chartData (prevents NaN in getColor)
+  if (chartData.length === 0) {
+    return (
+      <div className="glass rounded-2xl border border-iv-border p-6 mt-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Gauge className="h-5 w-5 text-iv-muted" />
+          <h3 className="text-lg font-bold text-iv-text">Ideal Cruising Speed Matrix</h3>
+        </div>
+        <p className="text-sm text-iv-text-muted">Not enough trip data for speed/temperature matrix.</p>
+      </div>
+    );
+  }
+
   // Get min/max for color scaling
-  const allVals = chartData.flatMap((d) => d.avg_kwh_100km ? [d.avg_kwh_100km] : []);
-  const minVal = Math.min(...allVals);
-  const maxVal = Math.max(...allVals);
+  const allVals = chartData.flatMap((d) => (d.avg_kwh_100km != null ? [d.avg_kwh_100km] : []));
+  const minVal = allVals.length > 0 ? Math.min(...allVals) : 0;
+  const maxVal = allVals.length > 0 ? Math.max(...allVals) : 1;
 
   const getColor = (val: number) => {
-    if (!val) return "#6b7280";
+    if (!val || maxVal === minVal) return "#6b7280";
     const t = (val - minVal) / (maxVal - minVal);
-    // green (best) → yellow → red (worst)
     if (t < 0.5) {
       const r = Math.round(34 + (234 - 34) * t * 2);
       const g = Math.round(197 - 197 * t * 2 + 94 * t * 2);
@@ -115,25 +152,27 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
         </p>
 
         {/* Heatmap-style grid as colored bars */}
-        <div className="h-80 w-full mb-6">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 80 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
-              <XAxis dataKey="name" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} height={70} />
-              <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
-                itemStyle={{ color: "var(--iv-text)" }}
-                formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
-              />
-              <Bar dataKey="avg_kwh_100km" name="kWh/100km" radius={[4, 4, 0, 0]}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getColor(entry.avg_kwh_100km!)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <ChartErrorBoundary>
+          <div className="h-80 w-full mb-6">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 80 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
+                <XAxis dataKey="name" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} height={70} />
+                <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                  itemStyle={{ color: "var(--iv-text)" }}
+                  formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
+                />
+                <Bar dataKey="avg_kwh_100km" name="kWh/100km" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={getColor(entry.avg_kwh_100km ?? 0)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartErrorBoundary>
 
         {/* Color legend */}
         <div className="flex items-center justify-between text-xs text-iv-text-muted mb-4">
@@ -159,8 +198,8 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
               {data.speed_categories.map((sc, si) => (
                 <tr key={sc} className="border-t border-iv-border">
                   <td className="text-iv-text-muted p-2 font-medium">{sc}</td>
-                  {data.matrix_values[si].map((val, ti) => {
-                    const count = data.trip_counts[si][ti];
+                  {(data.matrix_values[si] ?? []).map((val, ti) => {
+                    const count = (data.trip_counts[si] ?? [])[ti] ?? 0;
                     return (
                       <td key={ti} className="text-center p-2">
                         <span
