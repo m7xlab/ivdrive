@@ -1276,6 +1276,7 @@ async def get_statistics(
             func.coalesce(func.sum(Trip.end_odometer - Trip.start_odometer), 0).label("total_distance"),
             func.coalesce(time_driven_expr, 0).label("time_driven_seconds"),
             median_expr,
+            func.coalesce(func.sum(Trip.kwh_consumed), 0).label("total_consumed"),
         )
         .where(*trip_where)
         .group_by("period")
@@ -1284,6 +1285,7 @@ async def get_statistics(
     )
     trip_stats = await db.execute(stmt_trip)
     trip_rows = {row.period: row for row in trip_stats.all()}
+
 
     # Sub-query for Charging
     charge_where = [ChargingSession.user_vehicle_id == vehicle.id]
@@ -1307,42 +1309,23 @@ async def get_statistics(
     charge_stats = await db.execute(stmt_charge)
     charge_rows = {row.period: row for row in charge_stats.all()}
 
-    # Sub-query for Consumption
-    params = {"vehicle_id": vehicle_id}
-    consume_where_clauses = ["user_vehicle_id = :vehicle_id"]
-    if from_date:
-        consume_where_clauses.append("consumption_day >= :from_date")
-        params["from_date"] = from_date
-    if to_date:
-        consume_where_clauses.append("consumption_day <= :to_date")
-        params["to_date"] = to_date
-    stmt_consume = (
-        select(
-            func.date_trunc(trunc, text("consumption_day")).label("period"),
-            func.sum(text("total_kwh_consumed")).label("total_energy_consumed"),
-        )
-        .select_from(text("v_daily_consumption"))
-        .where(text(" AND ".join(consume_where_clauses)))
-        .params(params)
-        .group_by("period")
-        .order_by(text("period DESC"))
-        .offset(skip).limit(limit)
-    )
-    consume_stats = await db.execute(stmt_consume)
-    consume_rows = {row.period: row for row in consume_stats.all()}
+    # Consumption sourced directly from Trip.kwh_consumed (v_daily_consumption view skipped —
+    # it misses days where charging happened during a parked period, causing 0kWh for those days)
+    # NOTE: consume_rows is intentionally left as {} — trips.kwh_consumed already in stmt_trip
+    consume_rows = {}
 
     # Merge results
-    all_periods = sorted(set(list(trip_rows.keys()) + list(charge_rows.keys()) + list(consume_rows.keys())), reverse=True)[:limit]
+    all_periods = sorted(set(list(trip_rows.keys()) + list(charge_rows.keys())), reverse=True)[:limit]
+
 
     results = []
     for p in all_periods:
         tr = trip_rows.get(p)
         cr = charge_rows.get(p)
-        co = consume_rows.get(p)
         sessions_count = int(cr.sessions_count) if cr else 0
         total_energy = float(cr.total_energy) if cr else 0
         time_charging = float(cr.time_charging_seconds) if cr else 0
-        total_consumed = float(co.total_energy_consumed) if co else 0
+        total_consumed = float(tr.total_consumed) if tr else 0
         results.append(
             StatisticsPeriod(
                 period=p.isoformat() if p else "",
@@ -1359,7 +1342,7 @@ async def get_statistics(
         )
 
     _log_statistics_query(
-        "statistics", vehicle_id, from_date=from_date, to_date=to_date, limit=limit, result_count=len(results), extra={"period": period}, sql=" | ".join(filter(None, [_stmt_to_sql(stmt_trip), _stmt_to_sql(stmt_charge), _stmt_to_sql(stmt_consume)])) or None
+        "statistics", vehicle_id, from_date=from_date, to_date=to_date, limit=limit, result_count=len(results), extra={"period": period}, sql=" | ".join(filter(None, [_stmt_to_sql(stmt_trip), _stmt_to_sql(stmt_charge)])) or None
     )
     return results
 

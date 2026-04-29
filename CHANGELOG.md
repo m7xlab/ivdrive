@@ -1,4 +1,8 @@
 # Changelog
+## [Unreleased] - 2026-04-29
+### Fixed
+- Driving Statistics: Energy Used now correctly shows values for days with charging activity (e.g. Apr 25: 1.16 kWh). Previously used `v_daily_consumption` view which was missing days where charging happened during a parked period. Now uses `trips.kwh_consumed` directly.
+
 
 All notable changes to the iVDrive project will be documented in this file.
 
