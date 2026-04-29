@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
 import { statisticsApi } from "@/lib/api/statistics";
+import { formatSmartDuration } from "@/lib/format";
 
 interface CurvePoint {
   soc_pct: number;
@@ -103,7 +104,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Total Time</p>
-            <p className="text-2xl font-bold text-iv-text">{data.total_minutes} min</p>
+            <p className="text-2xl font-bold text-iv-text">{formatSmartDuration(data.total_minutes)}</p>
             <p className="text-xs text-iv-muted">{data.total_energy_kwh.toFixed(1)} kWh added</p>
           </div>
         </div>
@@ -114,7 +115,7 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Time Wasted (80-100%)</p>
-            <p className="text-2xl font-bold text-red-400">{data.wasted_minutes_80_100} min</p>
+            <p className="text-2xl font-bold text-red-400">{formatSmartDuration(data.wasted_minutes_80_100)}</p>
             <p className="text-xs text-iv-muted">{data.wasted_pct}% of total</p>
           </div>
         </div>
