@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
-import { api } from "@/lib/api";
 import { statisticsApi } from "@/lib/api/statistics";
 
 interface CurvePoint {
@@ -13,17 +12,14 @@ interface CurvePoint {
   samples: number;
 }
 
-interface Metrics {
-  wasted_minutes_80_100: number;
-  fast_charge_minutes_0_80: number;
-  total_charging_minutes: number;
-  peak_power_kw?: number;
-  avg_power_kw?: number;
-}
-
 interface ChargingCurveData {
   curve: CurvePoint[];
-  metrics: Metrics;
+  brackets: Array<{ label: string; energy_kwh: number; minutes: number; samples: number }>;
+  wasted_minutes_80_100: number;
+  total_energy_kwh: number;
+  total_minutes: number;
+  wasted_pct: number;
+  message?: string;
 }
 
 export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: { from: Date; to: Date } }) {
@@ -79,7 +75,9 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Peak Power</p>
-            <p className="text-2xl font-bold text-iv-text">{data.metrics.peak_power_kw || 0} kW</p>
+            <p className="text-2xl font-bold text-iv-text">
+              {data.curve.length > 0 ? Math.max(...data.curve.map(p => p.max_power_kw)).toFixed(1) : 0} kW
+            </p>
             <p className="text-xs text-iv-muted">max observed</p>
           </div>
         </div>
@@ -89,8 +87,12 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
             <Zap className="h-6 w-6 text-iv-cyan" />
           </div>
           <div>
-            <p className="text-xs font-medium text-iv-muted">Avg Fast Charging</p>
-            <p className="text-2xl font-bold text-iv-text">{data.metrics.avg_power_kw || 0} kW</p>
+            <p className="text-xs font-medium text-iv-muted">Avg Power</p>
+            <p className="text-2xl font-bold text-iv-text">
+              {data.curve.length > 0
+                ? (data.curve.reduce((s, p) => s + p.avg_power_kw, 0) / data.curve.length).toFixed(1)
+                : 0} kW
+            </p>
             <p className="text-xs text-iv-muted">across whole curve</p>
           </div>
         </div>
@@ -100,9 +102,9 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
             <Clock className="h-6 w-6 text-iv-cyan" />
           </div>
           <div>
-            <p className="text-xs font-medium text-iv-muted">Time (0-80%)</p>
-            <p className="text-2xl font-bold text-iv-text">{data.metrics.fast_charge_minutes_0_80} min</p>
-            <p className="text-xs text-iv-muted">avg time per session</p>
+            <p className="text-xs font-medium text-iv-muted">Total Time</p>
+            <p className="text-2xl font-bold text-iv-text">{data.total_minutes} min</p>
+            <p className="text-xs text-iv-muted">{data.total_energy_kwh.toFixed(1)} kWh added</p>
           </div>
         </div>
 
@@ -112,8 +114,8 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Time Wasted (80-100%)</p>
-            <p className="text-2xl font-bold text-red-400">{data.metrics.wasted_minutes_80_100} min</p>
-            <p className="text-xs text-iv-muted">avg time wasted per session</p>
+            <p className="text-2xl font-bold text-red-400">{data.wasted_minutes_80_100} min</p>
+            <p className="text-xs text-iv-muted">{data.wasted_pct}% of total</p>
           </div>
         </div>
       </div>
