@@ -337,7 +337,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                         weight: isActive ? 4 : 2,
                         opacity: isActive ? 1.0 : 0.6
                       }}
-                      eventHandlers={{ click: () => setActiveTripId(trip.trip_id) }}
+                      onClick={() => setActiveTripId(trip.trip_id)}
                     />
                 )
               })}
@@ -352,8 +352,8 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               {visibleTrips.map((trip) => {
                 const isActive = trip.trip_id === activeTripId;
                 return (
+                  <>
                     <div
-                      key={trip.trip_id}
                       className={`flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border transition-all cursor-pointer ${isActive ? 'border-iv-cyan/50 bg-iv-cyan/5' : 'border-iv-border/40 hover:border-iv-border'}`}
                       onClick={() => {
                         setActiveTripId(trip.trip_id);
@@ -370,17 +370,18 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                         <p className="text-[10px] text-iv-muted">{format(parseISO(trip.start_time), "MMM d, HH:mm")}</p>
                       </div>
                       <div className="text-right shrink-0">
-                          <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
-                          <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
-                          {expandedTripId === trip.trip_id && (
-                            <ChevronRight className="text-iv-cyan ml-1" size={10} />
-                          )}
+                        <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
+                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
+                        {expandedTripId === trip.trip_id && (
+                          <ChevronRight className="text-iv-cyan ml-1" size={10} />
+                        )}
                       </div>
+                    </div>
                     {expandedTripId === trip.trip_id && (
                       <TripElevationCard vehicleId={vehicleId} tripId={trip.trip_id} distanceKm={trip.distance_km ?? 0} />
                     )}
-                  </div>
-                )
+                  </>
+                );
               })}
 
               {!dateRange && selectedMonth !== null && visibleCount < displayTrips.length && (
