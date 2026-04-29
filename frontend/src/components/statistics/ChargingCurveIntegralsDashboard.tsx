@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
+import { formatSmartDuration } from "@/lib/format";
 import {
   BarChart,
   Bar,
@@ -94,8 +95,8 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Total Energy", value: `${data.total_energy_kwh} kWh`, color: "text-iv-cyan" },
-          { label: "Total Time", value: `${data.total_minutes} min`, color: "text-iv-text" },
-          { label: "Wasted (80-100%)", value: `${wastedMinutes} min`, color: "text-iv-red" },
+          { label: "Total Time", value: formatSmartDuration(data.total_minutes), color: "text-iv-text" },
+          { label: "Wasted (80-100%)", value: formatSmartDuration(wastedMinutes), color: "text-iv-red" },
           { label: "Wasted %", value: `${wastedPct}%`, color: "text-iv-yellow" },
         ].map((item) => (
           <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
@@ -136,7 +137,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
           <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
             <Clock className="h-5 w-5 text-iv-red flex-shrink-0" />
             <p className="text-sm text-iv-text">
-              <span className="font-bold text-iv-red">{wastedMinutes} minutes wasted on last 20%</span>
+              <span className="font-bold text-iv-red">{formatSmartDuration(wastedMinutes)} wasted on last 20%</span>
               <span className="text-iv-text-muted ml-2">(≈{wastedPct}% of total charging time)</span>
             </p>
           </div>

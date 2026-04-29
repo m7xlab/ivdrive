@@ -17,6 +17,7 @@ import L from "leaflet";
 import { api } from "@/lib/api";
 import { settingsApi } from "@/lib/api/settings";
 import type { TimelineRange } from "./StatisticsShell";
+import { formatSmartDuration } from "@/lib/format";
 
 // Fix Leaflet default icon in Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl;

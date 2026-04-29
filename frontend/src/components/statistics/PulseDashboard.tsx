@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { Bolt, MapPin, Cloud, Clock } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatSmartDuration } from "@/lib/format";
 
 interface PulseData {
   status: string;
@@ -84,7 +85,7 @@ export function PulseDashboard({ vehicleId }: { vehicleId: string }) {
             </p>
             <p className="text-3xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-lg font-normal text-iv-text-muted">kW</span></p>
             <p className="text-xs text-iv-text-muted mt-4 text-emerald-400">
-              {pulse.remaining_charge_time_min} mins to target
+              {formatSmartDuration(pulse.remaining_charge_time_min)} to target
             </p>
           </div>
         ) : (

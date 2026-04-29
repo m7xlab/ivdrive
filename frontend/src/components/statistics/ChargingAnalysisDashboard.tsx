@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
 import {
+import { formatSmartDuration } from "@/lib/format";
   LineChart,
   Line,
   BarChart,
@@ -145,7 +146,7 @@ export function ChargingAnalysisDashboard({
           </div>
           <div>
             <p className="text-xs font-medium text-iv-muted">Total Time</p>
-            <p className="text-2xl font-bold text-iv-text">{data.total_minutes} min</p>
+            <p className="text-2xl font-bold text-iv-text">{formatSmartDuration(data.total_minutes)}</p>
             <p className="text-xs text-iv-muted">in {data.brackets.length} brackets</p>
           </div>
         </div>
@@ -157,7 +158,7 @@ export function ChargingAnalysisDashboard({
           <div>
             <p className="text-xs font-medium text-iv-muted">Time Wasted (80-100%)</p>
             <p className="text-2xl font-bold text-red-400">
-              {data.wasted_minutes_80_100} min
+              {formatSmartDuration(data.wasted_minutes_80_100)}
             </p>
             <p className="text-xs text-iv-muted">{data.wasted_pct}% of total</p>
           </div>
@@ -169,7 +170,7 @@ export function ChargingAnalysisDashboard({
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
           <p className="text-sm text-iv-text">
             <span className="font-bold text-iv-red">
-              Charging 80-100% wastes {data.wasted_minutes_80_100} minutes
+              Charging 80-100% wastes {formatSmartDuration(data.wasted_minutes_80_100)}utes
             </span>{" "}
             per session (≈{data.wasted_pct}% of total charging time). Consider
             stopping at 80% for daily drives.

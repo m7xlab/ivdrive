@@ -30,6 +30,7 @@ import { api } from "@/lib/api";
 import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { TimelineRange } from "./StatisticsShell";
+import { formatSmartDuration } from "@/lib/format";
 
 export type StateToggleId = "online" | "climatization" | "charging" | "driving";
 
@@ -565,7 +566,7 @@ export function CarOverviewDashboard({
                 </p>
                 <p className="text-3xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-lg font-normal text-iv-text-muted">kW</span></p>
                 <p className="text-xs text-iv-text-muted mt-4 text-emerald-400">
-                  {pulse.remaining_charge_time_min} mins to target
+                  {formatSmartDuration(pulse.remaining_charge_time_min)} to target
                 </p>
               </div>
             ) : (

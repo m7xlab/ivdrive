@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { TripElevationCard } from "./TripElevationCard";
 import "leaflet/dist/leaflet.css";
+import { formatSmartDuration } from "@/lib/format";
 
 // --- Types ---
 export interface TripsDashboardProps {
