@@ -7,17 +7,18 @@ import { cn } from "@/lib/cn";
 import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangePicker";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-
-import { EfficiencyDashboard } from "./EfficiencyDashboard";
 import { CarOverviewDashboard } from "./CarOverviewDashboard";
 
-import { DrivingDashboard } from "./DrivingDashboard";
-import { ChargingEconomicsDashboard } from "./ChargingEconomicsDashboard";
-import { ChargingAnalysisDashboard } from "./ChargingAnalysisDashboard";
+import { TripsDashboard } from "./TripsDashboard";
+import { MovementDashboard } from "./MovementDashboard";
+import { DrivingStatisticsDashboard } from "./DrivingStatisticsDashboard";
+import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
+import { MileageKMDashboard } from "./MileageKMDashboard";
+import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
 import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
+import { ChargingCurveIntegralsDashboard } from "./ChargingCurveIntegralsDashboard";
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
-
 import { IceTcoDashboard } from "./IceTcoDashboard";
 import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
 import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
@@ -30,15 +31,19 @@ export interface TimelineRange {
 
 const TABS = [
   { id: "car-overview",        label: "Car Overview",       icon: "📊" },
-  { id: "efficiency",          label: "Winter Penalty",      icon: "❄️" },
-  { id: "driving-summary",  label: "Driving Summary", icon: "🚗" },
-  { id: "charging-economics", label: "Charging Economics", icon: "🔌" },
+  { id: "trips",               label: "Trips",              icon: "🗺️" },
+  { id: "movement",            label: "Movement",           icon: "🚗" },
+  { id: "driving-stats",       label: "Driving Stats",       icon: "📈" },
+  { id: "charging-stats",      label: "Charging Stats",     icon: "🔌" },
+  { id: "charging-curve",      label: "Charging Curve",     icon: "📉" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
+  { id: "charging-curve-integrals", label: "Curve Int.",    icon: "🔋" },
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
   { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
   { id: "ice-tco",             label: "ICE vs EV",           icon: "⛽" },
   { id: "route-efficiency",    label: "Route Efficiency",   icon: "🛣️" },
   { id: "predictive-soc",      label: "Arrival SoC",         icon: "🎯" },
+  { id: "mileage",             label: "Mileage",             icon: "📍" },
 ] as const;
 
 const TAB_MIN_WIDTH = 120; // px, min width per tab button
@@ -179,18 +184,26 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             <CarOverviewDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
 
-          <Tabs.Content value="efficiency">
-            <EfficiencyDashboard vehicleId={vehicleId} />
+          <Tabs.Content value="trips">
+            <TripsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
-
-          <Tabs.Content value="driving-summary">
-            <DrivingDashboard vehicleId={vehicleId} dateRange={range} />
+          <Tabs.Content value="movement">
+            <MovementDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
-          <Tabs.Content value="charging-economics">
-            <ChargingEconomicsDashboard vehicleId={vehicleId} dateRange={range} />
+          <Tabs.Content value="driving-stats">
+            <DrivingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="charging-stats">
+            <ChargingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="charging-curve">
+            <ChargingCurveDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="hvac-isolation">
             <HVACIsolationDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="charging-curve-integrals">
+            <ChargingCurveIntegralsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="elevation-penalty">
             <ElevationPenaltyDashboard vehicleId={vehicleId} />
@@ -206,6 +219,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           <Tabs.Content value="predictive-soc">
             <PredictiveSocDashboard vehicleId={vehicleId} />
+          </Tabs.Content>
+          <Tabs.Content value="mileage">
+            <MileageKMDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
         </Tabs.Root>
       </div>
