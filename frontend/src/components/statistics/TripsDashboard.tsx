@@ -337,7 +337,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                         weight: isActive ? 4 : 2,
                         opacity: isActive ? 1.0 : 0.6
                       }}
-                      eventHandlers={{ click: () => setActiveTripId(trip.trip_id) }}
+                      onClick={() => setActiveTripId(trip.trip_id)}
                     />
                 )
               })}
