@@ -1166,12 +1166,22 @@ async def get_charging_curve_integrals_v2(
 # TASK 3: Elevation Penalty & Regen Efficiency
 # =============================================================================
 _elevation_cache: dict[str, float] = {}
+_MAX_ELEVATION_CACHE = 500
+
+
+def _elevation_cache_key(lat: float, lon: float) -> str:
+    return f"{lat:.4f},{lon:.4f}"
 
 
 async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: AsyncSession) -> float | None:
     """Get elevation from vehicle_positions nearest to given lat/lon."""
     if lat is None or lon is None:
         return None
+
+    cache_key = _elevation_cache_key(lat, lon)
+    if cache_key in _elevation_cache:
+        return _elevation_cache[cache_key]
+
     try:
         res = await db.execute(
             text("""
@@ -1188,7 +1198,13 @@ async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: A
             {"vid": str(vehicle_id), "lat": lat, "lon": lon}
         )
         row = res.first()
-        return float(row[0]) if row else None
+        result = float(row[0]) if row else None
+        if result is not None:
+            if len(_elevation_cache) >= _MAX_ELEVATION_CACHE:
+                # evict oldest entry (first inserted)
+                _elevation_cache.pop(next(iter(_elevation_cache)))
+            _elevation_cache[cache_key] = result
+        return result
     except Exception:
         return None
 

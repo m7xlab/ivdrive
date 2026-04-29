@@ -37,7 +37,11 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
         fromDate: dateRange?.from?.toISOString(),
         toDate: dateRange?.to?.toISOString(),
       });
-      setData(json);
+      if (json && Object.keys(json).length > 0) {
+        setData(json);
+      } else {
+        setData(null);
+      }
     } catch (err: any) {
       setData(null);
     } finally {
