@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from uuid import UUID
 from typing import Any
 
@@ -454,6 +454,13 @@ async def get_movement_stats(
 ):
     """Returns accurate time-budget breakdown using real vehicle_states and charging_states."""
     await get_user_vehicle(user.id, vehicle_id, db)
+
+    # Ensure from_date/to_date are timezone-aware (UTC) so comparisons with
+    # timezone-aware DB columns (vehicle_states, charging_states) don't fail
+    if from_date.tzinfo is None:
+        from_date = from_date.replace(tzinfo=timezone.utc)
+    if to_date.tzinfo is None:
+        to_date = to_date.replace(tzinfo=timezone.utc)
 
     # Query vehicle states in range
     vs_stmt = (
@@ -1236,11 +1243,23 @@ async def get_elevation_penalty(
             "message": "No trips with GPS data available for elevation analysis."
         }
 
-    # Batch-fetch all elevations using direct SQL (single round-trip per trip, 2 coords)
+    # Batch-fetch all elevations concurrently (single round-trip per trip via cache)
+    elev_futures = [
+        _get_nearest_elevation(trip.start_lat, trip.start_lon, vehicle_id, db)
+        for trip in trips
+    ] + [
+        _get_nearest_elevation(trip.end_lat, trip.end_lon, vehicle_id, db)
+        for trip in trips
+    ]
+    elev_results = await asyncio.gather(*elev_futures)
+    n = len(trips)
+    start_elevs = elev_results[:n]
+    end_elevs   = elev_results[n:]
+
     results = []
-    for trip in trips:
-        start_elev = await _get_nearest_elevation(trip.start_lat, trip.start_lon, vehicle_id, db)
-        end_elev   = await _get_nearest_elevation(trip.end_lat,   trip.end_lon,   vehicle_id, db)
+    for i, trip in enumerate(trips):
+        start_elev = start_elevs[i]
+        end_elev   = end_elevs[i]
 
         if start_elev is None and end_elev is None:
             # No elevation data at all for this trip — skip it

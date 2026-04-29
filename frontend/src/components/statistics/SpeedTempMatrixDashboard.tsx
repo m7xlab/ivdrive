@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Loader2, Gauge } from "lucide-react";
 import {
   BarChart,
@@ -39,6 +40,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       try {
         setLoading(true);
         const res = await api.getSpeedTempMatrix(vehicleId);
+        console.error("[SpeedTempMatrix] raw response:", res);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch speed-temp matrix", err);
@@ -115,6 +117,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
         </p>
 
         {/* Heatmap-style grid as colored bars */}
+        <ErrorBoundary>
         <div className="h-80 w-full mb-6">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 80 }}>
@@ -134,8 +137,10 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
+        </ErrorBoundary>
 
         {/* Color legend */}
+        <ErrorBoundary>
         <div className="flex items-center justify-between text-xs text-iv-text-muted mb-4">
           <span>Best efficiency</span>
           <div className="flex items-center gap-1">
@@ -143,8 +148,10 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
           </div>
           <span>Worst efficiency</span>
         </div>
+        </ErrorBoundary>
 
         {/* Matrix as table */}
+        <ErrorBoundary>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -178,6 +185,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
             </tbody>
           </table>
         </div>
+        </ErrorBoundary>
       </div>
     </div>
   );
