@@ -5,14 +5,10 @@ import { api } from "@/lib/api";
 import { Loader2, TrendingUp, TrendingDown, Mountain } from "lucide-react";
 
 interface ElevationStats {
-  trip_id: number;
-  position_count: number;
   elevation_gain_m: number;
   elevation_loss_m: number;
-  uphill_kwh: number;
-  downhill_regen_kwh: number;
-  net_kwh_per_100km: number;
-  message: string;
+  net_elevation_m: number;
+  message?: string;
 }
 
 interface TripElevationCardProps {
@@ -49,7 +45,11 @@ export function TripElevationCard({ vehicleId, tripId, distanceKm }: TripElevati
     );
   }
 
-  if (!stats || stats.position_count < 2) {
+  if (!stats) {
+    return null;
+  }
+
+  if (stats.message) {
     return null;
   }
 
@@ -75,26 +75,12 @@ export function TripElevationCard({ vehicleId, tripId, distanceKm }: TripElevati
             {stats.elevation_loss_m.toFixed(0)}m
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Mountain size={12} className="text-iv-red" />
-          <span className="text-[11px] text-iv-muted">Uphill energy</span>
-          <span className="text-xs font-bold text-iv-text ml-auto">
-            {stats.uphill_kwh.toFixed(2)} kWh
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <TrendingDown size={12} className="text-iv-green" />
-          <span className="text-[11px] text-iv-muted">Regen gained</span>
-          <span className="text-xs font-bold text-iv-text ml-auto">
-            {stats.downhill_regen_kwh.toFixed(2)} kWh
-          </span>
-        </div>
       </div>
 
       <div className="pt-2 border-t border-iv-border/30 flex items-center justify-between">
-        <span className="text-[10px] text-iv-muted">Net elevation penalty</span>
-        <span className={`text-xs font-bold ${stats.net_kwh_per_100km > 0 ? "text-iv-red" : "text-iv-green"}`}>
-          {stats.net_kwh_per_100km > 0 ? "+" : ""}{stats.net_kwh_per_100km.toFixed(2)} kWh/100km
+        <span className="text-[10px] text-iv-muted">Net elevation change</span>
+        <span className={`text-xs font-bold ${stats.net_elevation_m > 0 ? "text-iv-red" : "text-iv-green"}`}>
+          {stats.net_elevation_m > 0 ? "+" : ""}{stats.net_elevation_m.toFixed(1)} m
         </span>
       </div>
     </div>
