@@ -1153,7 +1153,30 @@ async def get_charging_curve_integrals_v2(
         wasted_minutes = round(wasted_row.count * 5) if wasted_row and wasted_row.count else 0
 
     total_energy = sum(b["energy_kwh"] for b in bracket_defs)
-    total_minutes = sum(b["minutes"] for b in bracket_defs)
+
+    # Compute overall session duration from earliest→latest timestamp across all brackets.
+    # This is consistent with wasted_minutes (which also uses actual timestamps), unlike
+    # the sum of bracket estimates which can be much smaller than the real session span
+    # (e.g. fast 0-80% brackets + slow 80-100% bracket → wasted_pct > 100%).
+    overall_min_ts = None
+    overall_max_ts = None
+    for row in bracket_map.values():
+        if hasattr(row, 'min_time') and hasattr(row, 'max_time') and row.min_time and row.max_time:
+            mt = row.min_time
+            mx = row.max_time
+            if mt.tzinfo is not None and mx.tzinfo is None:
+                mx = mx.replace(tzinfo=mt.tzinfo)
+            elif mt.tzinfo is None and mx.tzinfo is not None:
+                mt = mt.replace(tzinfo=mx.tzinfo)
+            if overall_min_ts is None or mt < overall_min_ts:
+                overall_min_ts = mt
+            if overall_max_ts is None or mx > overall_max_ts:
+                overall_max_ts = mx
+
+    if overall_min_ts is not None and overall_max_ts is not None and overall_max_ts > overall_min_ts:
+        total_minutes = round((overall_max_ts - overall_min_ts).total_seconds() / 60.0)
+    else:
+        total_minutes = sum(b["minutes"] for b in bracket_defs)
 
     if total_minutes == 0:
         return {
@@ -1884,8 +1907,18 @@ async def get_predictive_soc(
             avg_efficiency = 8.0  # default km/kWh fallback
         remaining_range_km = (current_soc / 100) * battery_kwh * avg_efficiency
 
-    # HC-029: target_distance_km cap — configurable via calibration (charger_power_kw slot)
-    target_distance_km = min(remaining_range_km, cal["charger_power_kw"] * 9.09)  # ~200km default for 22kW
+    # HC-029 FIX: target_distance_km should be the *planned* trip distance, not remaining_range_km.
+    # remaining_range_km = how far the car can still drive (not how far the planned trip is).
+    # Using remaining_range_km as target_distance causes arrival SOC to be calculated for
+    # driving the full remaining range rather than the actual planned trip, producing
+    # wrong (often very low) arrival SOC for short trips.
+    # Use the average of recent trip distances as a realistic estimate of planned trip length.
+    if trips and len(trips) > 0:
+        recent_distances = [t.distance_km for t in trips[:10] if t.distance_km and t.distance_km > 0]
+        avg_trip_distance = sum(recent_distances) / len(recent_distances) if recent_distances else (cal["charger_power_kw"] * 9.09)
+    else:
+        avg_trip_distance = cal["charger_power_kw"] * 9.09
+    target_distance_km = avg_trip_distance
 
     if not trips:
         return {
