@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useId } from "react";
 import { format } from "date-fns";
 import {
   Wifi,
@@ -31,7 +31,7 @@ import {
   ComposedChart,
 } from "recharts";
 import { api } from "@/lib/api";
-import { Battery, Zap as ZapIcon, Maximize } from "lucide-react";
+import { Battery, Zap as ZapIcon, Maximize, ThermometerSnowflake } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { TimelineRange } from "./StatisticsShell";
 
@@ -187,6 +187,23 @@ function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, l
   );
 }
 
+// ─── Winter Efficiency ──────────────────────────────────────────────
+interface EfficiencyDataPoint {
+  temperature_celsius: number;
+  consumption_kwh_100km: number;
+  trips_recorded: number;
+}
+
+// ─── Section divider ────────────────────────────────────────────────
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-semibold text-iv-cyan uppercase tracking-wider">{label}</span>
+      <div className="flex-1 h-px bg-gradient-to-r from-iv-cyan/50 to-transparent" />
+    </div>
+  );
+}
+
 export function CarOverviewDashboard({
 
   vehicleId,
@@ -234,11 +251,12 @@ export function CarOverviewDashboard({
     remaining_charge_time_min: number;
   }
   const [pulse, setPulse] = useState<PulseData | null>(null);
+  const [winterEfficiency, setWinterEfficiency] = useState<EfficiencyDataPoint[]>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd] = await Promise.all([
+      const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, winterEff] = await Promise.all([
         api.getBatteryHistory(vehicleId, 10000, fromISO, toISOVal),
         api.getRangeHistory(vehicleId, 10000, fromISO, toISOVal),
         api.getChargingHistory(vehicleId, 10000, fromISO, toISOVal),
@@ -264,6 +282,7 @@ export function CarOverviewDashboard({
         api.getBatteryTemperature(vehicleId, 10000, fromISO, toISOVal),
         api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal),
         api.getVampireDrain(vehicleId).catch(() => null),
+        api.getAnalyticsEfficiency(vehicleId).catch(() => []),
       ]);
       setBattery(b ?? []);
       setRange(r ?? []);
@@ -278,6 +297,7 @@ export function CarOverviewDashboard({
       setOutsideTemp(oTemp ?? []);
       setBatteryTemp(bTemp ?? []);
       setVampireDrain(vd ?? null);
+      setWinterEfficiency(winterEff ?? []);
     } catch (err) {
       console.error('CarOverview Fetch Error:', err);
       setBattery([]);
@@ -1212,6 +1232,70 @@ export function CarOverviewDashboard({
       </div>
 
       {/* Period summary (existing stats table + bar charts when available) */}
+      {/* ── Winter Penalty ── */}
+      <SectionDivider label="Winter Penalty" />
+      {(() => {
+        const winterGradientId = useId();
+        return (
+      <div className="glass rounded-xl p-5">
+        <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
+          <ThermometerSnowflake size={14} /> Winter Penalty
+        </h3>
+        {winterEfficiency.length > 0 ? (
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={winterEfficiency} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <defs>
+                  <linearGradient id={winterGradientId} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00D4FF" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#00D4FF" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="temperature_celsius"
+                  tickFormatter={(v) => `${v}°C`}
+                  stroke="#8b8fa3"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v) => `${v}`}
+                  stroke="#8b8fa3"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={["auto", "auto"]}
+                />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
+                <Tooltip
+                  formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
+                  labelFormatter={(label) => `${label}°C`}
+                  contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
+                  itemStyle={{ color: "#00D4FF", fontWeight: "bold" }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="consumption_kwh_100km"
+                  stroke="#00D4FF"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill={`url(#${winterGradientId})`}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-56 flex items-center justify-center text-iv-muted text-sm">
+            Collecting sufficient trip data to build the winter penalty curve…
+          </div>
+        )}
+      </div>
+        );
+      })()}
+
+      {/* ── Vampire Drain ── */}
+      <SectionDivider label="Vampire Drain" />
       {/* Vampire Drain section — always shown when data available */}
       {vampireDrain && (
         <div className="glass rounded-2xl border border-iv-border p-6">

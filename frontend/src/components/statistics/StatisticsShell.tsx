@@ -8,7 +8,6 @@ import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangeP
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 
-import { EfficiencyDashboard } from "./EfficiencyDashboard";
 import { CarOverviewDashboard } from "./CarOverviewDashboard";
 
 import { DrivingDashboard } from "./DrivingDashboard";
@@ -30,7 +29,6 @@ export interface TimelineRange {
 
 const TABS = [
   { id: "car-overview",        label: "Car Overview",       icon: "📊" },
-  { id: "efficiency",          label: "Winter Penalty",      icon: "❄️" },
   { id: "driving-summary",  label: "Driving Summary", icon: "🚗" },
   { id: "charging-economics", label: "Charging Economics", icon: "🔌" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
@@ -177,10 +175,6 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
         <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
           <Tabs.Content value="car-overview">
             <CarOverviewDashboard vehicleId={vehicleId} dateRange={range} />
-          </Tabs.Content>
-
-          <Tabs.Content value="efficiency">
-            <EfficiencyDashboard vehicleId={vehicleId} />
           </Tabs.Content>
 
           <Tabs.Content value="driving-summary">
