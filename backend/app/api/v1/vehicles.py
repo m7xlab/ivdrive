@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -814,6 +815,73 @@ async def get_trips_analytics(
         for row in rows
     ]
 
+
+@router.get("/{vehicle_id}/trips/{trip_id}/elevation-stats")
+async def get_trip_elevation_stats(
+    vehicle_id: uuid.UUID,
+    trip_id: int,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return elevation stats for a specific trip using vehicle_positions.elevation_m."""
+    vehicle = await _get_user_vehicle(vehicle_id, user, db)
+
+    stmt = select(Trip).where(
+        Trip.user_vehicle_id == vehicle.id,
+        Trip.id == trip_id,
+        Trip.start_lat.is_not(None),
+        Trip.start_lon.is_not(None),
+        Trip.end_lat.is_not(None),
+        Trip.end_lon.is_not(None),
+    )
+    res = await db.execute(stmt)
+    trip = res.scalar_one_or_none()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    # Fetch start and end elevations concurrently
+    start_elev_task = _get_nearest_elevation_async(trip.start_lat, trip.start_lon, vehicle.id, db)
+    end_elev_task = _get_nearest_elevation_async(trip.end_lat, trip.end_lon, vehicle.id, db)
+    start_elev, end_elev = await asyncio.gather(start_elev_task, end_elev_task)
+
+    # Fallback: use 0 if one is missing
+    start_elev = start_elev if start_elev is not None else (end_elev or 0)
+    end_elev = end_elev if end_elev is not None else (start_elev or 0)
+
+    elevation_gain_m = max(0, end_elev - start_elev)
+    elevation_loss_m = max(0, start_elev - end_elev)
+    net_elevation_m = end_elev - start_elev
+
+    return {
+        "elevation_gain_m": round(elevation_gain_m, 1),
+        "elevation_loss_m": round(elevation_loss_m, 1),
+        "net_elevation_m": round(net_elevation_m, 1),
+    }
+
+
+async def _get_nearest_elevation_async(lat: float, lon: float, vehicle_id: uuid.UUID, db: AsyncSession) -> float | None:
+    """Get elevation from vehicle_positions nearest to given lat/lon (async helper)."""
+    if lat is None or lon is None:
+        return None
+    try:
+        res = await db.execute(
+            text("""
+                SELECT elevation_m FROM vehicle_positions
+                WHERE user_vehicle_id = :vid
+                  AND elevation_m IS NOT NULL
+                  AND latitude IS NOT NULL
+                  AND longitude IS NOT NULL
+                ORDER BY (
+                    (latitude - :lat)^2 + (longitude - :lon)^2
+                ) ASC
+                LIMIT 1
+            """),
+            {"vid": str(vehicle_id), "lat": lat, "lon": lon}
+        )
+        row = res.first()
+        return float(row[0]) if row else None
+    except Exception:
+        return None
 
 
 @router.get("/{vehicle_id}/positions", response_model=list[PositionItem])
