@@ -352,7 +352,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               {visibleTrips.map((trip) => {
                 const isActive = trip.trip_id === activeTripId;
                 return (
-                  <React.Fragment key={trip.trip_id}>
+                  <>
                     <div
                       className={`flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border transition-all cursor-pointer ${isActive ? 'border-iv-cyan/50 bg-iv-cyan/5' : 'border-iv-border/40 hover:border-iv-border'}`}
                       onClick={() => {
@@ -380,7 +380,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                     {expandedTripId === trip.trip_id && (
                       <TripElevationCard vehicleId={vehicleId} tripId={trip.trip_id} distanceKm={trip.distance_km ?? 0} />
                     )}
-                  </React.Fragment>
+                  </>
                 );
               })}
 
