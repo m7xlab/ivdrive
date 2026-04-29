@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { MapPin, Loader2, Zap, Car, Clock, Home, Briefcase, ParkingSquare, WifiOff, KeyRound } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
+import { formatSmartDuration } from "@/lib/format";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface MovementDashboardProps {
@@ -133,15 +134,11 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
 }
 
 function formatDuration(seconds: number): string {
-  const totalMin = Math.round(seconds / 60);
-  if (totalMin < 60) return `${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return formatSmartDuration(seconds / 60);
 }
 
 function formatDurationMs(ms: number): string {
-  return formatDuration(ms / 1000);
+  return formatSmartDuration(ms / 60000);
 }
 
 /** Safe time formatter — avoids SSR/client hydration mismatch from toLocaleTimeString. */
