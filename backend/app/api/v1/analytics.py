@@ -1798,8 +1798,8 @@ async def get_route_efficiency(
 
         if route_key not in route_groups:
             route_groups[route_key] = {
-                "start_geo": f"{trip.start_lat:.4f}, {trip.start_lon:.4f}",
-                "end_geo": f"{trip.end_lat:.4f}, {trip.end_lon:.4f}",
+                "start_geo": f"{trip.start_lat:.5f}, {trip.start_lon:.5f}",
+                "end_geo": f"{trip.end_lat:.5f}, {trip.end_lon:.5f}",
                 "efficiencies": [],
                 "temps": [],
                 "distances": [],

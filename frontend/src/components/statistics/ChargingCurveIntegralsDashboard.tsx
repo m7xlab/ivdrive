@@ -94,7 +94,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Energy", value: `${data.total_energy_kwh} kWh`, color: "text-iv-cyan" },
+          { label: "Total Energy", value: `${parseFloat(data.total_energy_kwh.toFixed(2))} kWh`, color: "text-iv-cyan" },
           { label: "Total Time", value: formatSmartDuration(data.total_minutes), color: "text-iv-text" },
           { label: "Wasted (80-100%)", value: formatSmartDuration(wastedMinutes), color: "text-iv-red" },
           { label: "Wasted %", value: `${wastedPct}%`, color: "text-iv-yellow" },

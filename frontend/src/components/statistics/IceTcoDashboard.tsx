@@ -118,7 +118,7 @@ export function IceTcoDashboard({ vehicleId }: { vehicleId: string }) {
       <div className="glass rounded-xl border border-iv-green/30 bg-iv-green/5 p-4 text-center">
         <p className="text-sm text-iv-text">
           <span className="font-bold text-iv-green text-2xl">{summary.total_savings_eur} €</span>
-          <span className="text-iv-text-muted ml-2">saved vs ICE ({summary.electricity_price_eur_kwh}€/kWh vs {summary.petrol_price_eur_l}€/L)</span>
+          <span className="text-iv-text-muted ml-2">saved vs ICE ({summary.electricity_price_eur_kwh.toFixed(2)} €/kWh vs {summary.petrol_price_eur_l.toFixed(2)} €/L)</span>
         </p>
       </div>
 

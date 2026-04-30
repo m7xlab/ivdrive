@@ -82,10 +82,10 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       temp: g.temp_category,
     }));
 
-  // Get min/max for color scaling
-  const allVals = chartData.flatMap((d) => d.avg_kwh_100km ? [d.avg_kwh_100km] : []);
-  const minVal = Math.min(...allVals);
-  const maxVal = Math.max(...allVals);
+  // Get min/max for color scaling (guard against empty chartData)
+  const allVals = chartData.flatMap((d) => d.avg_kwh_100km != null ? [d.avg_kwh_100km] : []);
+  const minVal = allVals.length > 0 ? Math.min(...allVals) : 0;
+  const maxVal = allVals.length > 0 ? Math.max(...allVals) : 1;
 
   const getColor = (val: number) => {
     if (!val) return "#6b7280";

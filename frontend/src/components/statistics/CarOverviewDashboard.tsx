@@ -1251,7 +1251,7 @@ export function CarOverviewDashboard({
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {([
-              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(4)}%/hr`, color: "text-iv-yellow" },
+              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(2)} %/hr`, color: "text-iv-yellow" },
               { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: `@ ${vampireDrain.electricity_price_eur_kwh}€/kWh`, color: "text-iv-text" },
               { label: "Weekly Cost", value: `${vampireDrain.cost_per_week_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
               { label: "Monthly Cost", value: `${vampireDrain.cost_per_month_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },

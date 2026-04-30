@@ -305,7 +305,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-iv-text truncate">{place.label}</p>
-                    <p className="text-xs text-iv-muted">{place.lat.toFixed(4)}, {place.lon.toFixed(4)}</p>
+                    <p className="text-xs text-iv-muted">{place.lat.toFixed(5)}, {place.lon.toFixed(5)}</p>
                   </div>
                   <span className="text-sm font-bold text-iv-text shrink-0">{formatDurationMs(place.ms)}</span>
                 </div>

@@ -1,4 +1,17 @@
 # Changelog
+## [Unreleased] - 2026-04-30
+### Fixed
+- Charging Curve Integrals: `total_energy_kwh` display now rounded to 2 decimal places — eliminates `29.130000000000003 kWh` float artifact.
+- ICE vs EV: Added proper spacing in savings line — `€ saved` and `€/kWh`, `€/L` instead of `€saved` and `0.3499€/kWh`.
+- ICE vs EV: Rate values now display at 2 decimal precision max (was 4 decimals like `0.1955€/kWh`).
+- Car Overview: Vampire drain rate display reduced from 4 to 2 decimal places on hourly rate.
+- Movement Dashboard: GPS coordinates in Top Places now display 5 decimal places (~1m precision) instead of 4 (~11m precision).
+- Route Efficiency: GPS coordinates now display 5 decimal places (`51.09260`) instead of 4 (`51.0926`).
+- SpeedTempMatrixDashboard: Added guard against empty `chartData` array — `Math.min/...allVals)` with empty array throws `TypeError`. Now safely returns 0/1 defaults.
+
+### Known Issues
+- Speed × Temp tab: API endpoint (`get_speed_temp_matrix`) returns valid data with 123 qualifying trips for BlackMagic. If tab still fails to render, likely caused by frontend component crash on edge-case data. An `ErrorBoundary` has been added for logging purposes. Root cause investigation ongoing.
+
 ## [Unreleased] - 2026-04-29
 ### Fixed
 - Driving Statistics: Energy Used now correctly shows values for days with charging activity (e.g. Apr 25: 1.16 kWh). Previously used `v_daily_consumption` view which missed days where charging happened during a parked period. Now uses `trips.kwh_consumed` directly.
