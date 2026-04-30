@@ -128,7 +128,6 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
-                formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
               />
               <Bar dataKey="avg_kwh_100km" name="kWh/100km" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, index) => (
