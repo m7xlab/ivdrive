@@ -88,6 +88,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
   const maxVal = allVals.length > 0 ? Math.max(...allVals) : 1;
   const getColor = (val: number) => {
     if (!val) return "#6b7280";
+    if (maxVal === minVal) return "#6b7280";
     const t = (val - minVal) / (maxVal - minVal);
     // green (best) → yellow → red (worst)
     if (t < 0.5) {
@@ -171,11 +172,11 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
                       <td key={ti} className="text-center p-2">
                         <span
                           className="inline-block px-2 py-1 rounded text-xs font-bold"
-                          style={{ backgroundColor: val ? getColor(val) + "33" : "transparent", color: val ? getColor(val) : "var(--iv-muted)" }}
+                          style={{ backgroundColor: val != null ? getColor(val) + "33" : "transparent", color: val != null ? getColor(val) : "var(--iv-muted)" }}
                         >
-                          {val ? `${val}` : "—"}
+                          {val != null ? `${val}` : "—"}
                         </span>
-                        {count > 0 && <span className="block text-[10px] text-iv-text-muted">{count} trips</span>}
+                        {count != null && count > 0 && <span className="block text-[10px] text-iv-text-muted">{count} trips</span>}
                       </td>
                     );
                   })}

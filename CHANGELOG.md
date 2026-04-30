@@ -6,11 +6,11 @@
 - ICE vs EV: Rate values now display at 2 decimal precision max (was 4 decimals like `0.1955€/kWh`).
 - Car Overview: Vampire drain rate display reduced from 4 to 2 decimal places on hourly rate.
 - Movement Dashboard: GPS coordinates in Top Places now display 5 decimal places (~1m precision) instead of 4 (~11m precision).
-- Route Efficiency: GPS coordinates now display 5 decimal places (`51.09260`) instead of 4 (`51.0926`).
+- Route Efficiency: Start/end locations now resolved from `geocoded_locations` cache (Nominatim reverse-geocoded names like "Konstitucijos pr.") when available, fallback to coordinates. Previously always showed raw lat/lon pairs.
 - SpeedTempMatrixDashboard: Added guard against empty `chartData` array — `Math.min/...allVals)` with empty array throws `TypeError`. Now safely returns 0/1 defaults.
 
 ### Known Issues
-- Speed × Temp tab: API endpoint (`get_speed_temp_matrix`) returns valid data with 123 qualifying trips for BlackMagic. If tab still fails to render, likely caused by frontend component crash on edge-case data. An `ErrorBoundary` has been added for logging purposes. Root cause investigation ongoing.
+- Speed × Temp tab: Calibration thresholds (`speed_city_threshold_kmh`, `temp_cold_max_celsius` etc.) are NULL for all vehicles in production DB — all speed/temp categorization falls back to defaults (50/90 km/h, 5/15/25°C). Data may appear overly aggregated. Fix requires either setting per-vehicle calibration in Settings or adding sensible defaults to the calibration lookup.
 
 ## [Unreleased] - 2026-04-29
 ### Fixed
