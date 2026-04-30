@@ -80,7 +80,7 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
 
 
   const chartData = data.routes.slice(0, 15).map((r) => ({
-    route: truncateRoute(r.route_key.split("->").join(" → "), 28),
+    route: truncateRoute(r.route_key, 22),
     fullRoute: r.route_key.split("->").join(" → "),
     avg: r.avg_kwh_100km,
     score: r.efficiency_score,
@@ -115,9 +115,9 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
               <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: 'kWh/100km', position: 'insideBottom', style: { fill: 'var(--iv-muted)', fontSize: 11 } }} />
               <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={130} tick={{ fontSize: 10 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #d8dce6", borderRadius: "8px", color: "#1a1d2e" }}
-                itemStyle={{ color: "#1a1d2e" }}
-                labelStyle={{ color: "#1a1d2e", fontWeight: 600 }}
+                contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #d8dce6", borderRadius: "8px", color: "#1a1d2e", fontSize: "11px" }}
+                itemStyle={{ color: "#1a1d2e", fontSize: "11px" }}
+                labelStyle={{ color: "#1a1d2e", fontWeight: 600, fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" }}
                 formatter={(value: number, name: string) => [value, name]}
               />
               <Bar dataKey="avg" name="Avg kWh/100km" radius={[0, 4, 4, 0]}>
