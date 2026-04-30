@@ -1165,7 +1165,7 @@ async def get_charging_curve_integrals_v2(
         "wasted_minutes_80_100": wasted_minutes,
         "total_energy_kwh": total_energy,
         "total_minutes": total_minutes,
-        "wasted_pct": round(wasted_minutes / total_minutes * 100, 1)
+        "wasted_pct": min(100, round(wasted_minutes / total_minutes * 100, 1))
     }
 
 
