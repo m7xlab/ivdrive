@@ -1866,7 +1866,7 @@ async def get_route_efficiency(
         score = max(0, 100 - (avg_eff - 12) * 10) if avg_eff > 0 else 50
 
         results.append({
-            "route_key": route_key,
+            "route_key": f"{data['start_name']} → {data['end_name']}",
             "start_location": data["start_name"],
             "end_location": data["end_name"],
             "trip_count": len(effs),

@@ -72,18 +72,28 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
     );
   }
 
-  const chartData = data.routes.slice(0, 20).map((r) => ({
-    route: r.route_key.split("->").join(" → "),
+  // Truncate route label to first line (street name only), cap length
+  const truncateRoute = (label: string, maxLen = 28) => {
+    const firstLine = label.split("\n")[0];
+    return firstLine.length > maxLen ? firstLine.slice(0, maxLen - 1) + "…" : firstLine;
+  };
+
+
+  const chartData = data.routes.slice(0, 15).map((r) => ({
+    route: truncateRoute(r.route_key.split("->").join(" → "), 28),
+    fullRoute: r.route_key.split("->").join(" → "),
     avg: r.avg_kwh_100km,
     score: r.efficiency_score,
     trips: r.trip_count,
     distance: r.total_distance_km,
   }));
 
-  const getScoreColor = (score: number) => {
-    if (score >= 70) return "var(--iv-green)";
-    if (score >= 40) return "var(--iv-yellow)";
-    return "var(--iv-red)";
+
+  // Color: green≥70 / yellow≥40 / red<40 — always dark enough for both modes
+  const getBarColor = (score: number) => {
+    if (score >= 70) return "#22c55e";
+    if (score >= 40) return "#eab308";
+    return "#ef4444";
   };
 
   return (
@@ -98,21 +108,21 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
         </p>
 
         {/* Top 20 routes bar chart */}
-        <div className="h-80 w-full mb-8">
+        <div className="h-96 w-full mb-8">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 30, left: 120, bottom: 5 }}>
+            <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 20, left: 140, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
-              <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: 'kWh/100km', position: 'insideBottom', style: { fill: 'var(--iv-muted)' } }} />
-              <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={110} />
+              <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: 'kWh/100km', position: 'insideBottom', style: { fill: 'var(--iv-muted)', fontSize: 11 } }} />
+              <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={130} tick={{ fontSize: 10 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
-                itemStyle={{ color: "var(--iv-text)" }}
+                contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #d8dce6", borderRadius: "8px", color: "#1a1d2e" }}
+                itemStyle={{ color: "#1a1d2e" }}
+                labelStyle={{ color: "#1a1d2e", fontWeight: 600 }}
                 formatter={(value: number, name: string) => [value, name]}
               />
-              <Legend wrapperStyle={{ paddingTop: "16px" }} />
               <Bar dataKey="avg" name="Avg kWh/100km" radius={[0, 4, 4, 0]}>
                 {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
+                  <Cell key={`cell-${index}`} fill={getBarColor(entry.score)} />
                 ))}
               </Bar>
             </BarChart>
@@ -143,7 +153,7 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
                   <td className="p-2 text-center text-iv-text">{route.trip_count}</td>
                   <td className="p-2 text-center text-iv-text">{route.total_distance_km} km</td>
                   <td className="p-2 text-center">
-                    <span className="font-bold" style={{ color: getScoreColor(route.efficiency_score) }}>
+                    <span className="font-bold" style={{ color: getBarColor(route.efficiency_score) }}>
                       {route.avg_kwh_100km}
                     </span>
                   </td>
@@ -153,7 +163,7 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
                   <td className="p-2 text-center">
                     <span
                       className="inline-block px-2 py-0.5 rounded text-xs font-bold"
-                      style={{ backgroundColor: getScoreColor(route.efficiency_score) + "22", color: getScoreColor(route.efficiency_score) }}
+                      style={{ backgroundColor: getBarColor(route.efficiency_score) + "22", color: getBarColor(route.efficiency_score) }}
                     >
                       {route.efficiency_score}
                     </span>
