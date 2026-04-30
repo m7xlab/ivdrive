@@ -7,7 +7,7 @@
 - Car Overview: Vampire drain rate display reduced from 4 to 2 decimal places on hourly rate.
 - Movement Dashboard: GPS coordinates in Top Places now display 5 decimal places (~1m precision) instead of 4 (~11m precision).
 - Route Efficiency: Start/end locations now resolved from `geocoded_locations` cache (Nominatim reverse-geocoded names like "Konstitucijos pr.") when available, fallback to coordinates. Previously always showed raw lat/lon pairs.
-- SpeedTempMatrixDashboard: Added `maxVal === minVal` guard in `getColor` to prevent NaN in color calculation when all cells have the same value. Also tightened null checks from truthy/falsy (`val`, `count > 0`) to explicit null comparisons (`val != null`, `count != null && count > 0`).
+- SpeedTempMatrixDashboard: Fixed `if (!val)` truthy check that incorrectly returned gray for valid `0` values — changed to `if (val === 0)`. Also removed `g` variable shadowing in closures and added explicit null coalescing (`as number`) for `avg_kwh_100km`.
 
 ### Known Issues
 - Speed × Temp tab: Calibration thresholds (`speed_city_threshold_kmh`, `temp_cold_max_celsius` etc.) are NULL for all vehicles in production DB — all speed/temp categorization falls back to defaults (50/90 km/h, 5/15/25°C). Data may appear overly aggregated. Fix requires either setting per-vehicle calibration in Settings or adding sensible defaults to the calibration lookup.
