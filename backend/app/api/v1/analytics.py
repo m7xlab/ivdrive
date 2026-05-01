@@ -2005,6 +2005,7 @@ async def get_predictive_soc(
         Trip.distance_km.is_not(None),
         Trip.distance_km > 5,
         Trip.kwh_consumed.is_not(None),
+        Trip.kwh_consumed > 0,
         Trip.avg_temp_celsius.is_not(None)
     ).order_by(Trip.start_date.desc()).limit(100)
     trips_res = await db.execute(trips_stmt)
@@ -2042,6 +2043,7 @@ async def get_predictive_soc(
             "predicted_arrival_soc_pct": round(current_soc, 1),
             "confidence_pct": 30,
             "message": "Not enough trip data for prediction.",
+            "consumption_by_temp": {},
             "consumption_data": []
         }
 
@@ -2081,7 +2083,7 @@ async def get_predictive_soc(
 
     cat_trips = len(cat_effs)
     confidence = min(95, 30 + cat_trips * 5)
-    arrival_soc = max(0.0, min(100.0, arrival_soc))
+    arrival_soc = max(0.0, arrival_soc)  # Clamp floor only; upper bound enforced by caller
 
     return {
         "current_soc_pct": round(current_soc, 1),
