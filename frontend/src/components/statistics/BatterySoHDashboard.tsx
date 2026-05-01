@@ -43,8 +43,8 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
 
   const chartData = data.curve.map(p => ({
     date: new Date(p.date).toLocaleDateString(),
-    "SoH %": parseFloat(p.soh_pct.toFixed(1)),
-    "Capacity (kWh)": parseFloat(p.capacity_kwh.toFixed(2)),
+    "SoH %": p.soh_pct != null ? parseFloat(p.soh_pct.toFixed(1)) : null,
+    "Capacity (kWh)": p.capacity_kwh != null ? parseFloat(p.capacity_kwh.toFixed(2)) : null,
   }));
 
   return (
