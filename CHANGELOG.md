@@ -3,11 +3,12 @@
 ### Fixed
 - MovementDashboard: Remove dead formatDuration() wrapper that divided by 60 before passing to formatSmartDuration, causing time values to display 60x smaller than actual.
 - Migration 4c5c9e5b4a60: Remove destructive DROP TABLE/DROP INDEX ops that would have deleted 481 geocoded_locations rows and 516 charging_sessions rows. Now only adds calibration columns to user_vehicles.
-- BatterySoHDashboard: Add null guards on p.soh_pct and p.capacity_kwh in chartData mapping to prevent TypeError when API returns null values.
 
 ### Added
-- BatterySoHDashboard: New dashboard showing battery State of Health (SoH) with degradation curve, calculated vs Skoda-reported SoH.
-- Alembic migrations: battery_soh_estimates table chain (4c5c9e5b4a60, d4cb158bda0c stub, f36d25e55dd8).
+- Alembic migrations: calibration columns for user_vehicles (charger_power_kw, ice_l_per_100km, speed/temp thresholds) via migration 4c5c9e5b4a60 + stub chain d4cb158bda0c -> f36d25e55dd8.
+
+### Removed
+- BatterySoHDashboard: Removed incomplete dashboard (no backend endpoint, no DB table, getBatterySoH API not implemented).
 
 ## [Unreleased] - 2026-04-30
 ### Fixed
