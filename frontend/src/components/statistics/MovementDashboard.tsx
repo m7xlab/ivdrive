@@ -133,10 +133,6 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
   return events;
 }
 
-function formatDuration(seconds: number): string {
-  return formatSmartDuration(seconds / 60);
-}
-
 function formatDurationMs(ms: number): string {
   return formatSmartDuration(ms / 60000);
 }
@@ -251,7 +247,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                     {b.icon}
                     <span className="text-xs font-semibold text-iv-muted uppercase tracking-wide">{b.label}</span>
                   </div>
-                  <p className={`text-2xl font-bold ${b.textColor}`}>{formatDuration(b.seconds)}</p>
+                  <p className={`text-2xl font-bold ${b.textColor}`}>{formatSmartDuration(b.seconds / 60)}</p>
                   <p className="text-xs text-iv-muted">{((b.seconds / totalS) * 100).toFixed(1)}%</p>
                 </div>
               ))}
@@ -263,14 +259,14 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                   {visibleBuckets.map((b) => (
                     <div key={b.label} className={`${b.barColor} transition-all`}
                       style={{ width: `${(b.seconds / totalS) * 100}%` }}
-                      title={`${b.label}: ${formatDuration(b.seconds)}`} />
+                      title={`${b.label}: ${formatSmartDuration(b.seconds / 60)}`} />
                   ))}
                 </div>
                 <div className="flex gap-4 flex-wrap">
                   {visibleBuckets.map((b) => (
                     <span key={b.label} className="flex items-center gap-1.5 text-xs text-iv-muted">
                       <span className={`inline-block w-2 h-2 rounded-full ${b.barColor}`} />
-                      {b.label} · {formatDuration(b.seconds)}
+                      {b.label} · {formatSmartDuration(b.seconds / 60)}
                     </span>
                   ))}
                 </div>
