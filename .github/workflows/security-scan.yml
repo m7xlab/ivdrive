@@ -39,7 +39,9 @@ jobs:
       - name: Build image (load locally, do not push)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./backend
+          file: ./backend/Dockerfile
+          target: api
           load: true
           tags: app:scan
           cache-from: type=gha
