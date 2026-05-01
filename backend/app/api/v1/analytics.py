@@ -283,7 +283,7 @@ async def get_battery_health(
     curve_data = []
     if soh_estimates:
         # Filter valid estimates (≤ 103% of factory — excludes regen noise)
-        valid = [r for r in soh_estimates if r.estimated_kwh and r.estimated_kwh <= float(factory_kwh or 0) * 1.03]
+        valid = [r for r in soh_estimates if r.estimated_kwh and factory_kwh and factory_kwh > 0 and float(r.estimated_kwh) <= float(factory_kwh) * 1.03]
         if valid:
             # Group by month
             from collections import defaultdict
@@ -294,7 +294,7 @@ async def get_battery_health(
             for month in sorted(by_month.keys()):
                 vals = by_month[month]
                 avg_kwh = round(sum(vals) / len(vals), 2)
-                soh_pct = round((avg_kwh / float(factory_kwh or 1)) * 100, 1) if factory_kwh else None
+                soh_pct = round((avg_kwh / float(factory_kwh)) * 100, 1) if factory_kwh and factory_kwh > 0 else None
                 curve_data.append({
                     "month": month,
                     "estimated_kwh": avg_kwh,
@@ -306,8 +306,8 @@ async def get_battery_health(
     latest_derived = None
     if soh_estimates:
         for r in soh_estimates:
-            if r.estimated_kwh and r.estimated_kwh <= float(factory_kwh or 0) * 1.03:
-                latest_derived = round((float(r.estimated_kwh) / float(factory_kwh or 1)) * 100, 1) if factory_kwh else None
+            if r.estimated_kwh and factory_kwh and factory_kwh > 0 and float(r.estimated_kwh) <= float(factory_kwh) * 1.03:
+                latest_derived = round((float(r.estimated_kwh) / float(factory_kwh)) * 100, 1)
                 break
 
     return {
@@ -1252,7 +1252,7 @@ async def get_charging_curve_integrals_v2(
         "wasted_minutes_80_100": wasted_minutes,
         "total_energy_kwh": total_energy,
         "total_minutes": total_minutes,
-        "wasted_pct": round(wasted_minutes / total_minutes * 100, 1)
+        "wasted_pct": min(100, round(wasted_minutes / total_minutes * 100, 1)) if total_minutes > 0 else 0
     }
 
 
