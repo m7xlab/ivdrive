@@ -853,6 +853,9 @@ async def get_trip_elevation_stats(
     net_elevation_m = end_elev - start_elev
 
     return {
+        "trip_id": trip_id,
+        "start_elevation_m": round(start_elev, 1),
+        "end_elevation_m": round(end_elev, 1),
         "elevation_gain_m": round(elevation_gain_m, 1),
         "elevation_loss_m": round(elevation_loss_m, 1),
         "net_elevation_m": round(net_elevation_m, 1),
