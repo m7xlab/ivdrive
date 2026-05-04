@@ -1405,16 +1405,13 @@ async def get_elevation_penalty(
     uphill_sum   = sum(r["uphill_kwh_per_100km"]    for r in results)
     downhill_sum = sum(r["downhill_kwh_per_100km"] for r in results)
 
-    return {
-        "trips": results,
-        "summary": {
-            "total_trips":       len(results),
-            "total_uphill_kwh":  round(uphill_sum, 2),
-            "total_downhill_kwh": round(downhill_sum, 2),
-            "net_energy_kwh":    round(uphill_sum - downhill_sum, 2),
-        },
-        "method": "vehicle_positions.elevation_m via nearest-point SQL",
-    }
+    if not results:
+        return {
+            "trips": [],
+            "summary": {"total_trips": 0, "total_uphill_kwh": 0, "total_downhill_kwh": 0, "net_energy_kwh": 0},
+            "message": "Not enough trips with elevation data for analysis.",
+            "method": "vehicle_positions.elevation_m via nearest-point SQL",
+        }
 
 
 # =============================================================================
@@ -2102,8 +2099,8 @@ async def get_predictive_soc(
     arrival_soc = max(0.0, arrival_soc)  # Clamp floor only; upper bound enforced by caller
     # Short-trip safety: arrival SoC should never round to 0% for a moving vehicle.
     # Clamp minimum to 1% so the UI never shows 0% for a mathematically impossible case.
-    if arrival_soc > 0 and arrival_soc < 0.5:
-        arrival_soc = 0.5
+    if arrival_soc > 0 and arrival_soc < 1:
+        arrival_soc = 1.0
 
     return {
         "current_soc_pct": round(current_soc, 1),
