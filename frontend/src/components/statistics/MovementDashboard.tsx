@@ -295,7 +295,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
           ) : (
             <div className="space-y-2">
               {topPlaces.map((place) => (
-                <div key={`${place.lat.toFixed(4)},${place.lon.toFixed(4)}`} className="flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border border-iv-border/50">
+                <div key={`${place.lat.toFixed(5)},${place.lon.toFixed(5)}`} className="flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border border-iv-border/50">
                   <div className={`p-2 rounded-full shrink-0 ${place.charging ? "bg-iv-green/10" : "bg-iv-cyan/10"}`}>
                     {place.charging ? <Zap size={14} className="text-iv-green" /> : <MapPin size={14} className="text-iv-cyan" />}
                   </div>

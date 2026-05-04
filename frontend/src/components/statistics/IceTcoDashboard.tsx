@@ -156,7 +156,7 @@ export function IceTcoDashboard({ vehicleId }: { vehicleId: string }) {
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
-                formatter={(value: number, name: string) => [`${value.toFixed(3)} €`, name]}
+                formatter={(value: number, name: string) => [`${value.toFixed(2)} €`, name]}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />
               <Bar dataKey="ice" fill="var(--iv-red)" name="ICE Cost" opacity={0.6} radius={[2, 2, 0, 0]} />

@@ -1229,7 +1229,7 @@ async def get_charging_curve_integrals_v2(
     else:
         wasted_minutes = round(wasted_row.count * 5) if wasted_row and wasted_row.count else 0
 
-    total_energy = sum(b["energy_kwh"] for b in bracket_defs)
+    total_energy = round(sum(b["energy_kwh"] for b in bracket_defs), 2)
 
     # Compute overall session duration from earliest→latest timestamp across all brackets.
     # This is consistent with wasted_minutes (which also uses actual timestamps), unlike
