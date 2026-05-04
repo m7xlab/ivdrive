@@ -19,6 +19,7 @@ import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
 import { ChargingCurveIntegralsDashboard } from "./ChargingCurveIntegralsDashboard";
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
+import { BatterySoHDashboard } from "./BatterySoHDashboard";
 import { IceTcoDashboard } from "./IceTcoDashboard";
 import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
 import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
@@ -44,6 +45,7 @@ const TABS = [
   { id: "route-efficiency",    label: "Route Efficiency",   icon: "🛣️" },
   { id: "predictive-soc",      label: "Arrival SoC",         icon: "🎯" },
   { id: "mileage",             label: "Mileage",             icon: "📍" },
+  { id: "battery-soh",         label: "Battery SoH",        icon: "🔋" },
 ] as const;
 
 const TAB_MIN_WIDTH = 120; // px, min width per tab button
@@ -223,6 +225,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           </Tabs.Content>
           <Tabs.Content value="mileage">
             <MileageKMDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
+          <Tabs.Content value="battery-soh">
+            <BatterySoHDashboard vehicleId={vehicleId} />
           </Tabs.Content>
         </Tabs.Root>
       </div>

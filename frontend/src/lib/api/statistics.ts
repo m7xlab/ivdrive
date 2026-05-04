@@ -262,5 +262,17 @@ export const statisticsApi = {
   async getPredictiveSoc(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/predictive-soc`);
     return res.json();
+  },
+
+  async getBatterySoH(vehicleId: string): Promise<{
+    skoda_soh_pct: number | null;
+    derived_soh_pct: number | null;
+    factory_capacity_kwh: number | null;
+    derived_capacity_kwh: number | null;
+    total_soh_estimates: number;
+    curve: Array<{ date: string; capacity_kwh: number; soh_pct: number }>;
+  }> {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/analytics/battery-health`);
+    return res.json();
   }
 };
