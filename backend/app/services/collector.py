@@ -1,7 +1,6 @@
 from app.config import settings
 import os
 import json
-import random
 from sqlalchemy.orm import selectinload
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from uuid import UUID
@@ -100,7 +99,7 @@ class DataCollector:
             seconds=SYNC_INTERVAL_SECONDS,
             id="sync_vehicles_from_db",
             replace_existing=True,
-        )
+        )  # SYNC_INTERVAL_SECONDS=90: DB refresh rate for vehicle/token sync — part of smart polling engine, not user-facing
 
         self._listen_task = asyncio.ensure_future(self._listen_events())
 
@@ -504,7 +503,7 @@ class DataCollector:
                 # ── Step 3: Stabilization (Smart Polling v2.1) ───────────────
                 # When car stops being active, we continue "Active" polling for a few cycles
                 # to ensure we capture the final odometer/position/state for analytics.
-                STABILIZATION_CYCLES = 3 # ~3 extra polls before dropping to parked interval
+                STABILIZATION_CYCLES = 3  # ~3 extra polls before dropping to parked interval (smart polling engine)
 
                 if car_active:
                     # Car is genuinely active, reset the stabilization countdown
@@ -820,58 +819,67 @@ class DataCollector:
                             mileage_in_km=maint_resp.mileage_in_km,
                         ))
 
-                # --- Simulated metrics: BatteryHealth, PowerUsage, ChargingCurve ---
-                base_soc = 50.0
-                if driving and driving.primary_engine_range and driving.primary_engine_range.current_so_c_in_percent is not None:
-                    base_soc = float(driving.primary_engine_range.current_so_c_in_percent)
+                # --- BatteryHealth: only write when real data is available from status API ---
+                # The Skoda API provides SOC and estimated range during charging.
+                # Other fields (cell voltages, temperatures) are not exposed by the API.
+                if (
+                    status_resp and status_resp.overall
+                    and status_resp.overall.battery
+                ):
+                    batt = status_resp.overall.battery
+                    soc = getattr(batt, "state_of_charge_in_percent", None)
+                    if soc is not None:
+                        session.add(BatteryHealth(
+                            user_vehicle_id=user_vehicle_id,
+                            captured_at=now,
+                            # twelve_v fields — not exposed by Skoda API
+                            twelve_v_battery_voltage=None,
+                            twelve_v_battery_soc=None,
+                            twelve_v_battery_soh=None,
+                            # HV battery from status endpoint (when available)
+                            hv_battery_voltage=getattr(batt, "voltage", None),
+                            hv_battery_current=getattr(batt, "current", None),
+                            hv_battery_temperature=getattr(batt, "temperature", None),
+                            hv_battery_soh=getattr(batt, "soh", None),
+                            hv_battery_degradation_pct=None,
+                            # Cell-level data — not exposed by Skoda API
+                            cell_voltage_min=None,
+                            cell_voltage_max=None,
+                            cell_voltage_avg=None,
+                            cell_temperature_min=None,
+                            cell_temperature_max=None,
+                            cell_temperature_avg=None,
+                            imbalance_mv=None,
+                        ))
 
-                battery_temp = 20.0
-                if temp_c is not None:
-                    battery_temp = temp_c + 5.0
-                elif is_charging:
-                    battery_temp = 35.0
-
-                session.add(BatteryHealth(
-                    user_vehicle_id=user_vehicle_id,
-                    captured_at=now,
-                    twelve_v_battery_voltage=12.1 + random.uniform(0, 0.6) if not is_moving else 14.4 + random.uniform(-0.1, 0.1),
-                    twelve_v_battery_soc=random.uniform(85, 99),
-                    twelve_v_battery_soh=98.5,
-                    hv_battery_voltage=380.0 + (base_soc * 0.4),
-                    hv_battery_current=0.0 if not is_charging and not is_moving else (random.uniform(10, 100) if is_charging else random.uniform(-200, 200)),
-                    hv_battery_temperature=battery_temp,
-                    hv_battery_soh=95.0,
-                    hv_battery_degradation_pct=5.0,
-                    cell_voltage_min=3.5 + (base_soc * 0.006),
-                    cell_voltage_max=3.5 + (base_soc * 0.006) + random.uniform(0.01, 0.05),
-                    cell_voltage_avg=3.5 + (base_soc * 0.006) + 0.02,
-                    cell_temperature_min=battery_temp - 1.0,
-                    cell_temperature_max=battery_temp + 2.0,
-                    cell_temperature_avg=battery_temp,
-                    imbalance_mv=random.uniform(5, 25),
-                ))
-
-                session.add(PowerUsage(
-                    user_vehicle_id=user_vehicle_id,
-                    captured_at=now,
-                    total_power_kw=random.uniform(0, 50) if is_moving else (random.uniform(1, 3) if is_ac_on else 0.0),
-                    motor_power_kw=random.uniform(0, 45) if is_moving else 0.0,
-                    hvac_power_kw=random.uniform(1, 4) if is_ac_on else 0.0,
-                    auxiliary_power_kw=random.uniform(0.2, 0.5),
-                    battery_heater_power_kw=random.uniform(1, 5) if is_charging and battery_temp < 15 else 0.0,
-                ))
-
+                # --- PowerUsage: only write when charging (Skoda provides charge_power_kw) ---
                 if is_charging and charging and charging.status:
-                    session.add(ChargingCurve(
+                    session.add(PowerUsage(
                         user_vehicle_id=user_vehicle_id,
                         captured_at=now,
-                        soc_pct=base_soc,
-                        power_kw=charging.status.charge_power_in_kw or random.uniform(10, 50),
-                        voltage_v=380.0 + (base_soc * 0.4),
-                        current_a=(charging.status.charge_power_in_kw or 50) * 1000 / (380.0 + (base_soc * 0.4)),
-                        battery_temp_celsius=battery_temp,
-                        charger_temp_celsius=battery_temp + random.uniform(5, 10),
+                        total_power_kw=charging.status.charge_power_in_kw,
+                        # Motor / HVAC / auxiliary — not exposed by Skoda API
+                        motor_power_kw=None,
+                        hvac_power_kw=None,
+                        auxiliary_power_kw=None,
+                        battery_heater_power_kw=None,
                     ))
+
+                # --- ChargingCurve: only write when charging with real power data ---
+                if is_charging and charging and charging.status and charging.status.battery:
+                    soc_pct = charging.status.battery.state_of_charge_in_percent
+                    if soc_pct is not None and charging.status.charge_power_in_kw is not None:
+                        session.add(ChargingCurve(
+                            user_vehicle_id=user_vehicle_id,
+                            captured_at=now,
+                            soc_pct=soc_pct,
+                            power_kw=charging.status.charge_power_in_kw,
+                            # Voltage / current / temps — not exposed by Skoda API
+                            voltage_v=None,
+                            current_a=None,
+                            battery_temp_celsius=getattr(charging.status.battery, "temperature", None),
+                            charger_temp_celsius=None,
+                        ))
 
                 # --- Legacy Grafana metrics ---
                 if is_charging and charging and charging.status and charging.status.charge_power_in_kw is not None:
@@ -890,7 +898,7 @@ class DataCollector:
                         est_full = float(driving.total_range_in_km) / (soc / 100.0)
                         
                         # Calculate accurate consumption (kWh/100km) from estimated full range and battery capacity
-                        capacity_kwh = getattr(vehicle, "battery_capacity_kwh", None) or 77.0
+                        capacity_kwh = vehicle.battery_capacity_kwh if vehicle.battery_capacity_kwh else 77.0
                         consumption_val = None
                         if est_full > 0 and capacity_kwh > 0:
                             consumption_val = (capacity_kwh / est_full) * 100
@@ -943,21 +951,20 @@ class DataCollector:
                         outside_temperature=temp_c,
                     )
 
-                await _update_or_insert_duration_state(
-                    session, BatteryTemperature, user_vehicle_id,
-                    match_keys={"battery_temperature": battery_temp},
-                    volatile_keys=[],
-                    now=now,
-                    max_gap_s=max_gap_s,
-                    battery_temperature=battery_temp,
-                )
+                # Extract battery temperature from status endpoint
+                battery_temp = None
+                if status_resp and status_resp.overall and status_resp.overall.battery:
+                    battery_temp = getattr(status_resp.overall.battery, "temperature", None)
 
-                if random.random() < 0.01:
-                    session.add(WeconnectError(
-                        user_vehicle_id=user_vehicle_id,
-                        datetime=now,
-                        error_text="Simulated Weconnect Error",
-                    ))
+                if battery_temp is not None:
+                    await _update_or_insert_duration_state(
+                        session, BatteryTemperature, user_vehicle_id,
+                        match_keys={"battery_temperature": battery_temp},
+                        volatile_keys=[],
+                        now=now,
+                        max_gap_s=max_gap_s,
+                        battery_temperature=battery_temp,
+                    )
 
                 # ── Raw API payload archive ─────────────────────────────────
                 # Serialize every response (pydantic → dict) and store as JSONB.

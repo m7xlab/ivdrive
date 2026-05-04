@@ -45,6 +45,16 @@ export const vehiclesApi = {
       parked_interval_seconds?: number;
       wltp_range_km?: number | null;
       country_code?: string | null;
+      // Efficiency calibration
+      charger_power_kw?: number | null;
+      ice_l_per_100km?: number | null;
+      uphill_kwh_per_100km_per_100m?: number | null;
+      downhill_kwh_per_100km_per_100m?: number | null;
+      speed_city_threshold_kmh?: number | null;
+      speed_highway_threshold_kmh?: number | null;
+      temp_cold_max_celsius?: number | null;
+      temp_optimal_min_celsius?: number | null;
+      temp_optimal_max_celsius?: number | null;
     }
   ) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`, {

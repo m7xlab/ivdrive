@@ -44,6 +44,16 @@ class VehicleResponse(BaseModel):
     connector_status: str | None = None
     last_fetch_at: datetime | None = None
     created_at: datetime
+    # Efficiency calibration
+    charger_power_kw: float | None = None
+    ice_l_per_100km: float | None = None
+    uphill_kwh_per_100km_per_100m: float | None = None
+    downhill_kwh_per_100km_per_100m: float | None = None
+    speed_city_threshold_kmh: float | None = None
+    speed_highway_threshold_kmh: float | None = None
+    temp_cold_max_celsius: float | None = None
+    temp_optimal_min_celsius: float | None = None
+    temp_optimal_max_celsius: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -62,6 +72,16 @@ class VehicleUpdate(BaseModel):
     parked_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)
     country_code: str | None = Field(default=None, max_length=2)
+    # Efficiency calibration
+    charger_power_kw: float | None = Field(default=None, ge=1, le=1000)
+    ice_l_per_100km: float | None = Field(default=None, ge=1, le=50)
+    uphill_kwh_per_100km_per_100m: float | None = Field(default=None, ge=0.01, le=2.0)
+    downhill_kwh_per_100km_per_100m: float | None = Field(default=None, ge=0.01, le=2.0)
+    speed_city_threshold_kmh: float | None = Field(default=None, ge=10, le=150)
+    speed_highway_threshold_kmh: float | None = Field(default=None, ge=50, le=250)
+    temp_cold_max_celsius: float | None = Field(default=None, ge=-20, le=30)
+    temp_optimal_min_celsius: float | None = Field(default=None, ge=-10, le=40)
+    temp_optimal_max_celsius: float | None = Field(default=None, ge=-10, le=50)
 
 
 class VehicleStatusResponse(BaseModel):

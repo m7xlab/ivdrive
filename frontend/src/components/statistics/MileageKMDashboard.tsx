@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
+import { formatSmartDuration } from "@/lib/format";
 
 export interface MileageKMDashboardProps {
   vehicleId: string;

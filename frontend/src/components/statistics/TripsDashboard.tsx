@@ -6,7 +6,9 @@ import { format, parseISO, getYear, getMonth } from "date-fns";
 import { Loader2, Car, Clock, Calendar, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
+import { TripElevationCard } from "./TripElevationCard";
 import "leaflet/dist/leaflet.css";
+import { formatSmartDuration } from "@/lib/format";
 
 // --- Types ---
 export interface TripsDashboardProps {
@@ -98,6 +100,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
   const [allTrips, setAllTrips] = useState<TripAnalyticsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTripId, setActiveTripId] = useState<number | null>(null);
+  const [expandedTripId, setExpandedTripId] = useState<number | null>(null);
   const [locations, setLocations] = useState<Map<string, string>>(new Map());
   
   // Year/Month selection
@@ -350,10 +353,13 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               {visibleTrips.map((trip) => {
                 const isActive = trip.trip_id === activeTripId;
                 return (
+                  <>
                     <div
-                      key={trip.trip_id}
                       className={`flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border transition-all cursor-pointer ${isActive ? 'border-iv-cyan/50 bg-iv-cyan/5' : 'border-iv-border/40 hover:border-iv-border'}`}
-                      onClick={() => setActiveTripId(trip.trip_id)}
+                      onClick={() => {
+                        setActiveTripId(trip.trip_id);
+                        setExpandedTripId(prev => prev === trip.trip_id ? null : trip.trip_id);
+                      }}
                     >
                       <div className="p-2 rounded-full shrink-0 bg-iv-cyan/10">
                         <Car size={14} className={`text-iv-cyan ${isActive ? 'animate-pulse' : ''}`} />
@@ -365,11 +371,18 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                         <p className="text-[10px] text-iv-muted">{format(parseISO(trip.start_time), "MMM d, HH:mm")}</p>
                       </div>
                       <div className="text-right shrink-0">
-                          <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
-                          <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
+                        <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
+                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
+                        {expandedTripId === trip.trip_id && (
+                          <ChevronRight className="text-iv-cyan ml-1" size={10} />
+                        )}
                       </div>
                     </div>
-                )
+                    {expandedTripId === trip.trip_id && (
+                      <TripElevationCard vehicleId={vehicleId} tripId={trip.trip_id} distanceKm={trip.distance_km ?? 0} />
+                    )}
+                  </>
+                );
               })}
 
               {!dateRange && selectedMonth !== null && visibleCount < displayTrips.length && (

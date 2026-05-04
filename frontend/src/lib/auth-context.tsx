@@ -16,6 +16,7 @@ interface User {
   display_name: string | null;
   is_active: boolean;
   is_superuser: boolean;
+  is_totp_enabled: boolean;
   created_at: string;
 }
 

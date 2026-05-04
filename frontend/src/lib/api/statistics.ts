@@ -1,39 +1,39 @@
 import { apiFetch } from "./core";
 
 export const statisticsApi = {
-  async getBatteryHistory(id: string, limit = 10000, fromDate?: string, toDate?: string) {
+  async getBatteryHistory(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/battery?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/battery?${params.toString()}`, {}, signal);return res.json();
   },
 
-  async getRangeHistory(id: string, limit = 10000, fromDate?: string, toDate?: string) {
+  async getRangeHistory(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/range?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/range?${params.toString()}`, {}, signal);return res.json();
   },
 
-  async getLevelsStep(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ timestamp: string; level: number }>> {
+  async getLevelsStep(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<Array<{ timestamp: string; level: number }>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/levels-step?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/levels-step?${params.toString()}`, {}, signal);return res.json();
   },
 
-  async getRangesStep(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ timestamp: string; range_km: number }>> {
+  async getRangesStep(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<Array<{ timestamp: string; range_km: number }>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/ranges-step?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/ranges-step?${params.toString()}`, {}, signal);return res.json();
   },
 
-  async getBatteryTemperature(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ time: string; battery_temperature: number }>> {
+  async getBatteryTemperature(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<Array<{ time: string; battery_temperature: number }>> {
     let url = `/api/v1/vehicles/${id}/overview/battery-temperature?limit=${limit}`;
     if (fromDate) url += `&from_date=${encodeURIComponent(fromDate)}`;
     if (toDate) url += `&to_date=${encodeURIComponent(toDate)}`;
-    const res = await apiFetch(url);return res.json();
+    const res = await apiFetch(url, {}, signal);return res.json();
   },
 
   async getChargingPower(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ time: string; power: number }>> {
@@ -43,25 +43,25 @@ export const statisticsApi = {
     const res = await apiFetch(url);return res.json();
   },
 
-  async getElectricConsumption(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ time: string; consumption: number }>> {
+  async getElectricConsumption(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<Array<{ time: string; consumption: number }>> {
     let url = `/api/v1/vehicles/${id}/overview/electric-consumption?limit=${limit}`;
     if (fromDate) url += `&from_date=${encodeURIComponent(fromDate)}`;
     if (toDate) url += `&to_date=${encodeURIComponent(toDate)}`;
-    const res = await apiFetch(url);return res.json();
+    const res = await apiFetch(url, {}, signal);return res.json();
   },
 
-  async getOutsideTemperature(id: string, limit = 10000, fromDate?: string, toDate?: string): Promise<Array<{ time: string; outside_temp_celsius: number }>> {
+  async getOutsideTemperature(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<Array<{ time: string; outside_temp_celsius: number }>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/outside-temperature?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/outside-temperature?${params.toString()}`, {}, signal);return res.json();
   },
 
-  async getChargingHistory(id: string, limit = 10000, fromDate?: string, toDate?: string) {
+  async getChargingHistory(id: string, limit = 10000, fromDate?: string, toDate?: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
-    const res = await apiFetch(`/api/v1/vehicles/${id}/charging?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/charging?${params.toString()}`, {}, signal);return res.json();
   },
 
   async getChargingSessions(id: string, limit = 10000, fromDate?: string, toDate?: string) {
@@ -121,33 +121,33 @@ export const statisticsApi = {
     const res = await apiFetch(`/api/v1/vehicles/${id}/statistics?${params.toString()}`);return res.json();
   },
 
-  async getOverviewStateBands(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }) {
+  async getOverviewStateBands(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number; signal?: AbortSignal }) {
     const params = new URLSearchParams();
     if (opts?.fromDate) params.set("from_date", opts.fromDate);
     if (opts?.toDate) params.set("to_date", opts.toDate);
     if (opts?.limit != null) params.set("limit", String(opts.limit));
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/state-bands?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/state-bands?${params.toString()}`, {}, opts?.signal);return res.json();
   },
 
-  async getOverviewRangeAt100(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }): Promise<Array<{ time: string; range_estimated_full: number }>> {
+  async getOverviewRangeAt100(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number; signal?: AbortSignal }): Promise<Array<{ time: string; range_estimated_full: number }>> {
     const params = new URLSearchParams();
     if (opts?.fromDate) params.set("from_date", opts.fromDate);
     if (opts?.toDate) params.set("to_date", opts.toDate);
     if (opts?.limit != null) params.set("limit", String(opts.limit));
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/range-at-100?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/range-at-100?${params.toString()}`, {}, opts?.signal);return res.json();
   },
 
-  async getOverviewWltp(id: string): Promise<{ wltp_range_km: number | null }> {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/wltp`);
+  async getOverviewWltp(id: string, signal?: AbortSignal): Promise<{ wltp_range_km: number | null }> {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/wltp`, {}, signal);
     return res.json();
   },
 
-  async getOverviewEfficiency(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }): Promise<Array<{ time: string; efficiency_pct: number }>> {
+  async getOverviewEfficiency(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number; signal?: AbortSignal }): Promise<Array<{ time: string; efficiency_pct: number }>> {
     const params = new URLSearchParams();
     if (opts?.fromDate) params.set("from_date", opts.fromDate);
     if (opts?.toDate) params.set("to_date", opts.toDate);
     if (opts?.limit != null) params.set("limit", String(opts.limit));
-    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/efficiency?${params.toString()}`);return res.json();
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/efficiency?${params.toString()}`, {}, opts?.signal);return res.json();
   },
 
   async getAnalyticsPulse(id: string) {
@@ -157,11 +157,6 @@ export const statisticsApi = {
 
   async getAnalyticsEfficiency(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/efficiency`);
-    return res.json();
-  },
-
-  async getAnalyticsChargingCosts(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-costs`);
     return res.json();
   },
 
@@ -198,6 +193,86 @@ export const statisticsApi = {
 
   async getAdvancedAnalyticsOverview(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/advanced-overview`);
+    return res.json();
+  },
+
+  async getHVACCost(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/hvac-cost`);
+    return res.json();
+  },
+
+  async getHVACIsolation(id: string, opts?: { fromDate?: string; toDate?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (opts?.fromDate) params.set("from_date", opts.fromDate);
+    if (opts?.toDate) params.set("to_date", opts.toDate);
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/hvac-isolation?${params.toString()}`);
+    return res.json();
+  },
+
+  async getChargingCurveIntegralsV2(id: string, opts?: { sessionId?: string | number; fromDate?: string; toDate?: string }) {
+    const params = new URLSearchParams();
+    if (opts?.sessionId != null) params.set("session_id", String(opts.sessionId));
+    if (opts?.fromDate) params.set("from_date", opts.fromDate);
+    if (opts?.toDate) params.set("to_date", opts.toDate);
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-curve-integrals-v2?${params.toString()}`);
+    return res.json();
+  },
+
+  async getElevationPenalty(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/elevation-penalty`);
+    return res.json();
+  },
+
+  async getTripElevationStats(vehicleId: string, tripId: number) {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/trips/${tripId}/elevation-stats`);
+    return res.json();
+  },
+
+  async getSpeedTempMatrix(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/speed-temp-matrix`);
+    return res.json();
+  },
+
+  async getVampireDrain(id: string, signal?: AbortSignal) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/vampire-drain`, {}, signal);
+    return res.json();
+  },
+
+  async getIceTco(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/ice-tco`);
+    return res.json();
+  },
+
+  async getChargingEconomics(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/charging-economics${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
+    return res.json();
+  },
+
+  async getRouteEfficiency(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/route-efficiency`);
+    return res.json();
+  },
+
+  async getPredictiveSoc(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/predictive-soc`);
+    return res.json();
+  },
+
+  async getBatterySoH(vehicleId: string): Promise<{
+    skoda_soh_pct: number | null;
+    derived_soh_pct: number | null;
+    factory_capacity_kwh: number | null;
+    derived_capacity_kwh: number | null;
+    total_soh_estimates: number;
+    curve: Array<{ date: string; capacity_kwh: number; soh_pct: number }>;
+  }> {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/analytics/battery-health`);
     return res.json();
   }
 };

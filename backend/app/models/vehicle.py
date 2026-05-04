@@ -42,6 +42,17 @@ class UserVehicle(TimestampMixin, Base):
     warning_lights: Mapped[list | None] = mapped_column(JSONB)
     country_code: Mapped[str] = mapped_column(String(2), default="LT", nullable=False)
 
+    # Efficiency calibration (null = use app-level defaults)
+    charger_power_kw: Mapped[float | None] = mapped_column(Float, default=None)
+    ice_l_per_100km: Mapped[float | None] = mapped_column(Float, default=None)
+    uphill_kwh_per_100km_per_100m: Mapped[float | None] = mapped_column(Float, default=None)
+    downhill_kwh_per_100km_per_100m: Mapped[float | None] = mapped_column(Float, default=None)
+    speed_city_threshold_kmh: Mapped[float | None] = mapped_column(Float, default=None)
+    speed_highway_threshold_kmh: Mapped[float | None] = mapped_column(Float, default=None)
+    temp_cold_max_celsius: Mapped[float | None] = mapped_column(Float, default=None)
+    temp_optimal_min_celsius: Mapped[float | None] = mapped_column(Float, default=None)
+    temp_optimal_max_celsius: Mapped[float | None] = mapped_column(Float, default=None)
+
     user: Mapped["User"] = relationship(back_populates="vehicles")  # noqa: F821
     connector_session: Mapped["ConnectorSession | None"] = relationship(
         back_populates="user_vehicle", cascade="all, delete-orphan", uselist=False, lazy="selectin"

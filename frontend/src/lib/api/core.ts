@@ -106,7 +106,8 @@ export function getCookie(name: string): string | null {
 
 export async function apiFetch(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  signal?: AbortSignal,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -148,7 +149,7 @@ export async function apiFetch(
     }
   }
 
-  let res = await fetch(cacheKey, fetchOptions);
+  let res = await fetch(cacheKey, { ...fetchOptions, signal });
 
   if (res.status === 401) {
     // Attempt to refresh cookie

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { MapPin, Loader2, Zap, Car, Clock, Home, Briefcase, ParkingSquare, WifiOff, KeyRound } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
+import { formatSmartDuration } from "@/lib/format";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface MovementDashboardProps {
@@ -132,16 +133,8 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
   return events;
 }
 
-function formatDuration(seconds: number): string {
-  const totalMin = Math.round(seconds / 60);
-  if (totalMin < 60) return `${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
 function formatDurationMs(ms: number): string {
-  return formatDuration(ms / 1000);
+  return formatSmartDuration(ms / 60000);
 }
 
 /** Safe time formatter — avoids SSR/client hydration mismatch from toLocaleTimeString. */
@@ -254,7 +247,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                     {b.icon}
                     <span className="text-xs font-semibold text-iv-muted uppercase tracking-wide">{b.label}</span>
                   </div>
-                  <p className={`text-2xl font-bold ${b.textColor}`}>{formatDuration(b.seconds)}</p>
+                  <p className={`text-2xl font-bold ${b.textColor}`}>{formatSmartDuration(b.seconds / 60)}</p>
                   <p className="text-xs text-iv-muted">{((b.seconds / totalS) * 100).toFixed(1)}%</p>
                 </div>
               ))}
@@ -266,14 +259,14 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                   {visibleBuckets.map((b) => (
                     <div key={b.label} className={`${b.barColor} transition-all`}
                       style={{ width: `${(b.seconds / totalS) * 100}%` }}
-                      title={`${b.label}: ${formatDuration(b.seconds)}`} />
+                      title={`${b.label}: ${formatSmartDuration(b.seconds / 60)}`} />
                   ))}
                 </div>
                 <div className="flex gap-4 flex-wrap">
                   {visibleBuckets.map((b) => (
                     <span key={b.label} className="flex items-center gap-1.5 text-xs text-iv-muted">
                       <span className={`inline-block w-2 h-2 rounded-full ${b.barColor}`} />
-                      {b.label} · {formatDuration(b.seconds)}
+                      {b.label} · {formatSmartDuration(b.seconds / 60)}
                     </span>
                   ))}
                 </div>
@@ -308,7 +301,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-iv-text truncate">{place.label}</p>
-                    <p className="text-xs text-iv-muted">{place.lat.toFixed(4)}, {place.lon.toFixed(4)}</p>
+                    <p className="text-xs text-iv-muted">{place.lat.toFixed(5)}, {place.lon.toFixed(5)}</p>
                   </div>
                   <span className="text-sm font-bold text-iv-text shrink-0">{formatDurationMs(place.ms)}</span>
                 </div>

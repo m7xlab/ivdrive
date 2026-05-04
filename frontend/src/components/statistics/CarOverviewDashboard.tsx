@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { format } from "date-fns";
 import {
   Wifi,
@@ -27,13 +27,46 @@ import {
   ComposedChart,
 } from "recharts";
 import { api } from "@/lib/api";
-import { Battery, Zap as ZapIcon, Maximize } from "lucide-react";
+import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { TimelineRange } from "./StatisticsShell";
+import { formatSmartDuration } from "@/lib/format";
 
 export type StateToggleId = "online" | "climatization" | "charging" | "driving";
 
 export type SectionId = "levels" | "consumption" | "efficiency" | "chargingPower";
+
+// ─── Live Pulse ────────────────────────────────────────────────────
+interface PulseData {
+  status: string;
+  battery_pct: number;
+  remaining_range_km: number;
+  temperature_celsius: number | null;
+  weather_code: string | null;
+  is_online: boolean;
+  charging_power_kw: number;
+  remaining_charge_time_min: number;
+}
+
+// ─── Winter Efficiency ──────────────────────────────────────────────
+interface EfficiencyDataPoint {
+  temperature_celsius: number;
+  consumption_kwh_100km: number;
+  trips_recorded: number;
+}
+
+// ─── Section divider ────────────────────────────────────────────────
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-px flex-1 bg-iv-border/40" />
+      <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full flex items-center gap-1">
+        <Clock size={10} /> {label}
+      </span>
+      <div className="h-px flex-1 bg-iv-border/40" />
+    </div>
+  );
+}
 
 export interface StateBand {
   from_date: string;
@@ -199,6 +232,17 @@ export function CarOverviewDashboard({
   const [wltpKm, setWltpKm] = useState<number | null>(null);
   const [efficiencyData, setEfficiencyData] = useState<Array<{ time: string; efficiency_pct: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const [vampireDrain, setVampireDrain] = useState<{
+    avg_drain_pct_per_day: number;
+    drain_kwh_per_day: number;
+    drain_kwh_per_week: number;
+    drain_kwh_per_month: number;
+    cost_per_day_eur: number;
+    cost_per_week_eur: number;
+    cost_per_month_eur: number;
+    battery_capacity_kwh: number;
+    electricity_price_eur_kwh: number;
+  } | null>(null);
 
   const fromISO = toISO(dateRange.from);
   const toISOVal = toISO(dateRange.to);
@@ -207,64 +251,93 @@ export function CarOverviewDashboard({
   const [rangesStep, setRangesStep] = useState<Array<{ timestamp: string; range_km: number }>>([]);
   const [batteryTemp, setBatteryTemp] = useState<Array<{ time: string; battery_temperature: number }>>([]);
   const [outsideTemp, setOutsideTemp] = useState<Array<{ time: string; outside_temp_celsius: number }>>([]);
+  const [pulse, setPulse] = useState<PulseData | null>(null);
+  const [winterEfficiency, setWinterEfficiency] = useState<EfficiencyDataPoint[]>([]);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setLoading(true);
     try {
-      const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons] = await Promise.all([
-        api.getBatteryHistory(vehicleId, 10000, fromISO, toISOVal),
-        api.getRangeHistory(vehicleId, 10000, fromISO, toISOVal),
-        api.getChargingHistory(vehicleId, 10000, fromISO, toISOVal),
-        api.getOverviewStateBands(vehicleId, {
-          fromDate: fromISO,
-          toDate: toISOVal,
-          limit: 10000,
-        }),
-        api.getOverviewRangeAt100(vehicleId, {
-          fromDate: fromISO,
-          toDate: toISOVal,
-          limit: 10000,
-        }),
-        api.getOverviewWltp(vehicleId),
-        api.getOverviewEfficiency(vehicleId, {
-          fromDate: fromISO,
-          toDate: toISOVal,
-          limit: 10000,
-        }),
-        api.getLevelsStep(vehicleId, 10000, fromISO, toISOVal),
-        api.getRangesStep(vehicleId, 10000, fromISO, toISOVal),
-        api.getOutsideTemperature(vehicleId, 10000, fromISO, toISOVal),
-        api.getBatteryTemperature(vehicleId, 10000, fromISO, toISOVal),
-        api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal),
-      ]);
-      setBattery(b ?? []);
-      setRange(r ?? []);
-      setCharging(c ?? []);
-      setStateBands(bands ?? []);
-      setRangeAt100(range100 ?? []);
-      setElectricConsumption(elecCons ?? []);
-      setWltpKm(wltp?.wltp_range_km ?? null);
-      setEfficiencyData(eff ?? []);
-      setLevelsStep(lStep ?? []);
-      setRangesStep(rStep ?? []);
-      setOutsideTemp(oTemp ?? []);
-      setBatteryTemp(bTemp ?? []);
+      // 30s timeout — aborts all 13 requests if they hang
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, winterEff] = await Promise.all([
+          api.getBatteryHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getRangeHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getChargingHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getOverviewStateBands(vehicleId, {
+            fromDate: fromISO,
+            toDate: toISOVal,
+            limit: 10000,
+            signal: controller.signal,
+          }),
+          api.getOverviewRangeAt100(vehicleId, {
+            fromDate: fromISO,
+            toDate: toISOVal,
+            limit: 10000,
+            signal: controller.signal,
+          }),
+          api.getOverviewWltp(vehicleId, controller.signal),
+          api.getOverviewEfficiency(vehicleId, {
+            fromDate: fromISO,
+            toDate: toISOVal,
+            limit: 10000,
+            signal: controller.signal,
+          }),
+          api.getLevelsStep(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getRangesStep(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getOutsideTemperature(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getBatteryTemperature(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal, controller.signal),
+          api.getVampireDrain(vehicleId, controller.signal).catch(() => null),
+          api.getAnalyticsPulse(vehicleId).catch(() => null),
+          api.getAnalyticsEfficiency(vehicleId).catch(() => []),
+        ]);
+        setBattery(b ?? []);
+        setRange(r ?? []);
+        setCharging(c ?? []);
+        setStateBands(bands ?? []);
+        setRangeAt100(range100 ?? []);
+        setElectricConsumption(elecCons ?? []);
+        setWltpKm(wltp?.wltp_range_km ?? null);
+        setEfficiencyData(eff ?? []);
+        setLevelsStep(lStep ?? []);
+        setRangesStep(rStep ?? []);
+        setOutsideTemp(oTemp ?? []);
+        setBatteryTemp(bTemp ?? []);
+        setVampireDrain(vd ?? null);
+        setPulse(pulseData ?? null);
+        setWinterEfficiency(winterEff ?? []);
+      } finally {
+        clearTimeout(timeoutId);
+        setLoading(false);
+      }
     } catch (err) {
-      console.error('CarOverview Fetch Error:', err);
-      setBattery([]);
-      setRange([]);
-      setCharging([]);
-      setStateBands([]);
-      setRangeAt100([]);
-      setElectricConsumption([]);
-      setWltpKm(null);
-      setEfficiencyData([]);
-      setLevelsStep([]);
-      setRangesStep([]);
-      setOutsideTemp([]);
-      setBatteryTemp([]);
-    } finally {
-      setLoading(false);
+      // AbortError is expected when component unmounts or poll ticks — not a real error
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      if (!isAbort) {
+        console.error("CarOverview Fetch Error:", err);
+      }
+      if (!isAbort) {
+        setBattery([]);
+        setRange([]);
+        setCharging([]);
+        setStateBands([]);
+        setRangeAt100([]);
+        setElectricConsumption([]);
+        setWltpKm(null);
+        setEfficiencyData([]);
+        setLevelsStep([]);
+        setRangesStep([]);
+        setOutsideTemp([]);
+        setBatteryTemp([]);
+      }
     }
   }, [vehicleId, fromISO, toISOVal]);
 
@@ -274,7 +347,12 @@ export function CarOverviewDashboard({
     if (!isLive) return;
 
     const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [fetchData, toISOVal]);
 
   const toggle = (id: StateToggleId) => {
@@ -463,41 +541,84 @@ export function CarOverviewDashboard({
 
   return (
     <div className="space-y-6">
-      {/* Global state toggles: apply to all charts below, persisted across refresh */}
-      
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-        <div className="glass rounded-xl p-5 border border-iv-border flex flex-col justify-between">
-          <div className="flex items-center gap-2 text-iv-muted mb-2">
-            <Battery size={16} className="text-iv-green" />
-            <span className="text-sm font-medium">Battery (now)</span>
+      {/* ── Live Pulse Hero ── */}
+      <div className="glass rounded-2xl border border-iv-border p-6">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h3 className="text-lg font-bold text-iv-text flex items-center gap-2">
+              <Bolt className="w-5 h-5 text-iv-green" />
+              Live Pulse Telemetry
+            </h3>
+            <p className="text-sm text-iv-text-muted">Real-time status updates</p>
           </div>
-          <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-iv-text">{battery.length > 0 ? battery[0].level : "--"}</span>
-            <span className="text-lg text-iv-muted mb-0.5">%</span>
-          </div>
+          {pulse && (
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${pulse.is_online ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+              {pulse.is_online ? "● ONLINE" : "OFFLINE"}
+            </span>
+          )}
         </div>
-        <div className="glass rounded-xl p-5 border border-iv-border flex flex-col justify-between">
-          <div className="flex items-center gap-2 text-iv-muted mb-2">
-            <Maximize size={16} className="text-iv-cyan" />
-            <span className="text-sm font-medium">Projected Electric Range (now)</span>
+        {!pulse ? (
+          <div className="h-32 flex items-center justify-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-iv-border border-t-iv-green" />
           </div>
-          <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-iv-text">{range.length > 0 ? Math.round(range[0].range_km) : "--"}</span>
-            <span className="text-lg text-iv-muted mb-0.5">km</span>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <Bolt className="w-4 h-4 text-iv-green" /> State of Charge
+              </p>
+              <p className="text-3xl font-bold text-iv-text">{pulse.battery_pct}<span className="text-lg font-normal text-iv-text-muted">%</span></p>
+              <div className="w-full bg-iv-charcoal h-2 rounded-full mt-4 overflow-hidden">
+                <div className="bg-iv-green h-full" style={{ width: `${pulse.battery_pct}%` }} />
+              </div>
+            </div>
+
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-iv-cyan" /> Est. Full Range
+              </p>
+              <p className="text-3xl font-bold text-iv-text">{pulse.remaining_range_km}<span className="text-lg font-normal text-iv-text-muted">km</span></p>
+              {pulse.battery_pct > 0 && (
+                <p className="text-xs text-iv-text-muted mt-4">
+                  Calculated Max: <span className="text-iv-text">{Math.round((pulse.remaining_range_km / pulse.battery_pct) * 100)} km</span>
+                </p>
+              )}
+            </div>
+
+            {(pulse.status === "CHARGING" || pulse.status === "READY_FOR_CHARGING") ? (
+              <div className="bg-iv-surface rounded-xl p-5 border border-emerald-500/30">
+                <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                  <Clock className="w-4 h-4 text-emerald-400" /> Charging Speed
+                </p>
+                <p className="text-3xl font-bold text-iv-text">{pulse.charging_power_kw}<span className="text-lg font-normal text-iv-text-muted">kW</span></p>
+                <p className="text-xs text-iv-text-muted mt-4 text-emerald-400">
+                  {formatSmartDuration(pulse.remaining_charge_time_min)} to target
+                </p>
+              </div>
+            ) : (
+              <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+                <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                  <MapPin className="w-4 h-4 text-iv-text-muted" /> Motion Status
+                </p>
+                <p className="text-xl font-bold text-iv-text mt-3">{pulse.status}</p>
+              </div>
+            )}
+
+            <div className="bg-iv-surface rounded-xl p-5 border border-iv-border/50">
+              <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
+                <Cloud className="w-4 h-4 text-amber-500" /> Local Weather
+              </p>
+              <p className="text-3xl font-bold text-iv-text">
+                {pulse.temperature_celsius !== null ? `${pulse.temperature_celsius}°` : "--"}
+              </p>
+              <p className="text-xs text-iv-text-muted mt-4">Ambient Temp</p>
+            </div>
           </div>
-        </div>
-        <div className="glass rounded-xl p-5 border border-iv-border flex flex-col justify-between">
-          <div className="flex items-center gap-2 text-iv-muted mb-2">
-            <ZapIcon size={16} className="text-amber-500" />
-            <span className="text-sm font-medium">Charging Power (now)</span>
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-iv-text">{charging.length > 0 && charging[charging.length-1].charge_power_kw ? charging[charging.length-1].charge_power_kw : "0"}</span>
-            <span className="text-lg text-iv-muted mb-0.5">kW</span>
-          </div>
-        </div>
+        )}
       </div>
 
+      {/* ── Efficiency Profile Metrics ── */}
+      <SectionDivider label="Efficiency Profile Metrics" />
       <div className="flex flex-wrap items-center gap-2">
         {STATE_TOGGLES.map(({ id, label, icon: Icon }) => (
           <button
@@ -520,10 +641,9 @@ export function CarOverviewDashboard({
         )}
       </div>
 
-      {/* 1. Levels & Range */}
+      {/* ── Levels & Range ── */}
       {levelsRangeData.length > 0 && (
         <div className="glass rounded-xl p-5">
-          <>
           <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
             <Gauge size={14} /> Levels & Range
           </h3>
@@ -675,11 +795,10 @@ export function CarOverviewDashboard({
               )}
             </p>
           )}
-          </>
         </div>
       )}
 
-      {/* 2. Consumption & Range at 100% SoC (Grafana-style: range at 100% + WLTP reference) */}
+      {/* ── Consumption & Range at 100% SoC ── */}
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <TrendingUp size={14} /> Consumption & Range extrapolated to 100% SoC
@@ -814,7 +933,7 @@ export function CarOverviewDashboard({
         )}
       </div>
 
-      {/* 3. Efficiency (Grafana-style: range_estimated_full / wltp * 100 vs 100% reference) */}
+      {/* ── Efficiency ── */}
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <BarChart3 size={14} /> Efficiency
@@ -915,7 +1034,7 @@ export function CarOverviewDashboard({
         )}
       </div>
 
-      {/* 4. Charging: Power (kW) + Rate (km/h) */}
+      {/* ── Charging Power & Rate ── */}
       {chargingChartData.length > 0 && (
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
@@ -1033,7 +1152,7 @@ export function CarOverviewDashboard({
 
 
 
-      {/* 5. States Timeline (Gantt-style) */}
+      {/* ── States Timeline ── */}
       <div className="glass rounded-xl p-5 border border-iv-border">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
           <Activity size={14} /> States Timeline
@@ -1090,6 +1209,116 @@ export function CarOverviewDashboard({
       </div>
 
       {/* Period summary (existing stats table + bar charts when available) */}
+      {/* ── Winter Penalty ── */}
+      <SectionDivider label="Winter Penalty" />
+      <div className="glass rounded-xl p-5">
+        <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
+          <ThermometerSnowflake size={14} /> Winter Penalty
+        </h3>
+        {winterEfficiency.length > 0 ? (
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={winterEfficiency} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <defs>
+                  <linearGradient id="winterGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00D4FF" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#00D4FF" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="temperature_celsius"
+                  tickFormatter={(v) => `${v}°C`}
+                  stroke="#8b8fa3"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v) => `${v}`}
+                  stroke="#8b8fa3"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={["auto", "auto"]}
+                />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
+                <Tooltip
+                  formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
+                  labelFormatter={(label) => `${label}°C`}
+                  contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
+                  itemStyle={{ color: "#00D4FF", fontWeight: "bold" }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="consumption_kwh_100km"
+                  stroke="#00D4FF"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#winterGradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-56 flex items-center justify-center text-iv-muted text-sm">
+            Collecting sufficient trip data to build the winter penalty curve…
+          </div>
+        )}
+      </div>
+
+      {/* ── Vampire Drain ── */}
+      <SectionDivider label="Vampire Drain" />
+      {vampireDrain && (
+        <div className="glass rounded-2xl border border-iv-border p-6">
+          <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
+            <Battery size={14} /> Vampire Drain (Parked Standby)
+          </h3>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {([
+              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(2)} %/hr`, color: "text-iv-yellow" },
+              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: `@ ${vampireDrain.electricity_price_eur_kwh}€/kWh`, color: "text-iv-text" },
+              { label: "Weekly Cost", value: `${vampireDrain.cost_per_week_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
+              { label: "Monthly Cost", value: `${vampireDrain.cost_per_month_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },
+            ] as const).map((item) => (
+              <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
+                <p className="text-xs text-iv-text-muted uppercase tracking-wider">{item.label}</p>
+                <p className={`text-xl font-bold mt-1 ${item.color}`}>{item.value}</p>
+                <p className="text-xs text-iv-muted">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Cost breakdown */}
+          <div className="grid grid-cols-3 gap-6 text-center">
+            <div>
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Day</p>
+              <p className="text-2xl font-bold text-iv-text">{vampireDrain.cost_per_day_eur.toFixed(2)} €</p>
+              <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_day.toFixed(3)} kWh lost</p>
+            </div>
+            <div>
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Week</p>
+              <p className="text-2xl font-bold text-iv-cyan">{vampireDrain.cost_per_week_eur.toFixed(2)} €</p>
+              <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost</p>
+            </div>
+            <div>
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Month</p>
+              <p className="text-2xl font-bold text-iv-red">{vampireDrain.cost_per_month_eur.toFixed(2)} €</p>
+              <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost</p>
+            </div>
+          </div>
+          <div className="mt-6 pt-4 border-t border-iv-border">
+            <p className="text-sm text-iv-text-muted">
+              <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}% of your {vampireDrain.battery_capacity_kwh} kWh battery</span> is lost
+              per day to vampire drain (systems, standby, etc.).
+              Over a year, this costs approximately <span className="text-iv-yellow">{(vampireDrain.cost_per_month_eur * 12).toFixed(2)} €</span>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Period Summary ── */}
       {stats.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2">
