@@ -54,9 +54,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-image.sarif'
           severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true        # don't fail on CVEs that have no fix yet
-          exit-code: '0'              # report only, do not block on base image CVEs
+          ignore-unfixed: true
+          exit-code: '0'              # report only, don't fail build
           vuln-type: 'os,library'
+          cache-dir: .trivy-cache
 
       - name: Upload Trivy image SARIF
         if: always()
@@ -86,6 +87,7 @@ jobs:
           ignore-unfixed: true
           # Scan deps, IaC, and secrets in one pass
           scanners: 'vuln,misconfig,secret'
+          exit-code: '0'
 
       - name: Upload Trivy fs SARIF
         if: always()
@@ -111,10 +113,8 @@ jobs:
             --config=p/default \
             --config=p/security-audit \
             --config=p/secrets \
+            --disable-version-check \
             --sarif --output=semgrep.sarif
-        env:
-          # Optional: set SEMGREP_APP_TOKEN as a secret for the managed dashboard
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
       - name: Upload Semgrep SARIF
         if: always()
