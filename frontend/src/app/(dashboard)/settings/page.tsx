@@ -637,7 +637,9 @@ export default function SettingsPage() {
                           temp_cold_max_celsius: 5.0, temp_optimal_min_celsius: 15.0, temp_optimal_max_celsius: 25.0,
                         };
                         const displayVal = (k: string, d = 2) => {
-                          const raw = f[k] ?? (v as unknown as Record<string, unknown>)[k] as number ?? defaults[k];
+                          const fromForm = f[k];
+                          const fromVehicle = (v as unknown as Record<string, unknown>)[k] as number;
+                          const raw = fromForm !== undefined ? fromForm : fromVehicle !== undefined ? fromVehicle : defaults[k];
                           const val = raw == null ? "" : String(raw);
                           return val;
                         };

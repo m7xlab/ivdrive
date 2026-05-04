@@ -1291,20 +1291,18 @@ async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: A
         _elevation_cache.move_to_end(cache_key)
         return _elevation_cache[cache_key]
     try:
-        res = await db.execute(
-            text(""""
-                SELECT elevation_m FROM vehicle_positions
-                WHERE user_vehicle_id = :vid
-                  AND elevation_m IS NOT NULL
-                  AND latitude IS NOT NULL
-                  AND longitude IS NOT NULL
-                ORDER BY (
-                    (latitude - :lat)^2 + (longitude - :lon)^2
-                ) ASC
-                LIMIT 1
-            """),
-            {"vid": str(vehicle_id), "lat": lat, "lon": lon}
+        stmt = text(
+            "SELECT elevation_m FROM vehicle_positions "
+            "WHERE user_vehicle_id = :vid "
+            "  AND elevation_m IS NOT NULL "
+            "  AND latitude IS NOT NULL "
+            "  AND longitude IS NOT NULL "
+            "ORDER BY ("
+            "    (latitude - :lat)^2 + (longitude - :lon)^2"
+            ") ASC "
+            "LIMIT 1"
         )
+        res = await db.execute(stmt, {"vid": str(vehicle_id), "lat": lat, "lon": lon})
         row = res.first()
         elevation = float(row[0]) if row else None
         if elevation is not None:

@@ -85,6 +85,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
   // Keyboard left/right navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowRight") navigate(1);
       if (e.key === "ArrowLeft")  navigate(-1);
     };

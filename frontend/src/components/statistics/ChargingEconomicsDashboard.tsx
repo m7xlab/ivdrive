@@ -297,56 +297,6 @@ export function ChargingEconomicsDashboard({ vehicleId, dateRange }: ChargingEco
         </div>
       )}
 
-      {/* ── Recent Sessions Table ── */}
-      {sessions.length > 0 && (
-        <div className="glass rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-iv-text flex items-center gap-2">
-            <Calendar size={14} /> Recent Charging Sessions
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-iv-border/50">
-                  <th className="text-left text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Date</th>
-                  <th className="text-left text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Type</th>
-                  <th className="text-right text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Energy</th>
-                  <th className="text-right text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Start → End</th>
-                  <th className="text-right text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Cost</th>
-                  <th className="text-left text-xs text-iv-muted font-semibold uppercase tracking-wide pb-2">Provider</th>
-                </tr>
-              </thead>
-              <tbody className="space-y-1">
-                {sessions.slice(0, 15).map((s) => {
-                  const cost = s.actual_cost_eur ?? s.base_cost_eur;
-                  const levelDelta = s.end_level != null && s.start_level != null
-                    ? `+${(s.end_level - s.start_level).toFixed(0)}%`
-                    : s.end_level != null ? `${s.end_level.toFixed(0)}%` : "—";
-                  return (
-                    <tr key={s.id} className="border-b border-iv-border/20 hover:bg-iv-surface/40 transition-colors">
-                      <td className="py-2 text-iv-text">
-                        {s.session_start ? format(parseISO(s.session_start), "d MMM HH:mm") : "—"}
-                      </td>
-                      <td className="py-2">
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${s.charging_type === "DC" ? "bg-iv-green/10 text-iv-green" : "bg-iv-cyan/10 text-iv-cyan"}`}>
-                          {s.charging_type ?? "?"}
-                        </span>
-                      </td>
-                      <td className="py-2 text-right text-iv-text">{formatKwh(s.energy_kwh)}</td>
-                      <td className="py-2 text-right text-iv-muted">
-                        {s.start_level != null ? `${s.start_level.toFixed(0)}%` : "—"} → {s.end_level != null ? `${s.end_level.toFixed(0)}%` : "—"}
-                        <span className="text-xs text-iv-green ml-1">{levelDelta}</span>
-                      </td>
-                      <td className="py-2 text-right font-medium text-iv-text">{formatEUR(cost)}</td>
-                      <td className="py-2 text-iv-muted truncate max-w-[120px]">{s.provider_name ?? "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* ── Base Grid Cost vs Public Charger Convenience Fee ── */}
       <ChargingMarkupSection vehicleId={vehicleId} dateRange={dateRange} />
 

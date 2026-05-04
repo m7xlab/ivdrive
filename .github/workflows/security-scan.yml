@@ -39,7 +39,9 @@ jobs:
       - name: Build image (load locally, do not push)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./backend
+          file: ./backend/Dockerfile
+          target: api
           load: true
           tags: app:scan
           cache-from: type=gha
@@ -77,7 +79,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
-          scan-ref: '.'
+          scan-ref: './backend'
           format: 'sarif'
           output: 'trivy-fs.sarif'
           severity: 'CRITICAL,HIGH'

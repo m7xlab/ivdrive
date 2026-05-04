@@ -267,38 +267,24 @@ export function CarOverviewDashboard({
       // 30s timeout — aborts all 13 requests if they hang
       const timeoutId = setTimeout(() => controller.abort(), 30_000);
       try {
-        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, winterEff] = await Promise.all([
+        const results = await Promise.allSettled([
           api.getBatteryHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getRangeHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getChargingHistory(vehicleId, 10000, fromISO, toISOVal, controller.signal),
-          api.getOverviewStateBands(vehicleId, {
-            fromDate: fromISO,
-            toDate: toISOVal,
-            limit: 10000,
-            signal: controller.signal,
-          }),
-          api.getOverviewRangeAt100(vehicleId, {
-            fromDate: fromISO,
-            toDate: toISOVal,
-            limit: 10000,
-            signal: controller.signal,
-          }),
+          api.getOverviewStateBands(vehicleId, { fromDate: fromISO, toDate: toISOVal, limit: 10000, signal: controller.signal }),
+          api.getOverviewRangeAt100(vehicleId, { fromDate: fromISO, toDate: toISOVal, limit: 10000, signal: controller.signal }),
           api.getOverviewWltp(vehicleId, controller.signal),
-          api.getOverviewEfficiency(vehicleId, {
-            fromDate: fromISO,
-            toDate: toISOVal,
-            limit: 10000,
-            signal: controller.signal,
-          }),
+          api.getOverviewEfficiency(vehicleId, { fromDate: fromISO, toDate: toISOVal, limit: 10000, signal: controller.signal }),
           api.getLevelsStep(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getRangesStep(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getOutsideTemperature(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getBatteryTemperature(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal, controller.signal),
-          api.getVampireDrain(vehicleId, controller.signal).catch(() => null),
-          api.getAnalyticsPulse(vehicleId).catch(() => null),
-          api.getAnalyticsEfficiency(vehicleId).catch(() => []),
+          api.getVampireDrain(vehicleId, controller.signal),
+          api.getAnalyticsPulse(vehicleId),
+          api.getAnalyticsEfficiency(vehicleId),
         ]);
+        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, winterEff] = results.map((res) => res.status === "fulfilled" ? res.value : null);
         setBattery(b ?? []);
         setRange(r ?? []);
         setCharging(c ?? []);

@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 2026-05-02
+### Fixed
+- ChargingEconomicsDashboard: Remove duplicate Recent Sessions Table block (copy-paste error).
+- CarOverviewDashboard: Switch Promise.all to Promise.allSettled for resilience — dashboard renders partial data if individual API requests fail.
+- StatisticsShell: Guard ArrowLeft/Right keyboard navigation against input/textarea elements (accessibility).
+- settings/page.tsx: Fix displayVal to preserve explicit 0 values (was treating 0 as falsy).
+- security-scan.yml: Scope Trivy image scan to ./backend with target:api; scope Trivy filesystem scan to ./backend (was scanning entire repo root).
+
 ## [Unreleased] - 2026-05-01
 ### Added
 - BatterySoHDashboard: Battery SoH tab with derived SoH from charging sessions + Skoda BMS comparison + degradation curve.
