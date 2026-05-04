@@ -63,15 +63,15 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       try {
         setLoading(true);
         const res = await api.getSpeedTempMatrix(vehicleId);
-        if (!res || (Array.isArray(res.grid) && res.grid.length === 0)) {
-          console.error("[SpeedTempMatrix] Empty response — no trip data available");
-        } else {
+        if (process.env.NODE_ENV === "development") {
           console.error(`[SpeedTempMatrix] Received: ${Array.isArray(res.grid) ? res.grid.length : 'N/A'} grid rows`);
         }
         setData(res);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[SpeedTempMatrix] Fetch failed:", msg);
+        if (process.env.NODE_ENV === "development") {
+          console.error("[SpeedTempMatrix] Fetch failed:", msg);
+        }
       } finally {
         setLoading(false);
       }
