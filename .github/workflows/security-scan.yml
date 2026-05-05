@@ -43,7 +43,7 @@ jobs:
           file: ./backend/Dockerfile
           target: api
           load: true
-          tags: app:scan
+          tags: app:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -54,15 +54,15 @@ jobs:
           update-cache: true
           cache-dir: .trivy-cache
 
-      - name: Run Trivy on the image
+      - name: Run Trivy on the image (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: 'app:scan'
+          image-ref: 'app:${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-image.sarif'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
-          exit-code: '0'              # report only, don't fail build
+          exit-code: '1'
           vuln-type: 'os,library'
           cache-dir: .trivy-cache
 
@@ -72,6 +72,18 @@ jobs:
         with:
           sarif_file: 'trivy-image.sarif'
           category: trivy-image
+
+      - name: Trivy image scan (table, logs)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'app:${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '0'
+          vuln-type: 'os,library'
+          cache-dir: .trivy-cache
 
   # ─────────────────────────────────────────────
   # 2. Filesystem + IaC scan (Trivy fs)
@@ -94,7 +106,7 @@ jobs:
           ignore-unfixed: true
           # Scan deps, IaC, and secrets in one pass
           scanners: 'vuln,misconfig,secret'
-          exit-code: '0'
+          exit-code: '1'
 
       - name: Upload Trivy fs SARIF
         if: always()
