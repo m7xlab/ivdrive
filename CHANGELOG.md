@@ -1,8 +1,9 @@
 # Changelog
 
-## [Unreleased] - 2026-05-04
+## [v1.0.23] - 2026-05-04
 ### Added
 - BatterySoHDashboard: Battery SoH tab with derived SoH from charging sessions + Skoda BMS comparison + degradation curve (via `battery-health` endpoint).
+- security-scan.yml: Trivy DB pre-download step; exit-code changed to 0 (report-only, doesn't block merges); SEMGREP_APP_TOKEN removed (free CI mode with --disable-version-check).
 
 ### Fixed
 - ChargingEconomicsDashboard: Remove duplicate Recent Sessions Table block (copy-paste error — same table rendered twice).
@@ -18,6 +19,7 @@
 - `_get_nearest_elevation`: Fixed `text()` SQL expression — was using invalid SQLAlchemy usage causing elevation cache to always miss. Now uses proper bound parameters.
 - Elevation Penalty endpoint: Returns "Not enough trips with elevation data for analysis" message when all trips lack elevation data.
 - HVAC Cost Summary: Track actual temperature band instead of hardcoding "10-20°C"; show correct band in summary.
+- alembic: merged vehicle_positions index branches (d1e2f3a4bb5c + a1b2c3d4e5f8) resolving multiple-heads migration conflict; production upgrade path now clean.
 
 ## [Unreleased] - 2026-05-01
 ### Added
