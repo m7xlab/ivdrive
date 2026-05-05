@@ -1,7 +1,8 @@
 # Changelog
 
 ## [Unreleased] - 2026-05-05
-### Added
+### Fixed
+- HVACCostCard: Wrap `representative_temp_celsius` with `Number()` before `toFixed()` — defensive fix against string concatenation (e.g. "5"+"10"="510°C") if backend returns unexpected type.
 - BatterySoHDashboard: Battery SoH tab with derived SoH from charging sessions + Skoda BMS comparison + degradation curve (via `battery-health` endpoint).
 
 ### Fixed
