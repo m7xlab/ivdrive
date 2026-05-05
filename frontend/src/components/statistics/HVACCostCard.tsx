@@ -64,7 +64,7 @@ function HVACCostCardInner({ vehicleId }: { vehicleId: string }) {
   }
 
   const cost = topMetric.hvac_cost_kwh_100km;
-  const temp = topMetric.representative_temp_celsius;
+  const temp = Number(topMetric.representative_temp_celsius);
 
   return (
     <div className="glass p-5 rounded-2xl border border-iv-border relative overflow-hidden group">
