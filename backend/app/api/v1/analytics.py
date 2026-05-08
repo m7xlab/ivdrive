@@ -972,9 +972,24 @@ async def get_hvac_isolation(
                 "message": f"Heating costs ~{round(diff, 1) if diff > 0 else 0} kWh/100km at ≤5°C for {s_cat} driving."
             })
             
+    # Build a diagnostic summary explaining why no metrics were calculable
+    total_cold = sum(len(t_data["cold"]) for t_data in buckets.values())
+    total_opt = sum(len(t_data["optimal"]) for t_data in buckets.values())
+
+    if results:
+        summary = f"Compared cold (≤{cold_max}°C) vs optimal ({opt_min}-{opt_max}°C) trips across {len(results)} speed profiles."
+    elif total_cold == 0 and total_opt == 0:
+        summary = f"No qualifying trips in the selected period. Need both cold (≤{cold_max}°C) and optimal ({opt_min}-{opt_max}°C) trips at similar speeds."
+    elif total_cold == 0:
+        summary = f"Found {total_opt} optimal trips but no cold trips (≤{cold_max}°C) in the selected period."
+    elif total_opt == 0:
+        summary = f"Found {total_cold} cold trips but no optimal trips ({opt_min}-{opt_max}°C) in the selected period."
+    else:
+        summary = f"No speed profile had enough cold and optimal samples together. Cold: {total_cold}, Optimal: {total_opt}."
+
     return {
         "metrics": results,
-        "summary": "Compared cold (≤5°C) vs optimal (15-25°C) temperatures across similar speed profiles to isolate HVAC/heating auxiliary power usage."
+        "summary": summary
     }
 
 
