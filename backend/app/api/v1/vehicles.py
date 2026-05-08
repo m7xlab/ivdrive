@@ -1272,9 +1272,12 @@ async def get_statistics(
         trip_where.append(Trip.start_date <= to_date)
     time_driven_expr = func.sum(case((Trip.end_date.isnot(None), func.extract("epoch", Trip.end_date - Trip.start_date)), else_=func.extract("epoch", func.now() - Trip.start_date),))
     median_expr = func.percentile_cont(0.5).within_group((Trip.end_odometer - Trip.start_odometer).asc()).label("median_distance")
+    # Use local timezone (Europe/Vilnius) for day/week/month/year truncation so trips
+    # near local midnight are bucketed into the correct calendar day, not UTC day.
+    local_start = text("(start_date AT TIME ZONE 'Europe/Vilnius')")
     stmt_trip = (
         select(
-            func.date_trunc(trunc, Trip.start_date).label("period"),
+            func.date_trunc(trunc, local_start).label("period"),
             func.count().label("drives_count"),
             func.coalesce(func.sum(Trip.end_odometer - Trip.start_odometer), 0).label("total_distance"),
             func.coalesce(time_driven_expr, 0).label("time_driven_seconds"),
@@ -1282,8 +1285,8 @@ async def get_statistics(
             func.coalesce(func.sum(Trip.kwh_consumed), 0).label("total_consumed"),
         )
         .where(*trip_where)
-        .group_by("period")
-        .order_by(text("period DESC"))
+        .group_by(text(f"date_trunc('{trunc}', (start_date AT TIME ZONE 'Europe/Vilnius'))"))
+        .order_by(text(f"date_trunc('{trunc}', (start_date AT TIME ZONE 'Europe/Vilnius')) DESC"))
         .offset(skip).limit(limit)
     )
     trip_stats = await db.execute(stmt_trip)
@@ -1297,16 +1300,18 @@ async def get_statistics(
     if to_date:
         charge_where.append(ChargingSession.session_start <= to_date)
     time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, func.now()) - ChargingSession.session_start,))
+    # Use local timezone (Europe/Vilnius) for day/week/month/year truncation
+    local_charge_start = text("(session_start AT TIME ZONE 'Europe/Vilnius')")
     stmt_charge = (
         select(
-            func.date_trunc(trunc, ChargingSession.session_start).label("period"),
+            func.date_trunc(trunc, local_charge_start).label("period"),
             func.count().label("sessions_count"),
             func.coalesce(func.sum(ChargingSession.energy_kwh), 0).label("total_energy"),
             func.coalesce(time_charging_expr, 0).label("time_charging_seconds"),
         )
         .where(*charge_where)
-        .group_by("period")
-        .order_by(text("period DESC"))
+        .group_by(text(f"date_trunc('{trunc}', (session_start AT TIME ZONE 'Europe/Vilnius'))"))
+        .order_by(text(f"date_trunc('{trunc}', (session_start AT TIME ZONE 'Europe/Vilnius')) DESC"))
         .offset(skip).limit(limit)
     )
     charge_stats = await db.execute(stmt_charge)
