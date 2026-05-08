@@ -37,6 +37,7 @@ interface TimeBudget {
 
 interface StayEvent {
   label: string;
+  geofenceId: string | null;  // stable identifier for geofence-based grouping
   latitude: number;
   longitude: number;
   arrivalTime: Date;
@@ -110,6 +111,7 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
         type: "stay",
         data: {
           label: gf ? gf.name : hasCharging ? "Charging Stop" : "Location",
+          geofenceId: gf ? gf.id : null,  // stable ID; null for non-geofence stays
           latitude: clusterLat,
           longitude: clusterLon,
           arrivalTime: anchorTime,
@@ -207,13 +209,14 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   // as key to avoid splitting genuinely separate stays.
   const placeMap = new Map<string, { label: string; lat: number; lon: number; ms: number; charging: boolean }>();
   for (const s of stayEvents) {
-    // If a geofence was matched, key by label so same place merges across clusters
-    const key = s.label && s.label !== "Location" && s.label !== "Charging Stop"
-      ? `gf:${s.label}`
-      : `${s.latitude.toFixed(4)},${s.longitude.toFixed(4)}`;
+    // Key by geofenceId for geofence-matched stays — stable, no string matching.
+    // For non-geofence stays, use coordinates as fallback key.
+    const key = s.geofenceId ?? `${s.latitude.toFixed(4)},${s.longitude.toFixed(4)}`;
     const existing = placeMap.get(key);
     if (existing) {
       existing.ms += s.durationMs;
+      // Merge charging flag: if any merged stay involved charging, keep it
+      existing.charging = existing.charging || s.isCharging;
     } else {
       placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
     }

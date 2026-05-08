@@ -65,6 +65,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Whitelist of valid IANA timezone strings accepted in SQL AT TIME ZONE.
+# Covers all common European, US, and major world zones.
+_VALID_TZ_NAMES = frozenset({
+    "Africa/Abidjan", "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos",
+    "America/Anchorage", "America/Bogota", "America/Buenos_Aires",
+    "America/Chicago", "America/Denver", "America/Halifax", "America/Los_Angeles",
+    "America/Mexico_City", "America/New_York", "America/Phoenix", "America/Santiago",
+    "America/Sao_Paulo", "America/Toronto", "America/Vancouver",
+    "Asia/Bangkok", "Asia/Dubai", "Asia/Hong_Kong", "Asia/Jakarta",
+    "Asia/Jerusalem", "Asia/Karachi", "Asia/Kolkata", "Asia/Manila",
+    "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tokyo",
+    "Atlantic/Reykjavik", "Australia/Brisbane", "Australia/Melbourne",
+    "Australia/Perth", "Australia/Sydney", "Europe/Amsterdam", "Europe/Athens",
+    "Europe/Belgrade", "Europe/Berlin", "Europe/Bratislava", "Europe/Brussels",
+    "Europe/Budapest", "Europe/Bucharest", "Europe/Chisinau", "Europe/Copenhagen",
+    "Europe/Dublin", "Europe/Helsinki", "Europe/Istanbul", "Europe/Kiev",
+    "Europe/Lisbon", "Europe/London", "Europe/Luxembourg", "Europe/Madrid",
+    "Europe/Malta", "Europe/Minsk", "Europe/Moscow", "Europe/Oslo", "Europe/Paris",
+    "Europe/Prague", "Europe/Riga", "Europe/Rome", "Europe/Sofia", "Europe/Stockholm",
+    "Europe/Tallinn", "Europe/Vienna", "Europe/Vilnius", "Europe/Warsaw",
+    "Europe/Zurich", "Pacific/Auckland", "Pacific/Honolulu",
+    "UTC", "Etc/UTC",
+})
+
+
+def _tz_for_vehicle(vehicle) -> str:
+    """Return a safe, validated timezone string for a vehicle.
+    
+    Uses vehicle.home_tz if set and in the whitelist.
+    Falls back to 'Europe/Vilnius' for any invalid or missing value,
+    ensuring no unsanitised input reaches the SQL AT TIME ZONE clause.
+    """
+    tz = getattr(vehicle, 'home_tz', None) or 'Europe/Vilnius'
+    return tz if tz in _VALID_TZ_NAMES else 'Europe/Vilnius'
+
 
 def _stmt_to_sql(stmt) -> str | None:
     """Compile SQLAlchemy statement to string for debug logging. Returns None on error."""
@@ -1274,8 +1309,8 @@ async def get_statistics(
     median_expr = func.percentile_cont(0.5).within_group((Trip.end_odometer - Trip.start_odometer).asc()).label("median_distance")
     # Use vehicle's home timezone for day/week/month/year truncation so trips
     # near local midnight are bucketed into the correct calendar day, not UTC day.
-    # Falls back to 'Europe/Vilnius' if home_tz not set.
-    tz = vehicle.home_tz or 'Europe/Vilnius'
+    # Falls back to 'Europe/Vilnius' if home_tz not set or not in whitelist.
+    tz = _tz_for_vehicle(vehicle)
     local_start = text(f"(start_date AT TIME ZONE '{tz}')")
     stmt_trip = (
         select(
