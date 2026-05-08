@@ -83,7 +83,10 @@ async def get_efficiency_curve(
             v_stats.c.avg_consumption.label("avg_consumption_kwh_100km"),
             v_stats.c.data_points.label("trip_count")
         )
-        .where(v_stats.c.user_vehicle_id == vehicle_id)
+        .where(
+            v_stats.c.user_vehicle_id == vehicle_id,
+            v_stats.c.data_points >= 3,  # require minimum sample size to avoid skewed averages
+        )
         .order_by(v_stats.c.temperature)
     )
     
