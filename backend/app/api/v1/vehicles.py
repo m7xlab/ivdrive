@@ -1311,7 +1311,9 @@ async def get_statistics(
     # near local midnight are bucketed into the correct calendar day, not UTC day.
     # Falls back to 'Europe/Vilnius' if home_tz not set or not in whitelist.
     tz = _tz_for_vehicle(vehicle)
-    local_start = text(f"(start_date AT TIME ZONE '{tz}')")
+    # Use SQLAlchemy .op() for idiomatic AT TIME ZONE — tz is already validated
+    # by _tz_for_vehicle() against the IANA whitelist before reaching SQL.
+    local_start = Trip.start_date.op("AT TIME ZONE")(tz)
     stmt_trip = (
         select(
             func.date_trunc(trunc, local_start).label("period"),
@@ -1341,7 +1343,7 @@ async def get_statistics(
         charge_where.append(ChargingSession.session_start <= to_date)
     time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, func.now()) - ChargingSession.session_start,))
     # Use vehicle's home timezone for charging session day truncation
-    local_charge_start = text(f"(session_start AT TIME ZONE '{tz}')")
+    local_charge_start = ChargingSession.session_start.op("AT TIME ZONE")(tz)
     stmt_charge = (
         select(
             func.date_trunc(trunc, local_charge_start).label("period"),

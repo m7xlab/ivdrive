@@ -215,7 +215,12 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
     const existing = placeMap.get(key);
     if (existing) {
       existing.ms += s.durationMs;
-      // Merge charging flag: if any merged stay involved charging, keep it
+      // For geofence-keyed stays, keep the original geofence center coordinates.
+      // For coordinate-keyed stays, compute a duration-weighted centroid.
+      if (!s.geofenceId) {
+        existing.lat = (existing.lat * (existing.ms - s.durationMs) + s.latitude * s.durationMs) / existing.ms;
+        existing.lon = (existing.lon * (existing.ms - s.durationMs) + s.longitude * s.durationMs) / existing.ms;
+      }
       existing.charging = existing.charging || s.isCharging;
     } else {
       placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
