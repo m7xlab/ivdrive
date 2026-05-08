@@ -1322,8 +1322,11 @@ async def get_statistics(
             func.coalesce(func.sum(Trip.kwh_consumed), 0).label("total_consumed"),
         )
         .where(*trip_where)
-        .group_by(text(f"date_trunc('{trunc}', (start_date AT TIME ZONE '{tz}'))"))
-        .order_by(text(f"date_trunc('{trunc}', (start_date AT TIME ZONE '{tz}')) DESC"))
+        # PostgreSQL allows referencing SELECT aliases in GROUP BY / ORDER BY.
+        # Use the labeled 'period' column directly to avoid repeating the
+        # date_trunc expression and eliminate any remaining f-string SQL risk.
+        .group_by(text("period"))
+        .order_by(text("period DESC"))
         .offset(skip).limit(limit)
     )
     trip_stats = await db.execute(stmt_trip)
@@ -1347,8 +1350,9 @@ async def get_statistics(
             func.coalesce(time_charging_expr, 0).label("time_charging_seconds"),
         )
         .where(*charge_where)
-        .group_by(text(f"date_trunc('{trunc}', (session_start AT TIME ZONE '{tz}'))"))
-        .order_by(text(f"date_trunc('{trunc}', (session_start AT TIME ZONE '{tz}')) DESC"))
+        # Reference the SELECT alias 'period' to avoid repeating expression
+        .group_by(text("period"))
+        .order_by(text("period DESC"))
         .offset(skip).limit(limit)
     )
     charge_stats = await db.execute(stmt_charge)
