@@ -53,6 +53,11 @@ class UserVehicle(TimestampMixin, Base):
     temp_optimal_min_celsius: Mapped[float | None] = mapped_column(Float, default=None)
     temp_optimal_max_celsius: Mapped[float | None] = mapped_column(Float, default=None)
 
+    # Home location for timezone-aware statistics (e.g. date truncation in local time)
+    home_lat: Mapped[float | None] = mapped_column(Float, default=None)
+    home_lon: Mapped[float | None] = mapped_column(Float, default=None)
+    home_tz: Mapped[str | None] = mapped_column(String(50), default=None)  # e.g. "Europe/Vilnius"
+
     user: Mapped["User"] = relationship(back_populates="vehicles")  # noqa: F821
     connector_session: Mapped["ConnectorSession | None"] = relationship(
         back_populates="user_vehicle", cascade="all, delete-orphan", uselist=False, lazy="selectin"

@@ -37,6 +37,7 @@ interface TimeBudget {
 
 interface StayEvent {
   label: string;
+  geofenceId: string | null;  // stable identifier for geofence-based grouping
   latitude: number;
   longitude: number;
   arrivalTime: Date;
@@ -110,6 +111,7 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
         type: "stay",
         data: {
           label: gf ? gf.name : hasCharging ? "Charging Stop" : "Location",
+          geofenceId: gf ? gf.id : null,  // stable ID; null for non-geofence stays
           latitude: clusterLat,
           longitude: clusterLon,
           arrivalTime: anchorTime,
@@ -201,12 +203,23 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const stayEvents = timeline.filter((e) => e.type === "stay").map((e) => e.data as StayEvent);
 
   // Top places by time spent
+  // Use geofence label as key so same-named places (e.g. "Work") merge even if
+  // their cluster centroids fall in different toFixed(3) grid cells (~111m apart).
+  // When no geofence matched, use a coarse haversine-based grid (toFixed(4) ≈ 11m)
+  // as key to avoid splitting genuinely separate stays.
   const placeMap = new Map<string, { label: string; lat: number; lon: number; ms: number; charging: boolean }>();
   for (const s of stayEvents) {
-    const key = `${s.latitude.toFixed(3)},${s.longitude.toFixed(3)}`;
+    // Key by geofenceId for geofence-matched stays — stable, no string matching.
+    // For non-geofence stays, use coordinates as fallback key.
+    const key = s.geofenceId ?? `${s.latitude.toFixed(4)},${s.longitude.toFixed(4)}`;
     const existing = placeMap.get(key);
-    if (existing) existing.ms += s.durationMs;
-    else placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
+    if (existing) {
+      existing.ms += s.durationMs;
+      // Merge charging flag: if any merged stay involved charging, keep it
+      existing.charging = existing.charging || s.isCharging;
+    } else {
+      placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
+    }
   }
   const topPlaces = [...placeMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
 
