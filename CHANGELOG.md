@@ -1,10 +1,13 @@
 # Changelog
 
-## [Unreleased] - 2026-05-05
+## [Unreleased] - 2026-05-08
 ### Fixed
-- HVACCostCard: Wrap `representative_temp_celsius` with `Number()` before `toFixed()` — defensive fix against string concatenation (e.g. "5"+"10"="510°C") if backend returns unexpected type.
+- vehicles.py (`/statistics` endpoint): Use `AT TIME ZONE 'Europe/Vilnius'` for `date_trunc` on both trips and charging sessions — trips near local midnight were bucketed into wrong UTC day, causing Driving Stats historical data to show only 2 days instead of full May 1-8 period.
+- MovementDashboard (frontend): Use geofence label as grouping key in Top Places instead of lat/lon grid — same Work geofence visits now merge into a single entry regardless of cluster centroid drift.
+- analytics.py (`get_efficiency_curve`): Filter temperature buckets with `data_points < 3` — view was returning single-trip buckets producing unrealistic ~3.6 kWh/100km at 5°C.
+- analytics.py (`get_hvac_isolation`): Return specific diagnostic summary when no metrics calculable (cold vs optimal trip types missing) instead of static generic message.
+
 ## [v1.0.23] - 2026-05-04
-### Added
 ## [Unreleased] - 2026-05-07
 ### Fixed
 - collector.py: Replace `status_resp.overall.battery` attribute access with `getattr(..., 'battery', None)` — `VehicleStatusOverall` pydantic model has no `battery` field, causing `AttributeError` on every vehicle collection and blocking ALL data ingestion since ~May 5. Also fixed duplicate reference at battery temperature extraction (line ~956).
