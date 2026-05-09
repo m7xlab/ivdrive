@@ -1390,6 +1390,51 @@ async def get_statistics(
             )
         )
 
+    # Gap-fill: ensure every period in the requested window has an entry (zero-fill missing periods)
+    if from_date and to_date and limit > 0:
+        tz = _tz_for_vehicle(vehicle)
+        trunc = trunc_map[period]
+        # Normalize: main query produces ISO ("T"), gap-fill produces space-separated.
+        # Convert both to ISO T format so the map lookup works.
+        results_map = {r.period.replace(" ", "T").split("+")[0]: r for r in results}
+        filled = []
+        try:
+            # Subtract 1 day from to_date so generate_series is inclusive of last day.
+            to_date_bound = to_date - timedelta(days=1)
+            gen_sql = text(
+                f"SELECT period::text "
+                f"FROM generate_series("
+                f"  date_trunc('{trunc}', :from_dt AT TIME ZONE :tz), "
+                f"  date_trunc('{trunc}', :to_dt AT TIME ZONE :tz) - INTERVAL '1 {trunc}', "
+                f"  INTERVAL '1 {trunc}' "
+                f") AS period ORDER BY period DESC LIMIT :lim"
+            )
+            gen_res = await db.execute(gen_sql, {"from_dt": from_date, "to_dt": to_date_bound, "lim": limit, "tz": tz})
+            all_gen = [row[0] for row in gen_res.fetchall()]
+        except Exception:
+            all_gen = []
+        for period_str in all_gen:
+            # Gap-fill returns 'YYYY-MM-DD HH:MM:SS' with space; normalize to ISO T
+            period_key = period_str.replace(" ", "T").split("+")[0]
+            if period_key in results_map:
+                filled.append(results_map[period_key])
+            else:
+                filled.append(
+                    StatisticsPeriod(
+                        period=period_key,
+                        drives_count=0,
+                        total_distance_km=0.0,
+                        time_driven_seconds=0.0,
+                        median_distance_km=None,
+                        charging_sessions_count=0,
+                        total_energy_kwh=0.0,
+                        total_kwh_consumed=0.0,
+                        avg_energy_per_session_kwh=0.0,
+                        time_charging_seconds=0.0,
+                    )
+                )
+        results = filled
+
     _log_statistics_query(
         "statistics", vehicle_id, from_date=from_date, to_date=to_date, limit=limit, result_count=len(results), extra={"period": period}, sql=" | ".join(filter(None, [_stmt_to_sql(stmt_trip), _stmt_to_sql(stmt_charge)])) or None
     )
