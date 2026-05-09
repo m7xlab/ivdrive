@@ -1106,7 +1106,8 @@ async def get_hvac_cost(
 
         results.append({
             "band": band_label,
-            "representative_temp_celsius": cold_ref_temp if lo < 0 else (lo + hi) / 2,
+            # <10°C: use midpoint. >20°C: open-ended, use practical cabin temp (25°C)
+            "representative_temp_celsius": cold_ref_temp if lo < 0 else (25 if hi == 999 else (lo + hi) / 2),
             "avg_kwh_100km": round(band_avg, 1),
             "reference_kwh_100km": round(ref_avg, 1) if ref_avg else None,
             "hvac_cost_kwh_100km": round(diff, 1) if diff > 0 else 0,
