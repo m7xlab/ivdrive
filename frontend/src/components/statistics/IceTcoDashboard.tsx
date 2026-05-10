@@ -41,7 +41,9 @@ interface IceTcoResponse {
   };
 }
 
-export function IceTcoDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<IceTcoResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +51,9 @@ export function IceTcoDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getIceTco(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getIceTco(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch ICE TCO", err);
@@ -58,7 +62,7 @@ export function IceTcoDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (

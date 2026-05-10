@@ -33,7 +33,9 @@ interface RouteEfficiencyResponse {
   total_routes: number;
 }
 
-export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<RouteEfficiencyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -41,7 +43,9 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getRouteEfficiency(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getRouteEfficiency(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch route efficiency", err);
@@ -50,7 +54,7 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (
@@ -116,8 +120,8 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
               <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={130} tick={{ fontSize: 10 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px", color: "var(--iv-text)", fontSize: "11px" }}
-                itemStyle={{ color: "#1a1d2e", fontSize: "11px" }}
-                labelStyle={{ color: "#1a1d2e", fontWeight: 600, fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" }}
+                itemStyle={{ color: "var(--iv-text)", fontSize: "11px" }}
+                labelStyle={{ color: "var(--iv-text)", fontWeight: 600, fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" }}
                 formatter={(value: number, name: string) => [value, name]}
               />
               <Bar dataKey="avg" name="Avg kWh/100km" radius={[0, 4, 4, 0]}>

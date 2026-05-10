@@ -17,7 +17,9 @@ interface SoHData {
   sample_count: number;
 }
 
-export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function BatterySoHDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<SoHData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,20 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
     async function fetchSoH() {
       try {
         setLoading(true);
-        const result = await statisticsApi.getBatterySoH(vehicleId);
+        let fromDate = dateRange?.from;
+        const toDate = dateRange?.to;
+
+        // Ensure we always fetch at least 3 months of data for a meaningful curve
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+        if (!fromDate || fromDate > threeMonthsAgo) {
+          fromDate = threeMonthsAgo;
+        }
+
+        const fromStr = fromDate.toISOString();
+        const toStr = toDate?.toISOString();
+        const result = await statisticsApi.getBatterySoH(vehicleId, fromStr, toStr);
         setData({
           factory_capacity_kwh: result.factory_capacity_kwh,
           skoda_soh_pct: result.skoda_soh_pct,
@@ -42,7 +57,7 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
       }
     }
     fetchSoH();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) return <div className="p-4 text-center text-iv-muted">Loading battery health analysis...</div>;
   if (error) return <div className="p-4 text-red-500 text-center">{error}</div>;

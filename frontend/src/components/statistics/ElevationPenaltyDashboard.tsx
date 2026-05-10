@@ -38,7 +38,9 @@ interface ElevationPenaltyResponse {
   };
 }
 
-export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function ElevationPenaltyDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<ElevationPenaltyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -46,7 +48,9 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getElevationPenalty(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getElevationPenalty(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch elevation penalty", err);
@@ -55,7 +59,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (

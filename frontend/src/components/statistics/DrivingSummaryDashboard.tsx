@@ -119,7 +119,7 @@ export function DrivingSummaryDashboard({ vehicleId, dateRange }: DrivingSummary
         api.getTripsAnalytics(vehicleId, 200, fromISO, toISO),
         api.getStatistics(vehicleId, "day", 30, fromISO, toISO),
         api.getOdometer(vehicleId, 5000, fromISO, toISO),
-        api.getTimeBudget(vehicleId),
+        api.getTimeBudget(vehicleId, fromISO, toISO),
         api.getVisitedLocations(vehicleId, 2000, fromISO, toISO),
       ]);
 

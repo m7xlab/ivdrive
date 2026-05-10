@@ -220,6 +220,8 @@ async def get_battery_health(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return battery health metrics including HV system, cell voltages, and derived SoH.
@@ -249,7 +251,16 @@ async def get_battery_health(
     # Compute SoH estimates from charging sessions
     # Filter: ΔSOC 15-65% (avoid short charges and regen-heavy large charges)
     # Cap: estimated capacity ≤ 103% of factory (excludes regen-inflated values)
-    soh_stmt = text("""
+    date_filter = ""
+    params = {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh}
+    if from_date:
+        date_filter += " AND session_start >= :from_date"
+        params["from_date"] = from_date
+    if to_date:
+        date_filter += " AND session_start <= :to_date"
+        params["to_date"] = to_date
+
+    soh_stmt = text(f"""
         SELECT 
             session_start::date as charge_date,
             start_level,
@@ -263,10 +274,11 @@ async def get_battery_health(
           AND end_level IS NOT NULL AND start_level IS NOT NULL
           AND energy_kwh IS NOT NULL AND energy_kwh > 0
           AND (end_level - start_level) BETWEEN 15 AND 65
+          {date_filter}
         ORDER BY session_start DESC
-        LIMIT 50
+        LIMIT 5000
     """)
-    soh_result = await db.execute(soh_stmt, {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh})
+    soh_result = await db.execute(soh_stmt, params)
     soh_estimates = soh_result.fetchall()
 
     # Build monthly averaged curve (last 6 months)
@@ -1333,6 +1345,8 @@ async def get_elevation_penalty(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
 ):
     """
     For each trip, calculate elevation gain/loss using OpenTopoData API.
@@ -1352,7 +1366,13 @@ async def get_elevation_penalty(
         Trip.end_lon.is_not(None),
         Trip.distance_km.is_not(None),
         Trip.distance_km > 5
-    ).order_by(Trip.start_date.desc()).limit(100)
+    )
+    if from_date:
+        stmt = stmt.where(Trip.start_date >= from_date)
+    if to_date:
+        stmt = stmt.where(Trip.start_date <= to_date)
+    
+    stmt = stmt.order_by(Trip.start_date.desc()).limit(5000)
 
     res = await db.execute(stmt)
     trips = res.scalars().all()
@@ -1437,6 +1457,8 @@ async def get_speed_temp_matrix(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
 ):
     """Speed × Temperature → avg kWh/100km matrix.
 
@@ -1459,6 +1481,10 @@ async def get_speed_temp_matrix(
         Trip.avg_temp_celsius.is_not(None),
         Trip.end_date.is_not(None)
     )
+    if from_date:
+        stmt = stmt.where(Trip.start_date >= from_date)
+    if to_date:
+        stmt = stmt.where(Trip.start_date <= to_date)
 
     res = await db.execute(stmt)
     trips = res.scalars().all()
@@ -1769,6 +1795,8 @@ async def get_ice_tco(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
 ):
     """Compare per-trip EV cost vs ICE fuel cost using per-vehicle ice_l_per_100km calibration."""
     vehicle = await get_user_vehicle(user.id, vehicle_id, db)
@@ -1808,7 +1836,12 @@ async def get_ice_tco(
         Trip.distance_km > 1,
         Trip.kwh_consumed.is_not(None),
         Trip.start_date.is_not(None)
-    ).order_by(Trip.start_date).limit(200)
+    )
+    if from_date:
+        stmt = stmt.where(Trip.start_date >= from_date)
+    if to_date:
+        stmt = stmt.where(Trip.start_date <= to_date)
+    stmt = stmt.order_by(Trip.start_date)
 
     res = await db.execute(stmt)
     trips = res.scalars().all()
@@ -1884,6 +1917,8 @@ async def get_route_efficiency(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
 ):
     """Cluster trips by start/end geohash; compute historical efficiency per route."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -1898,7 +1933,12 @@ async def get_route_efficiency(
         Trip.distance_km > 2,
         Trip.kwh_consumed.is_not(None),
         Trip.kwh_consumed > 0
-    ).order_by(Trip.start_date.desc()).limit(200)
+    )
+    if from_date:
+        stmt = stmt.where(Trip.start_date >= from_date)
+    if to_date:
+        stmt = stmt.where(Trip.start_date <= to_date)
+    stmt = stmt.order_by(Trip.start_date.desc()).limit(5000)
 
     res = await db.execute(stmt)
     trips = res.scalars().all()
@@ -1991,6 +2031,8 @@ async def get_predictive_soc(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
 ):
     """Predict arrival SoC using historical consumption data and current conditions."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -2035,7 +2077,13 @@ async def get_predictive_soc(
         Trip.kwh_consumed.is_not(None),
         Trip.kwh_consumed > 0,
         Trip.avg_temp_celsius.is_not(None)
-    ).order_by(Trip.start_date.desc()).limit(100)
+    )
+    if from_date:
+        trips_stmt = trips_stmt.where(Trip.start_date >= from_date)
+    if to_date:
+        trips_stmt = trips_stmt.where(Trip.start_date <= to_date)
+    
+    trips_stmt = trips_stmt.order_by(Trip.start_date.desc()).limit(5000)
     trips_res = await db.execute(trips_stmt)
     trips = trips_res.scalars().all()
 

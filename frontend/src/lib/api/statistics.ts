@@ -232,8 +232,13 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getElevationPenalty(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/elevation-penalty`);
+  async getElevationPenalty(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/elevation-penalty${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
@@ -242,8 +247,13 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getSpeedTempMatrix(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/speed-temp-matrix`);
+  async getSpeedTempMatrix(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/speed-temp-matrix${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
@@ -252,8 +262,13 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getIceTco(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/ice-tco`);
+  async getIceTco(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/ice-tco${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
@@ -267,17 +282,27 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getRouteEfficiency(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/route-efficiency`);
+  async getRouteEfficiency(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/route-efficiency${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
-  async getPredictiveSoc(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/predictive-soc`);
+  async getPredictiveSoc(id: string, fromDate?: string, toDate?: string) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/predictive-soc${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
-  async getBatterySoH(vehicleId: string): Promise<{
+  async getBatterySoH(vehicleId: string, fromDate?: string, toDate?: string): Promise<{
     skoda_soh_pct: number | null;
     derived_soh_pct: number | null;
     factory_capacity_kwh: number | null;
@@ -285,7 +310,11 @@ export const statisticsApi = {
     total_soh_estimates: number;
     curve: Array<{ date: string; capacity_kwh: number; soh_pct: number }>;
   }> {
-    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/analytics/battery-health`);
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/analytics/battery-health${qs ? `?${qs}` : ""}`);
     return res.json();
   }
 };

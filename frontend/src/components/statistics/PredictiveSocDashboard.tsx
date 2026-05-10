@@ -34,7 +34,9 @@ interface PredictiveSocResponse {
   };
 }
 
-export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<PredictiveSocResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -42,7 +44,9 @@ export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getPredictiveSoc(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getPredictiveSoc(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch predictive SOC", err);
@@ -51,7 +55,7 @@ export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (

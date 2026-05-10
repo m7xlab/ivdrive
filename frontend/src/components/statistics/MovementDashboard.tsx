@@ -189,7 +189,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
     api.getTimeBudget(vehicleId)
       .then(setTimeBudget)
       .finally(() => setLoadingBudget(false));
-  }, [vehicleId, fromISO, toISO]);
+  }, [vehicleId]);
 
   // Period-based location data + Top Places — refetches when date range changes
   const fetchPeriodData = useCallback(async () => {
@@ -208,7 +208,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
     } finally {
       setLoadingPeriod(false);
     }
-  }, [vehicleId, fromISO, toISO]);
+  }, [vehicleId]);
 
   useEffect(() => { fetchPeriodData(); }, [fetchPeriodData]);
 
