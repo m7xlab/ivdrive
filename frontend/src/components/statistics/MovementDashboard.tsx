@@ -81,8 +81,10 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
   const sorted = [...locations].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const STAY_RADIUS_M = 80;
   const MIN_STAY_MS = 5 * 60 * 1000;
+  const MAX_GAP_MS = 30 * 60 * 1000; // 30 min — break cluster on longer gaps
   const events: ActivityEvent[] = [];
   let i = 0;
+
 
   while (i < sorted.length) {
     const anchor = sorted[i];
@@ -93,8 +95,11 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
 
     while (j < sorted.length) {
       const pt = sorted[j];
+      const prevPt = sorted[j - 1];
       const dist = haversineMeters(pt.latitude, pt.longitude, latSum / count, lonSum / count);
-      if (dist > STAY_RADIUS_M) break;
+      const gapMs = new Date(pt.timestamp).getTime() - new Date(prevPt.timestamp).getTime();
+      // Break cluster if: moved too far away OR time gap is too large (was driving elsewhere)
+      if (dist > STAY_RADIUS_M || gapMs > MAX_GAP_MS) break;
       latSum += pt.latitude; lonSum += pt.longitude; count++;
       if (pt.source === "charging") hasCharging = true;
       j++;
