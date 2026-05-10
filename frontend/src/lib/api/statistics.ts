@@ -174,8 +174,13 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getTimeBudget(id: string): Promise<{ parked_seconds: number; driving_seconds: number; charging_seconds: number; ignition_seconds: number; offline_seconds: number }> {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/time-budget`);return res.json();
+  async getTimeBudget(id: string, fromDate?: string, toDate?: string): Promise<{ parked_seconds: number; driving_seconds: number; charging_seconds: number; ignition_seconds: number; offline_seconds: number; total_seconds: number }> {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const qs = params.toString();
+    const url = qs ? `/api/v1/vehicles/${id}/analytics/movement-stats?${qs}` : `/api/v1/vehicles/${id}/analytics/movement-stats`;
+    const res = await apiFetch(url);return res.json();
   },
 
   async getMovementStats(id: string, fromDate: string, toDate: string): Promise<{ parked_seconds: number; driving_seconds: number; charging_seconds: number; offline_seconds: number; ignition_seconds: number; total_seconds: number }> {
