@@ -196,6 +196,14 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async getTopPlaces(id: string, limit = 5, fromDate?: string, toDate?: string): Promise<Array<{ geofence_id: string | null; place_name: string; latitude: number; longitude: number; total_seconds: number; stay_count: number }>> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    const res = await apiFetch(`/api/v1/vehicles/${id}/overview/top-places?${params.toString()}`);
+    return res.json();
+  },
+
   async getAdvancedAnalyticsOverview(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/advanced-overview`);
     return res.json();

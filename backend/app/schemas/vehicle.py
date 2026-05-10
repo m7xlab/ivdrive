@@ -123,3 +123,13 @@ class VehicleStatusResponse(BaseModel):
     is_in_motion: bool | None = None
 
     connector_status: str | None = None
+
+
+class TopPlaceItem(BaseModel):
+    geofence_id: uuid.UUID | None = None  # null for unknown locations
+    place_name: str                        # "Home", "Work", or reverse-geocoded address
+    latitude: float | None = None
+    longitude: float | None = None
+    total_seconds: int
+    stay_count: int
+    model_config = {"from_attributes": True}
