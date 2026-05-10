@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { DayPicker, type DateRange } from "react-day-picker";
 import * as Popover from "@radix-ui/react-popover";
-import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, startOfQuarter, endOfQuarter, subQuarters } from "date-fns";
 import { Calendar } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -22,7 +22,10 @@ const PRESETS = [
   { label: "Today", getValue: () => ({ from: startOfDay(new Date()), to: endOfDay(new Date()) }) },
   { label: "Last 7 Days", getValue: () => ({ from: startOfDay(subDays(new Date(), 7)), to: endOfDay(new Date()) }) },
   { label: "Last 30 Days", getValue: () => ({ from: startOfDay(subDays(new Date(), 30)), to: endOfDay(new Date()) }) },
+  { label: "Last Month", getValue: () => ({ from: startOfMonth(subMonths(new Date(), 1)), to: endOfMonth(subMonths(new Date(), 1)) }) },
+  { label: "Last Qtr", getValue: () => ({ from: startOfQuarter(subQuarters(new Date(), 1)), to: endOfQuarter(subQuarters(new Date(), 1)) }) },
   { label: "This Month", getValue: () => ({ from: startOfMonth(new Date()), to: endOfMonth(new Date()) }) },
+  { label: "This Qtr", getValue: () => ({ from: startOfQuarter(new Date()), to: endOfQuarter(new Date()) }) },
   { label: "This Year", getValue: () => ({ from: startOfYear(new Date()), to: endOfYear(new Date()) }) },
 ];
 
@@ -98,7 +101,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
             <div className={cn(
               isMobile
                 ? "flex flex-row flex-wrap gap-1 pb-3 border-b border-iv-border"
-                : "flex flex-col gap-1 border-r border-iv-border pr-4 min-w-[120px]"
+                : "flex flex-col gap-1 border-r border-iv-border pr-4 min-w-[130px]"
             )}>
               {!isMobile && (
                 <span className="text-xs font-semibold text-iv-muted uppercase tracking-wider mb-2">Quick Select</span>

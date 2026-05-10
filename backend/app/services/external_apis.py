@@ -88,3 +88,39 @@ async def fetch_nordpool_price(area: str = "LT") -> float:
     """Fetch current hourly NordPool price asynchronously."""
     return await asyncio.to_thread(_sync_fetch_nordpool, area)
 
+
+async def reverse_geocode_address(lat: float, lon: float) -> str | None:
+    """
+    Full reverse geocoding via Nominatim.
+    Returns a compact address string: "Street Name, City, Country"
+    or None if the request fails.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={
+                    "format": "jsonv2",
+                    "lat": lat,
+                    "lon": lon,
+                    "zoom": 16,  # Neighborhood/street level
+                    "addressdetails": 1,
+                },
+                headers={"User-Agent": "iVDrive-Backend-Collector (info@ivdrive.eu)"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                addr = data.get("address", {})
+                # Build a compact display string
+                parts = []
+                for field in ["road", "street", "neighbourhood", "hamlet", "village", "town", "city", "municipality"]:
+                    if addr.get(field):
+                        parts.append(addr[field])
+                        break
+                if addr.get("country"):
+                    parts.append(addr["country"])
+                if parts:
+                    return ", ".join(parts)
+    except Exception as e:
+        logger.warning("Failed reverse geocode for %s,%s: %s", lat, lon, e)
+    return None

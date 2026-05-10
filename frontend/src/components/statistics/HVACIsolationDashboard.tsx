@@ -99,7 +99,7 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
               <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "var(--iv-bg)",
+                  backgroundColor: "var(--iv-charcoal)",
                   border: "1px solid var(--iv-border)",
                   borderRadius: "8px",
                 }}

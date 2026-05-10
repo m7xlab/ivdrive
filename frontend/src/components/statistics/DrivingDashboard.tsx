@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { useTheme } from "next-themes";
 import L from "leaflet";
 import { api } from "@/lib/api";
 import { settingsApi } from "@/lib/api/settings";
@@ -257,11 +258,11 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
       ] = await Promise.allSettled([
         api.getTripsAnalytics(vehicleId, 200, fromISO, toISO),
         api.getStatistics(vehicleId, "day", 30, fromISO, toISO),
-        // ── odometer: no date filter ── full history for mileage trend
-        api.getOdometer(vehicleId, 5000),
-        api.getTimeBudget(vehicleId),
-        // ── visited locations: no date filter ── all-time for map
-        api.getVisitedLocations(vehicleId, 5000),
+        // ── odometer: filtered by dateRange ── period mileage trend
+        api.getOdometer(vehicleId, 5000, fromISO, toISO),
+        api.getTimeBudget(vehicleId, fromISO, toISO),
+        // ── visited locations: filtered by dateRange ── period map
+        api.getVisitedLocations(vehicleId, 5000, fromISO, toISO),
         settingsApi.getGeofences().catch(() => [] as Geofence[]),
       ]);
 
@@ -292,21 +293,33 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  // Latest stats row (most recent day)
-  const latestStats = stats.length > 0 ? stats[0] : null;
+  //   // Period totals (sum of all stats rows in date range)
+  const periodTotals = useMemo(() => {
+    if (stats.length === 0) return null;
+    return stats.reduce(
+      (acc, s) => ({
+        total_distance_km: acc.total_distance_km + s.total_distance_km,
+        drives_count: acc.drives_count + s.drives_count,
+        total_kwh_consumed: acc.total_kwh_consumed + s.total_kwh_consumed,
+        total_energy_kwh: acc.total_energy_kwh + s.total_energy_kwh,
+        charging_sessions_count: acc.charging_sessions_count + s.charging_sessions_count,
+      }),
+      { total_distance_km: 0, drives_count: 0, total_kwh_consumed: 0, total_energy_kwh: 0, charging_sessions_count: 0 }
+    );
+  }, [stats]);
 
-  // Historical stats (last 7 days, skip today)
-  const historicalStats = stats.length > 1 ? stats.slice(1, 8) : [];
-
-  // KPI values
-  const totalDistance = latestStats ? latestStats.total_distance_km.toFixed(1) : "—";
-  const totalDrives = latestStats ? String(latestStats.drives_count) : "—";
-  const energyUsed = latestStats ? latestStats.total_kwh_consumed.toFixed(1) : "—";
-  const efficiency = (latestStats && latestStats.total_distance_km > 0 && latestStats.total_kwh_consumed > 0)
-    ? ((latestStats.total_kwh_consumed / latestStats.total_distance_km) * 100).toFixed(1)
+  // KPI values — period totals, not just latest day
+  const totalDistance = periodTotals ? periodTotals.total_distance_km.toFixed(1) : "—";
+  const totalDrives = periodTotals ? String(periodTotals.drives_count) : "—";
+  const energyUsed = periodTotals ? periodTotals.total_kwh_consumed.toFixed(1) : "—";
+  const efficiency = (periodTotals && periodTotals.total_distance_km > 0 && periodTotals.total_kwh_consumed > 0)
+    ? ((periodTotals.total_kwh_consumed / periodTotals.total_distance_km) * 100).toFixed(1)
     : "—";
+  const totalCharged = periodTotals ? periodTotals.total_energy_kwh.toFixed(1) : "—";
+  const totalSessions = periodTotals ? String(periodTotals.charging_sessions_count) : "—";
 
-  // Mileage trend chart data (last 60 odometer readings, reversed → chronological)
+
+Mileage trend chart data (last 60 odometer readings, reversed → chronological)
   // Uses timestamp ms as x-axis value so Recharts can compute proper domain/spacing
   // regardless of how many unique date labels exist
   const mileageChartData = useMemo(() => {
@@ -372,7 +385,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
     );
   }
 
-  const hasData = latestStats || odometer.length > 0 || trips.length > 0;
+  const hasData = periodTotals || odometer.length > 0 || trips.length > 0;
 
   if (!hasData) {
     return (
@@ -393,7 +406,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
             <span className="text-[10px] font-semibold text-iv-muted uppercase tracking-wide">Distance</span>
           </div>
           <p className="text-2xl font-bold text-iv-text">{totalDistance} <span className="text-sm font-normal text-iv-muted">km</span></p>
-          {latestStats && <p className="text-xs text-iv-muted">{latestStats.drives_count} drives</p>}
+          {periodTotals && <p className="text-xs text-iv-muted">{totalDrives} drives</p>}
         </div>
 
         <div className="glass rounded-xl p-4 space-y-1">
@@ -410,9 +423,9 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
             <span className="text-[10px] font-semibold text-iv-muted uppercase tracking-wide">Charged</span>
           </div>
           <p className="text-2xl font-bold text-iv-text">
-            {latestStats ? latestStats.total_energy_kwh.toFixed(1) : "—"} <span className="text-sm font-normal text-iv-muted">kWh</span>
+            {totalCharged} <span className="text-sm font-normal text-iv-muted">kWh</span>
           </p>
-          {latestStats && <p className="text-xs text-iv-muted">{latestStats.charging_sessions_count} sessions</p>}
+          {periodTotals && <p className="text-xs text-iv-muted">{totalSessions} sessions</p>}
         </div>
 
         <div className="glass rounded-xl p-4 space-y-1">
@@ -429,7 +442,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
         <div className="glass rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-iv-text">Mileage Trend</h3>
-            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Last 60 readings</span>
+            <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Period readings</span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={mileageChartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
@@ -449,8 +462,8 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
                 axisLine={false}
                 domain={["auto", "auto"]}
               />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
                 formatter={(value: number, name: string, props: any) => {
                   const dateStr = format(new Date(props.payload.t), "d MMM yyyy");
@@ -470,11 +483,11 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
           <MapContainer
             center={mapCenter}
             zoom={10}
-            className="h-80 rounded-xl z-0"
-            style={{ background: "var(--iv-bg)" }}
+            className="h-80 rounded-xl overflow-hidden z-0"
+            style={{ width: "100%", height: "100%" }}
           >
             <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             />
             {visitedLocations.map((loc, i) => (
@@ -633,13 +646,13 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
       </div>
 
       {/* ── Historical Stats ── */}
-      {historicalStats.length > 0 && (
+      {stats.length > 0 && (
         <div className="glass rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-iv-text flex items-center gap-2">
             <Calendar size={14} /> Historical Driving Data
           </h3>
-          <div className="space-y-1.5">
-            {historicalStats.map((row) => (
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            {stats.map((row) => (
               <div key={row.period} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-iv-surface/30 border border-iv-border/20">
                 <div className="p-1.5 rounded-full bg-iv-cyan/10 shrink-0">
                   <Clock size={12} className="text-iv-cyan" />

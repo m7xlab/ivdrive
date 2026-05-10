@@ -136,8 +136,8 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
                 <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
                 <XAxis dataKey="soc_pct" tick={{ fontSize: 12 }} className="text-iv-muted" label={{ value: "State of Charge (%)", position: "insideBottom", offset: -5 }} />
                 <YAxis tick={{ fontSize: 12 }} className="text-iv-muted" label={{ value: "Power (kW)", angle: -90, position: "insideLeft" }} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   labelStyle={{ color: "var(--iv-muted)" }}
                   formatter={(value: number, name: string) => [value.toFixed(2), name === "avg_power_kw" ? "Avg Power (kW)" : "Max Power (kW)"]}
                   labelFormatter={(label) => `SoC: ${label}%`}

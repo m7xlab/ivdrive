@@ -38,7 +38,9 @@ interface ElevationPenaltyResponse {
   };
 }
 
-export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function ElevationPenaltyDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<ElevationPenaltyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -46,7 +48,9 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getElevationPenalty(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getElevationPenalty(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch elevation penalty", err);
@@ -55,7 +59,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (
@@ -115,7 +119,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
               <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />
@@ -136,7 +140,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
               <YAxis className="text-iv-muted text-xs" />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Line type="monotone" dataKey="elev_change" stroke="var(--iv-cyan)" strokeWidth={2} dot={{ r: 4 }} />

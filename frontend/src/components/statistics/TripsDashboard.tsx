@@ -6,6 +6,7 @@ import { format, parseISO, getYear, getMonth } from "date-fns";
 import { Loader2, Car, Clock, Calendar, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
+import { useTheme } from "next-themes";
 import { TripElevationCard } from "./TripElevationCard";
 import "leaflet/dist/leaflet.css";
 import { formatSmartDuration } from "@/lib/format";
@@ -107,6 +108,8 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(10);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   // Geocoding helper
   const fetchLocationName = useCallback(async (lat: number, lon: number) => {
@@ -323,7 +326,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
             >
               <TileLayer
                 attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
               />
               {displayTrips.map(trip => {
                 const positions = getPolylinePositions(trip);

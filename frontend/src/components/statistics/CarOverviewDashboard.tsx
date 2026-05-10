@@ -696,7 +696,7 @@ export function CarOverviewDashboard({
                     tickFormatter={(v) => `${v}°C`}
                   />
                 )}
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -850,7 +850,7 @@ export function CarOverviewDashboard({
                   axisLine={false}
                   tickFormatter={(v) => `${v} kWh`}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -968,7 +968,7 @@ export function CarOverviewDashboard({
                   tickFormatter={(v) => `${v}%`}
                   domain={['auto', 'auto']}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -1086,7 +1086,7 @@ export function CarOverviewDashboard({
                     tickFormatter={(v) => `${v}°C`}
                   />
                 )}
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -1228,10 +1228,10 @@ export function CarOverviewDashboard({
                   domain={["auto", "auto"]}
                 />
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
                   labelFormatter={(label) => `${label}°C`}
-                  contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", borderColor: "var(--iv-border)", borderRadius: "12px", color: "var(--iv-text)" }}
                   itemStyle={{ color: "#00D4FF", fontWeight: "bold" }}
                 />
                 <Area

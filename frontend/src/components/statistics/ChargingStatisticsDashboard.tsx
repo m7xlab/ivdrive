@@ -130,8 +130,9 @@ export function ChargingStatisticsDashboard({
                 <XAxis dataKey="period" tick={{ fontSize: 12 }} className="text-iv-muted" />
                 <YAxis tick={{ fontSize: 12 }} className="text-iv-muted" label={{ value: "kWh", angle: -90, position: "insideLeft" }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   labelStyle={{ color: "var(--iv-muted)" }}
+                  itemStyle={{ color: "var(--iv-text)" }}
                   formatter={(value: number) => [value.toFixed(2), "Energy (kWh)"]}
                 />
                 <Bar dataKey="energy_kwh" fill="var(--iv-green)" radius={[4, 4, 0, 0]} name="Energy (kWh)" />

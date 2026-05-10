@@ -17,7 +17,9 @@ interface SoHData {
   sample_count: number;
 }
 
-export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function BatterySoHDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<SoHData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,20 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
     async function fetchSoH() {
       try {
         setLoading(true);
-        const result = await statisticsApi.getBatterySoH(vehicleId);
+        let fromDate = dateRange?.from;
+        const toDate = dateRange?.to;
+
+        // Ensure we always fetch at least 3 months of data for a meaningful curve
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+        if (!fromDate || fromDate > threeMonthsAgo) {
+          fromDate = threeMonthsAgo;
+        }
+
+        const fromStr = fromDate.toISOString();
+        const toStr = toDate?.toISOString();
+        const result = await statisticsApi.getBatterySoH(vehicleId, fromStr, toStr);
         setData({
           factory_capacity_kwh: result.factory_capacity_kwh,
           skoda_soh_pct: result.skoda_soh_pct,
@@ -42,7 +57,7 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
       }
     }
     fetchSoH();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) return <div className="p-4 text-center text-iv-muted">Loading battery health analysis...</div>;
   if (error) return <div className="p-4 text-red-500 text-center">{error}</div>;
@@ -96,9 +111,9 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
             <XAxis dataKey="date" stroke="#6b7280" fontSize={12} />
             <YAxis stroke="#6b7280" fontSize={12} yAxisId="left" domain={[0, 110]} tickFormatter={v => `${v}%`} />
             <YAxis stroke="#6b7280" fontSize={12} yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={v => `${v} kWh`} />
-            <Tooltip
-              contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #2d2d44', borderRadius: '8px', color: '#e5e7eb' }}
-              labelStyle={{ color: '#9ca3af' }}
+            <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+              contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px", color: "var(--iv-text)" }}
+              labelStyle={{ color: "var(--iv-muted)" }}
               formatter={(value: any, name: string) => [name === "SoH %" ? `${value}%` : `${value} kWh`, name]}
             />
             <Area type="monotone" dataKey="SoH %" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} yAxisId="left" />

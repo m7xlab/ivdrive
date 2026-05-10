@@ -1,0 +1,10 @@
+[allowlist]
+  description = "iVDrive false positives — Recharts chart props and calibration config keys"
+  paths = [
+    '''frontend/src/components/statistics/.+\.tsx$''',
+  ]
+  regexes = [
+    '''dataKey\s*=\s*["'][a-z_][a-z_0-9]*["']''',
+    '''key\s*:\s*["'][a-z_][a-z_0-9_]+_per_[a-z_][a-z_0-9_]+["']''',
+    '''unit\s*=\s*["'][^"'"]{1,20}["']''',
+  ]

@@ -53,7 +53,9 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -62,7 +64,9 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getSpeedTempMatrix(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getSpeedTempMatrix(vehicleId, fromStr, toStr);
         setData(res);
       } catch {
         // ErrorBoundary catches render errors; network errors logged server-side
@@ -71,7 +75,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (
@@ -159,7 +163,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
                 <XAxis dataKey="name" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} height={70} />
                 <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
                   formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
                 />

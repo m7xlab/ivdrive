@@ -17,6 +17,9 @@
 
   --background: var(--iv-black);
   --foreground: var(--iv-text);
+  --iv-purple: #8b5cf6;
+  --iv-red: #ef4444;
+  --iv-yellow: #f59e0b;
 }
 
 .dark {
@@ -34,6 +37,9 @@
 
   --background: var(--iv-black);
   --foreground: var(--iv-text);
+  --iv-purple: #a855f7;
+  --iv-red: #f87171;
+  --iv-yellow: #fbbf24;
 }
 
 @theme inline {
@@ -53,6 +59,9 @@
   --color-iv-muted: var(--iv-text-muted);
   --color-iv-danger: var(--iv-danger);
   --color-iv-warning: var(--iv-warning);
+  --color-iv-purple: var(--iv-purple);
+  --color-iv-red: var(--iv-red);
+  --color-iv-yellow: var(--iv-yellow);
 }
 
 body {
@@ -171,4 +180,15 @@ input:-webkit-autofill:focus {
   --color-dark-tremor-content-emphasis: #e0e4ef;
   --color-dark-tremor-content-strong: #f8fafc;
   --color-dark-tremor-content-inverted: #0f172a;
+}
+
+/* Force Recharts tooltip text to always be readable */
+.recharts-default-tooltip .recharts-tooltip-item {
+  color: var(--iv-text) !important;
+}
+
+.recharts-default-tooltip .recharts-tooltip-item-name,
+.recharts-default-tooltip .recharts-tooltip-item-separator,
+.recharts-default-tooltip .recharts-tooltip-item-value {
+  color: var(--iv-text) !important;
 }
