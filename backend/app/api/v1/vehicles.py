@@ -59,6 +59,7 @@ from app.schemas.telemetry import (
 from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate, VehicleReauth, TopPlaceItem
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
+from app.services.external_apis import reverse_geocode_address
 from app.services.skoda_auth import SkodaAuthClient
 
 logger = logging.getLogger(__name__)
@@ -1647,9 +1648,14 @@ async def get_top_places(
     for r in rows:
         geofence_id = r.geofence_id
         place_name = r.place_name
-        # For unknown locations, geofence_address holds the reverse-geocoded address
-        if r.is_unknown_location and r.geofence_address:
-            place_name = r.geofence_address
+        
+        # Unknown locations: reverse geocode the coordinates to get an address
+        if r.is_unknown_location:
+            address = await reverse_geocode_address(float(r.latitude), float(r.longitude))
+            if address:
+                place_name = address
+            elif r.geofence_address:
+                place_name = r.geofence_address  # fallback to stored address
 
         places.append(TopPlaceItem(
             geofence_id=geofence_id,

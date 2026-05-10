@@ -327,7 +327,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
         {/* Activity Timeline */}
         <div className="glass rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-iv-text">Activity Timeline</h3>
-          <div className="space-y-0.5 max-h-72 overflow-y-auto no-scrollbar">
+          <div className="space-y-0.5 max-h-96 overflow-y-auto no-scrollbar">
             {timeline.length === 0 ? (
               <p className="text-sm text-iv-muted py-6 text-center">No activity detected</p>
             ) : timeline.map((event) => {
