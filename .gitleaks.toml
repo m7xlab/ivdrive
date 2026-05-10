@@ -1,0 +1,27 @@
+[allowlist]
+  description = "iVDrive false positives"
+  # Recharts dataKey prop — not a secret, just a field name
+  paths = [
+    '''frontend/src/components/statistics/.+\.tsx$''',
+  ]
+  tokens = [
+    '''dataKey\s*=\s*["'](?!REDACTED)[\w_]+["']''',
+  ]
+
+[[rules]]
+  id = "ivdrive-data-key-false-positive"
+  description = "Recharts dataKey prop — not a secret"
+  pattern = '''dataKey\s*=\s*["'][a-z_]+["']'''
+  whitelist = true
+
+[[rules]]
+  id = "ivdrive-calibration-config"
+  description = "Calibration parameter keys in settings"
+  pattern = '''key\s*:\s*["'][a-z_]+_per_[a-z_]+'''
+  whitelist = true
+
+[[rules]]
+  id = "ivdrive-recharts-unit"
+  description = "Recharts YAxis unit strings"
+  pattern = '''unit\s*=\s*["'][^"']{1,20}["']'''
+  whitelist = true

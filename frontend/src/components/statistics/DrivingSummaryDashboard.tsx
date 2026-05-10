@@ -279,8 +279,8 @@ export function DrivingSummaryDashboard({ vehicleId, dateRange }: DrivingSummary
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} />
               <YAxis tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} axisLine={false} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
                 formatter={(value: number) => [`${value.toFixed(0)} km`, "Odometer"]}
               />

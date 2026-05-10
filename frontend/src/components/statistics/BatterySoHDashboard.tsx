@@ -96,9 +96,9 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
             <XAxis dataKey="date" stroke="#6b7280" fontSize={12} />
             <YAxis stroke="#6b7280" fontSize={12} yAxisId="left" domain={[0, 110]} tickFormatter={v => `${v}%`} />
             <YAxis stroke="#6b7280" fontSize={12} yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={v => `${v} kWh`} />
-            <Tooltip
-              contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #2d2d44', borderRadius: '8px', color: '#e5e7eb' }}
-              labelStyle={{ color: '#9ca3af' }}
+            <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+              contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px", color: "var(--iv-text)" }}
+              labelStyle={{ color: "var(--iv-muted)" }}
               formatter={(value: any, name: string) => [name === "SoH %" ? `${value}%` : `${value} kWh`, name]}
             />
             <Area type="monotone" dataKey="SoH %" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} yAxisId="left" />

@@ -194,8 +194,8 @@ export function ChargingEconomicsDashboard({ vehicleId, dateRange }: ChargingEco
               <XAxis dataKey="period" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} />
               <YAxis yAxisId="energy" orientation="left" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} axisLine={false} label={{ value: "kWh", angle: -90, position: "insideLeft" }} />
               <YAxis yAxisId="cost" orientation="right" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} axisLine={false} label={{ value: "€", angle: 90, position: "insideRight" }} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
                 formatter={(value: number, name: string) => [
                   name === "energy_kwh" ? `${value.toFixed(1)} kWh` : `€${value.toFixed(2)}`,
@@ -421,9 +421,9 @@ function ChargingMarkupSection({
               <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-iv-border" />
               <XAxis type="number" tickFormatter={(v) => `€${v}`} tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} />
               <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} className="text-iv-muted" tickLine={false} width={52} />
-              <Tooltip
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                 formatter={(value: number, name: string) => [`€${value.toFixed(2)}`, name]}
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
               />
               <Legend wrapperStyle={{ paddingTop: "12px" }} />

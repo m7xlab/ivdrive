@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
+from app.constants.calibration import effective_vehicle_calibration as _calibration
 from app.database import get_db
 from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError
 from app.models.user import User
@@ -43,21 +44,6 @@ async def get_user_vehicle(user_id: UUID, vehicle_id: UUID, db: AsyncSession) ->
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return vehicle
-
-
-def _calibration(vehicle: UserVehicle):
-    """Return per-vehicle efficiency thresholds, falling back to app-level defaults."""
-    return {
-        "charger_power_kw":            vehicle.charger_power_kw             or 22.0,
-        "ice_l_per_100km":             vehicle.ice_l_per_100km              or 8.0,
-        "uphill_kwh_per_100km_per_100m": vehicle.uphill_kwh_per_100km_per_100m or 0.20,
-        "downhill_kwh_per_100km_per_100m": vehicle.downhill_kwh_per_100km_per_100m or 0.15,
-        "speed_city_threshold_kmh":    vehicle.speed_city_threshold_kmh    or 50.0,
-        "speed_highway_threshold_kmh": vehicle.speed_highway_threshold_kmh or 90.0,
-        "temp_cold_max_celsius":       vehicle.temp_cold_max_celsius       or 5.0,
-        "temp_optimal_min_celsius":    vehicle.temp_optimal_min_celsius    or 15.0,
-        "temp_optimal_max_celsius":    vehicle.temp_optimal_max_celsius    or 25.0,
-    }
 
 
 @router.get("/{vehicle_id}/analytics/efficiency")

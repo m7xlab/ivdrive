@@ -114,31 +114,36 @@ jobs:
           category: trivy-fs
 
   # ─────────────────────────────────────────────
-  # 3. SAST — Semgrep (fast, runs on every PR)
+  # 3. SAST — Semgrep (disabled 2026-05-10)
+  #    Semgrep Cloud Platform requires SEMGREP_APP_TOKEN (org account needed)
+  #    Already covered by: trivy-fs (deps,IaC) + codeql (SAST)
   # ─────────────────────────────────────────────
-  semgrep:
-    name: Semgrep — SAST
-    runs-on: ubuntu-24.04
-    container:
-      image: semgrep/semgrep
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Semgrep
-        run: |
-          semgrep ci \
-            --config=p/default \
-            --config=p/security-audit \
-            --config=p/secrets \
-            --disable-version-check \
-            --sarif --output=semgrep.sarif
-
-      - name: Upload Semgrep SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: semgrep.sarif
-          category: semgrep
+  # semgrep:
+  #   name: Semgrep — SAST
+  #   runs-on: ubuntu-24.04
+  #   permissions:
+  #     contents: read
+  #     security-events: write
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - name: Run Semgrep
+  #       env:
+  #         SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+  #       run: |
+  #         semgrep ci \
+  #           --config=p/default \
+  #           --config=p/security-audit \
+  #           --config=p/secrets \
+  #           --disable-version-check \
+  #           --sarif --output=semgrep.sarif
+  #
+  #     - name: Upload Semgrep SARIF
+  #       if: always()
+  #       uses: github/codeql-action/upload-sarif@v4
+  #       with:
+  #         sarif_file: 'semgrep.sarif'
+  #         category: semgrep
 
   # ─────────────────────────────────────────────
   # 4. SAST — CodeQL (deep semantic analysis)
@@ -171,7 +176,7 @@ jobs:
           category: "/language:${{ matrix.language }}"
 
   # ─────────────────────────────────────────────
-  # 5. Secrets scan (Gitleaks) — belt-and-suspenders alongside Trivy/Semgrep
+  # 5. Secrets scan (Gitleaks) — belt-and-suspenders alongside Trivy/CodeQL
   # ─────────────────────────────────────────────
   gitleaks:
     name: Gitleaks — Secrets

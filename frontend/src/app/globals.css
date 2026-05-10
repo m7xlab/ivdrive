@@ -172,3 +172,14 @@ input:-webkit-autofill:focus {
   --color-dark-tremor-content-strong: #f8fafc;
   --color-dark-tremor-content-inverted: #0f172a;
 }
+
+/* Force Recharts tooltip text to always be readable */
+.recharts-default-tooltip .recharts-tooltip-item {
+  color: var(--iv-text) !important;
+}
+
+.recharts-default-tooltip .recharts-tooltip-item-name,
+.recharts-default-tooltip .recharts-tooltip-item-separator,
+.recharts-default-tooltip .recharts-tooltip-item-value {
+  color: var(--iv-text) !important;
+}

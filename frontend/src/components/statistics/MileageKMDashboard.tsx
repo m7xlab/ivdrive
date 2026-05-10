@@ -232,7 +232,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                 domain={["auto", "auto"]}
               />
-              <Tooltip
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const p = payload[0].payload;

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { useTheme } from "next-themes";
 import L from "leaflet";
 import { api } from "@/lib/api";
 import { settingsApi } from "@/lib/api/settings";
@@ -461,8 +462,8 @@ Mileage trend chart data (last 60 odometer readings, reversed → chronological)
                 axisLine={false}
                 domain={["auto", "auto"]}
               />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
                 formatter={(value: number, name: string, props: any) => {
                   const dateStr = format(new Date(props.payload.t), "d MMM yyyy");
@@ -482,11 +483,11 @@ Mileage trend chart data (last 60 odometer readings, reversed → chronological)
           <MapContainer
             center={mapCenter}
             zoom={10}
-            className="h-80 rounded-xl z-0"
-            style={{ background: "var(--iv-bg)" }}
+            className="h-80 rounded-xl overflow-hidden z-0"
+            style={{ width: "100%", height: "100%" }}
           >
             <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             />
             {visitedLocations.map((loc, i) => (

@@ -115,7 +115,7 @@ export function RouteEfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
               <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: 'kWh/100km', position: 'insideBottom', style: { fill: 'var(--iv-muted)', fontSize: 11 } }} />
               <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={130} tick={{ fontSize: 10 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #d8dce6", borderRadius: "8px", color: "#1a1d2e", fontSize: "11px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px", color: "var(--iv-text)", fontSize: "11px" }}
                 itemStyle={{ color: "#1a1d2e", fontSize: "11px" }}
                 labelStyle={{ color: "#1a1d2e", fontWeight: 600, fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" }}
                 formatter={(value: number, name: string) => [value, name]}

@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.v1.dependencies import get_current_active_user
 from app.config import settings
+from app.constants.calibration import VEHICLE_CALIBRATION_DEFAULTS
 from app.database import get_db
 from app.models.geofence import Geofence  # noqa: F401
 from app.models.telemetry import (
@@ -272,6 +273,12 @@ async def create_vehicle(
     )
 
     return _vehicle_to_response(vehicle)
+
+
+@router.get("/calibration-defaults")
+async def get_vehicle_calibration_defaults(_user: User = Depends(get_current_active_user)):
+    """Public tuning defaults used when per-vehicle calibration columns are null (efficiency analytics)."""
+    return dict(VEHICLE_CALIBRATION_DEFAULTS)
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)

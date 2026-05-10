@@ -121,7 +121,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
               <YAxis tick={{ fontSize: 12 }} className="text-iv-muted"
                 label={{ value: "Power (kW)", angle: -90, position: "insideLeft", style: { fill: "var(--iv-muted)" } }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 labelStyle={{ color: "var(--iv-muted)" }}
                 formatter={(value: number, name: string) => [value.toFixed(2), name === "avg_power_kw" ? "Avg Power (kW)" : "Max Power (kW)"]}
                 labelFormatter={(label) => `SoC: ${label}%`}
@@ -155,7 +155,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
               <YAxis yAxisId="left" className="text-iv-muted text-xs" label={{ value: 'kWh', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <YAxis yAxisId="right" orientation="right" className="text-iv-muted text-xs" label={{ value: 'min', angle: 90, position: 'insideRight', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />

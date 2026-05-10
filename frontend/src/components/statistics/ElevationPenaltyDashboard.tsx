@@ -115,7 +115,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
               <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />
@@ -136,7 +136,7 @@ export function ElevationPenaltyDashboard({ vehicleId }: { vehicleId: string }) 
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
               <YAxis className="text-iv-muted text-xs" />
               <Tooltip
-                contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Line type="monotone" dataKey="elev_change" stroke="var(--iv-cyan)" strokeWidth={2} dot={{ r: 4 }} />

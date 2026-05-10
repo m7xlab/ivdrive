@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { MapPin, Loader2, Zap, Car, Clock, Home, Briefcase, ParkingSquare, WifiOff, KeyRound } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
+import { useTheme } from "next-themes";
 import { formatSmartDuration } from "@/lib/format";
 import type { TimelineRange } from "./StatisticsShell";
 
@@ -167,6 +168,10 @@ function StayIcon({ label, isCharging }: { label: string; isCharging: boolean })
   return <MapPin size={15} className="text-iv-muted" />;
 }
 
+/** Shared fixed height for Top Places + Activity Timeline cards (scroll inside body). */
+const MOVEMENT_PANEL_CLASS =
+  "glass rounded-xl p-5 flex flex-col min-h-0 h-[570px] max-h-[70vh] overflow-hidden";
+
 export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardProps) {
   const [locations, setLocations] = useState<VisitedLocation[]>([]);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
@@ -298,13 +303,15 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-        {/* Top Places */}
-        <div className="glass rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-iv-text">Top Places</h3>
+        {/* Top Places — fixed 570px card height; list scrolls */}
+        <div className={MOVEMENT_PANEL_CLASS}>
+          <h3 className="text-sm font-semibold text-iv-text shrink-0">Top Places</h3>
           {topPlaceStats.length === 0 ? (
-            <p className="text-sm text-iv-muted py-6 text-center">No distinct places detected</p>
+            <div className="flex-1 min-h-0 flex items-center justify-center mt-3">
+              <p className="text-sm text-iv-muted text-center px-2">No distinct places detected</p>
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar space-y-2 mt-3 pr-1">
               {topPlaceStats.map((place) => (
                 <div key={place.label} className="flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border border-iv-border/50">
                   <div className={`p-2 rounded-full shrink-0 ${place.charging ? "bg-iv-green/10" : "bg-iv-cyan/10"}`}>
@@ -324,12 +331,14 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
           )}
         </div>
 
-        {/* Activity Timeline */}
-        <div className="glass rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-iv-text">Activity Timeline</h3>
-          <div className="space-y-0.5 max-h-96 overflow-y-auto no-scrollbar">
+        {/* Activity Timeline — same fixed height as Top Places */}
+        <div className={MOVEMENT_PANEL_CLASS}>
+          <h3 className="text-sm font-semibold text-iv-text shrink-0">Activity Timeline</h3>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar space-y-0.5 mt-3 pr-1">
             {timeline.length === 0 ? (
-              <p className="text-sm text-iv-muted py-6 text-center">No activity detected</p>
+              <div className="flex items-center justify-center min-h-[120px]">
+                <p className="text-sm text-iv-muted text-center px-2">No activity detected</p>
+              </div>
             ) : timeline.map((event) => {
               if (event.type === "stay") {
                 const s = event.data as StayEvent;
@@ -369,28 +378,16 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
 function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; stayEvents: StayEvent[] }) {
   const [MapComponents, setMapComponents] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
-  const [isDark, setIsDark] = useState(true);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    // Detect current theme
-    const dark = document.documentElement.classList.contains("dark") ||
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setIsDark(dark);
-
-    // Watch for theme changes
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-
     import("react-leaflet").then((L) => {
       setMapComponents({ MapContainer: L.MapContainer, TileLayer: L.TileLayer, CircleMarker: L.CircleMarker, Popup: L.Popup, ZoomControl: L.ZoomControl });
     });
-
-    return () => observer.disconnect();
   }, [mounted]);
 
   if (!MapComponents || locations.length === 0) {
