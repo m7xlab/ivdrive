@@ -1,6 +1,12 @@
 # Changelog
 
-## [Unreleased] - 2026-05-08
+## [Unreleased] - 2026-05-10
+### Fixed
+- DrivingDashboard + MovementDashboard (frontend): All data sources now respect the selected dateRange — odometer, visited locations, time budget, and trips all use the same period filter. Previously time budget and mileage showed all-time data regardless of the date picker.
+- DrivingDashboard (frontend): KPI cards now show period totals (sum of all days in range) instead of only the latest-day values. Historical stats table now shows all available rows with scrollable overflow instead of hard-coded slice of 7.
+- analytics.py (`movement-stats`): Made `from_date`/`to_date` query params optional — when absent, returns all-time aggregation. Previously called `/time-budget` endpoint which had no date filter support.
+- MovementDashboard (frontend): Time Budget now fetches period-filtered data instead of all-time. Badge updated from "All-time" to "Period".
+
 ### Fixed
 - vehicles.py (`/statistics` endpoint): Timezone-aware day truncation using vehicle.home_tz field — supports all IANA timezones; falls back to Europe/Vilnius for vehicles without home_tz set. Eliminates UTC midnight misalignment that caused Driving Stats historical data to show only 2 days instead of the full selected period. **Security**: Uses SQLAlchemy `.op("AT TIME ZONE")(tz)` instead of `text(f"... '{tz}' ...")` — tz validated against IANA whitelist before reaching SQL.
 - MovementDashboard (frontend): Use geofenceId instead of label string-matching to group Top Places — same Work geofence visits now merge into a single entry regardless of cluster centroid drift. Duration-weighted centroid averaging applied for coordinate-keyed (non-geofence) stays; geofence stays keep original center coordinates.

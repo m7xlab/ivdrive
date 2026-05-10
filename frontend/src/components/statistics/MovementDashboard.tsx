@@ -172,13 +172,13 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
 
-  // All-time time budget — fetched once, not date-dependent
+  // Period-based time budget — refetches when date range changes
   useEffect(() => {
     setLoadingBudget(true);
-    api.getTimeBudget(vehicleId)
+    api.getTimeBudget(vehicleId, fromISO, toISO)
       .then(setTimeBudget)
       .finally(() => setLoadingBudget(false));
-  }, [vehicleId]);
+  }, [vehicleId, fromISO, toISO]);
 
   // Period-based location data — refetches when date range changes
   const fetchPeriodData = useCallback(async () => {
@@ -245,11 +245,11 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   return (
     <div className="space-y-6">
 
-      {/* ── All-time Time Budget ── */}
+      {/* ── Period Time Budget ── */}
       <div className="glass rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-iv-text">Time Budget</h3>
-          <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All-time</span>
+          <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Period</span>
         </div>
 
         {loadingBudget ? (

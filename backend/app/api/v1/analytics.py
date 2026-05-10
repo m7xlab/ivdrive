@@ -521,13 +521,22 @@ async def get_legacy_climatization(
 @router.get("/{vehicle_id}/analytics/movement-stats")
 async def get_movement_stats(
     vehicle_id: UUID,
-    from_date: datetime = Query(...),
-    to_date: datetime = Query(...),
+    from_date: datetime | None = Query(default=None),
+    to_date: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Returns accurate time-budget breakdown using real vehicle_states and charging_states."""
     await get_user_vehicle(user.id, vehicle_id, db)
+
+    # All-time fallback: if no date range given, use earliest → now
+    if from_date is None or to_date is None:
+        min_date = (datetime.now(timezone.utc) - timedelta(days=365 * 5)).replace(tzinfo=timezone.utc)
+        max_date = datetime.now(timezone.utc)
+        if from_date is None:
+            from_date = min_date
+        if to_date is None:
+            to_date = max_date
 
     # Ensure from_date/to_date are timezone-aware (UTC) so comparisons with
     # timezone-aware DB columns (vehicle_states, charging_states) don't fail
