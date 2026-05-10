@@ -296,7 +296,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
         <div className="h-px flex-1 bg-iv-border/40" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* Top Places */}
         <div className="glass rounded-xl p-5 space-y-3">
