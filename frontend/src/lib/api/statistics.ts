@@ -229,8 +229,8 @@ export const statisticsApi = {
     return res.json();
   },
 
-  async getSpeedTempMatrix(id: string) {
-    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/speed-temp-matrix`);
+  async getSpeedTempMatrix(id: string, queryString = "") {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/speed-temp-matrix${queryString}`);
     return res.json();
   },
 

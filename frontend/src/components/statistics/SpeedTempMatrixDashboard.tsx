@@ -15,6 +15,11 @@ import {
   Cell,
 } from "recharts";
 
+interface DateRangeValue {
+  from: Date;
+  to: Date;
+}
+
 interface SpeedTempMatrixResponse {
   grid: Array<{
     speed_category: string;
@@ -53,7 +58,7 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
+export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: DateRangeValue }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -62,7 +67,10 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getSpeedTempMatrix(vehicleId);
+        const params = new URLSearchParams();
+        if (dateRange?.from) params.set("from_date", dateRange.from.toISOString());
+        if (dateRange?.to) params.set("to_date", dateRange.to.toISOString());
+        const res = await api.getSpeedTempMatrix(vehicleId, params.toString() ? `?${params}` : "");
         setData(res);
       } catch {
         // ErrorBoundary catches render errors; network errors logged server-side
@@ -71,7 +79,7 @@ export function SpeedTempMatrixDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (
