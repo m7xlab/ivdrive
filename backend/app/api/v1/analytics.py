@@ -524,7 +524,11 @@ async def get_movement_stats(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Returns accurate time-budget breakdown using real vehicle_states and charging_states."""
+    """Returns accurate time-budget breakdown using real vehicle_states and charging_states.
+    
+    Only includes PARKED, DRIVING, IGNITION_ON, OFFLINE states.
+    Excludes YES/NO (door lock states from Skoda API overall.locked, not movement states).
+    """
     await get_user_vehicle(user.id, vehicle_id, db)
 
     # All-time fallback: if no date range given, use earliest → now
@@ -548,6 +552,7 @@ async def get_movement_stats(
         select(VehicleState)
         .where(
             VehicleState.user_vehicle_id == vehicle_id,
+            VehicleState.state.in_(["PARKED", "DRIVING", "IGNITION_ON", "OFFLINE"]),
             VehicleState.first_date < to_date,
             VehicleState.last_date > from_date,
         )
@@ -609,10 +614,11 @@ async def get_time_budget(
     user: User = Depends(get_current_user),
 ):
     """
-    All-time time budget, fully aggregated in the DB.
-    - vehicle_states with first_date != last_date: sum duration directly (PARKED, DRIVING, etc.)
+    All-time time budget, aggregated from validated movement states only.
+    - Only PARKED, DRIVING, IGNITION_ON, OFFLINE states (excludes YES/NO door lock states)
     - charging_states (CHARGING snapshots): reconstruct sessions via gap detection (gap > 30 min = new session),
       add 5 min per session to cover the last snapshot interval.
+    Note: long parking intervals (>24h) may reflect collector downtime rather than actual stationary time.
     Returns totals in seconds per category.
     """
     await get_user_vehicle(user.id, vehicle_id, db)
