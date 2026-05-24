@@ -259,7 +259,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
         api.getStatistics(vehicleId, "day", 30, fromISO, toISO),
         // ── odometer: no date filter ── full history for mileage trend
         api.getOdometer(vehicleId, 5000),
-        api.getTimeBudget(vehicleId),
+        api.getMovementStats(vehicleId, fromISO ?? '', toISO ?? ''),
         // ── visited locations: no date filter ── all-time for map
         api.getVisitedLocations(vehicleId, 5000),
         settingsApi.getGeofences().catch(() => [] as Geofence[]),

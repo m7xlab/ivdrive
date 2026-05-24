@@ -172,13 +172,13 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
 
-  // All-time time budget — fetched once, not date-dependent
+  // Period time budget from movement-stats (date-range aware)
   useEffect(() => {
     setLoadingBudget(true);
-    api.getTimeBudget(vehicleId)
+    api.getMovementStats(vehicleId, fromISO, toISO)
       .then(setTimeBudget)
       .finally(() => setLoadingBudget(false));
-  }, [vehicleId]);
+  }, [vehicleId, fromISO, toISO]);
 
   // Period-based location data — refetches when date range changes
   const fetchPeriodData = useCallback(async () => {
