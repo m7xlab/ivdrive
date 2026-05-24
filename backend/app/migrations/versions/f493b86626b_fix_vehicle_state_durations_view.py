@@ -1,10 +1,8 @@
 """fix_vehicle_state_durations_view_and_time_budget
 
-Fix v_vehicle_state_durations to:
-1. Filter YES/NO states (door lock states, not movement states)
-2. Cap individual intervals at 24h (handles collector downtime gaps)
-
-Also adds WHERE clause to movement-stats endpoint to filter invalid states.
+Filter YES/NO states from v_vehicle_state_durations:
+YES/NO are door lock states from Skoda API (overall.locked), NOT movement states.
+They should never have been included in time-budget calculations.
 
 Revision ID: f493b86626b
 Revises: f493b86626a
@@ -43,10 +41,7 @@ def upgrade() -> None:
         state,
         first_date,
         next_state_start AS state_end_date,
-        LEAST(
-            EXTRACT(EPOCH FROM (next_state_start - first_date)),
-            86400
-        ) AS duration_seconds
+        EXTRACT(EPOCH FROM (next_state_start - first_date)) AS duration_seconds
     FROM
         state_and_next_ts
     WHERE
