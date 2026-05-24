@@ -265,9 +265,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                     </div>
                     <p className={`text-2xl font-bold ${b.textColor}`}>{formatSmartDuration(b.seconds / 60)}</p>
                     <p className="text-xs text-iv-muted">{pct.toFixed(1)}%</p>
-                    {avgPerDay !== null && (
-                      <p className="text-xs text-iv-muted/70">{hours.toFixed(1)}h total</p>
-                    )}
+                    <p className="text-xs text-iv-muted/70">{hours.toFixed(1)}h total</p>
                   </div>
                 );
               })}
