@@ -200,7 +200,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   useEffect(() => { fetchPeriodData(); }, [fetchPeriodData]);
 
   const timeline = buildActivityTimeline(locations, geofences);
-  const stayEvents = timeline.filter((e) => e.type === "stay").map((e) => e.data as StayEvent);
+  const stayEvents = Array.from(timeline).reduce<StayEvent[]>((acc, e) => { if (e.type === "stay") acc.push(e.data as StayEvent); return acc; }, []);
 
   // Top places by time spent
   // Use geofence label as key so same-named places (e.g. "Work") merge even if

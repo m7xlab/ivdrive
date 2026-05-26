@@ -424,7 +424,7 @@ export function CarOverviewDashboard({
   outsideTemp.forEach((p) => timeSetCharging.add(p.time));
   batteryTemp.forEach((p) => timeSetCharging.add(p.time));
 
-  const chargingChartData = Array.from(timeSetCharging).filter(Boolean).map((ts) => {
+  const chargingChartData = Array.from(timeSetCharging).map((ts) => {
     const timeMs = new Date(ts).getTime();
     // Find nearest charging point that wraps this timeMs
     const c = charging.find(x => {
@@ -484,7 +484,7 @@ export function CarOverviewDashboard({
   rangeAt100.forEach((p) => timeSetCons.add(p.time));
   electricConsumption.forEach((p) => timeSetCons.add(p.time));
   
-  const rangeAt100ChartData = Array.from(timeSetCons).filter(Boolean).map((time) => {
+  const rangeAt100ChartData = Array.from(timeSetCons).map((time) => {
     const r100 = rangeAt100.find(r => r.time && time && (r.time === time || String(r.time).slice(0, 19) === String(time).slice(0, 19)));
     const eCons = electricConsumption.find(e => e.time && time && (e.time === time || String(e.time).slice(0, 19) === String(time).slice(0, 19)));
     return {

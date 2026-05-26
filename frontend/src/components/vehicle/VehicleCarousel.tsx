@@ -84,7 +84,7 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
       >
         {renders.map((render, idx) => (
           <div
-            key={idx}
+            key={render.vehicle_id || render.id || idx}
             className={cn(
               "absolute inset-0 transition-all duration-1000 ease-in-out transform",
               idx === activeIndex ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
