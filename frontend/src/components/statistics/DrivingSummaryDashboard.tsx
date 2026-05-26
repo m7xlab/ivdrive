@@ -193,12 +193,12 @@ export function DrivingSummaryDashboard({ vehicleId, dateRange }: DrivingSummary
       if (existing) { existing.count++; existing.ms += 60000; }
       else map.set(key, { lat: loc.latitude, lon: loc.longitude, ms: 60000, count: 1 });
     }
-    return [...map.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+    return map.values().toSorted((a, b) => b.ms - a.ms).slice(0, 5);
   }, [visitedLocations]);
 
   // Recent trips (last 10)
   const recentTrips = useMemo(() => {
-    return [...trips].sort((a, b) => {
+    return trips.toSorted((a, b) => {
       const da = new Date(a.start_time).getTime();
       const db = new Date(b.start_time).getTime();
       return db - da;

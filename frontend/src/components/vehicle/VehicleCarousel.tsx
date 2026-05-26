@@ -162,7 +162,7 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
                 style={{ zIndex }}
               >
                 <button
-                  type="button"onClick={() => handleManualAction(idx)}
+                  type="button" onClick={() => handleManualAction(idx)}
                   type="button"
                   style={{ 
                       transform: `scale(${scale})`,

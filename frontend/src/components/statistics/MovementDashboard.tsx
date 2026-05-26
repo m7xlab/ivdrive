@@ -221,7 +221,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
       placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
     }
   }
-  const topPlaces = [...placeMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+  const topPlaces = placeMap.values().toSorted((a, b) => b.ms - a.ms).slice(0, 5);
 
   const tb = timeBudget;
   const totalS = Math.max(

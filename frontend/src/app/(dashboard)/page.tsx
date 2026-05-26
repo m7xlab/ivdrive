@@ -410,14 +410,14 @@ function AddVehicleModal({
 
           <div className="flex gap-3 pt-2">
             <button
-             type="button" type="button"
+             type="button"
               onClick={onClose}
               className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text"
             >
               Cancel
             </button>
             <button
-             type="button" type="submit"
+             type="submit"
               disabled={submitting || !vin || !skodaUsername || !skodaPassword}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-green px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-green/90 disabled:opacity-40 disabled:cursor-not-allowed"
             >

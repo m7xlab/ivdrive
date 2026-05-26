@@ -777,7 +777,7 @@ export function CarOverviewDashboard({
             <p className="text-xs text-iv-muted mt-3">
               {useStep && <span>Step-style (first/last date per segment). </span>}
               {avgKmPerPct != null && (
-                <span>Avg km/% (range per SoC): {avgKmPerPct.toFixed(1)} km/% — trend of how range drops with level.</span>
+                <span>Avg km/% (range per SoC): {avgKmPerPct.toFixed(1)} km/%  -  trend of how range drops with level.</span>
               )}
             </p>
           )}

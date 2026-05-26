@@ -615,7 +615,7 @@ function InvitesTable({
                       </button>
                     )}
                     {inv.status !== "pending" && inv.status !== "approved" && (
-                      <span className="text-xs text-iv-muted/50">—</span>
+                      <span className="text-xs text-iv-muted/50"> - </span>
                     )}
                   </div>
                 </td>
@@ -859,7 +859,7 @@ function UsersTable({
                 </td>
                 <td className="px-5 py-3.5 text-right">
                   {u.id === currentUserId ? (
-                    <span className="text-xs text-iv-muted/50">—</span>
+                    <span className="text-xs text-iv-muted/50"> - </span>
                   ) : (
                     <div className="flex items-center justify-end gap-2">
                       <button

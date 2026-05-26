@@ -616,7 +616,7 @@ export default function SettingsPage() {
                 {/* ── Efficiency Calibration (inline) ── */}
                 {calibrationExpanded === v.id && (
                   <div className="border-t border-iv-border/50 pt-3 space-y-3">
-                    <p className="text-xs text-iv-muted">Tune analytics calculations. Pre-filled with app defaults — adjust only if needed.</p>
+                    <p className="text-xs text-iv-muted">Tune analytics calculations. Pre-filled with app defaults  -  adjust only if needed.</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                       {[
                         { key: "charger_power_kw", label: "Charger Power (kW)", step: "1", min: "1", max: "350" },
@@ -1088,7 +1088,7 @@ export default function SettingsPage() {
       {/* Re-authenticate modal */}
       {reauthModalId && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div role="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !reauthLoading && setReauthModalId(null)} onKeyDown={(e) => e.key === "Escape" && !reauthLoading && setReauthModalId(null)} />
+          <button type="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !reauthLoading && setReauthModalId(null)} onKeyDown={(e) => e.key === "Escape" && !reauthLoading && setReauthModalId(null)} />
           <div className="glass relative w-full max-w-sm rounded-2xl p-6">
             <h2 className="text-lg font-semibold text-iv-text mb-2 flex items-center gap-2"><KeyRound size={18} className="text-iv-cyan" /> Re-authenticate</h2>
             <p className="text-xs text-iv-muted mb-4">
@@ -1116,7 +1116,7 @@ export default function SettingsPage() {
       {/* Delete confirmation modal */}
       {deleteModalId && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div role="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteModalId(null)} onKeyDown={(e) => e.key === "Escape" && setDeleteModalId(null)} />
+          <button type="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteModalId(null)} onKeyDown={(e) => e.key === "Escape" && setDeleteModalId(null)} />
           <div className="glass relative w-full max-w-sm rounded-2xl p-6">
             <h2 className="text-lg font-semibold text-iv-text mb-2">Delete Vehicle</h2>
             <p className="text-sm text-iv-muted mb-6">
@@ -1139,7 +1139,7 @@ export default function SettingsPage() {
       {/* Delete Account Modal */}
       {showDeleteAccountModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div role="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !accountDeleting && setShowDeleteAccountModal(false)} onKeyDown={(e) => e.key === "Escape" && !accountDeleting && setShowDeleteAccountModal(false)} />
+          <button type="button" tabIndex={0} aria-label="Close modal" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !accountDeleting && setShowDeleteAccountModal(false)} onKeyDown={(e) => e.key === "Escape" && !accountDeleting && setShowDeleteAccountModal(false)} />
           <div className="glass relative w-full max-w-sm rounded-2xl p-6">
             <h2 className="text-lg font-semibold text-iv-danger mb-2">Delete Account</h2>
             <p className="text-sm text-iv-text mb-4">
