@@ -698,7 +698,7 @@ export default function VehicleDetailPage() {
       {vehicle.warning_lights && vehicle.warning_lights.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7 mb-6">
           {vehicle.warning_lights.map((wl, idx) => (
-            <WarningLightPill key={idx} category={wl.category} defects={wl.defects} />
+            <WarningLightPill key=item.vehicle_id || item.id || idx category={wl.category} defects={wl.defects} />
           ))}
         </div>
       )}
@@ -1010,8 +1010,8 @@ export default function VehicleDetailPage() {
                   <div className="relative h-12 w-12 rounded-full border-4 border-iv-cyan" 
                        style={{ borderColor: `conic-gradient(var(--iv-cyan) ${acPercent}%, var(--iv-warning) 0)` }}>
                     <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--iv-warning)" strokeWidth="4" />
-                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--iv-cyan)" strokeWidth="4" strokeDasharray={`${acPercent}, 100`} />
+                      <path d="M18 2.1 a 15.9 15.9 0 0 1 0 31.8 a 15.9 15.9 0 0 1 0 -31.8" fill="none" stroke="var(--iv-warning)" strokeWidth="4" />
+                      <path d="M18 2.1 a 15.9 15.9 0 0 1 0 31.8 a 15.9 15.9 0 0 1 0 -31.8" fill="none" stroke="var(--iv-cyan)" strokeWidth="4" strokeDasharray={`${acPercent}, 100`} />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-iv-text">{totalSessionsCount}</div>
                   </div>

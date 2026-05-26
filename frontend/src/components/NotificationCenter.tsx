@@ -68,7 +68,7 @@ export function NotificationCenter() {
       if (part.match(urlRegex)) {
         return (
           <a
-            key={index}
+            key=n.id || n.notification_id || idx
             href={part}
             target="_blank"
             rel="noopener noreferrer"
