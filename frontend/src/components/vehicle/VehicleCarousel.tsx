@@ -163,7 +163,6 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
               >
                 <button
                   type="button" onClick={() => handleManualAction(idx)}
-                  type="button"
                   style={{ 
                       transform: `scale(${scale})`,
                       opacity: opacity,

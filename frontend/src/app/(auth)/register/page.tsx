@@ -177,7 +177,7 @@ function RegisterForm() {
           </div>
 
           <button
-           type="button" type="submit"
+           type="submit"
             disabled={loading}
             className="mt-2 w-full bg-gradient-to-r from-iv-cyan to-iv-green text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -329,7 +329,7 @@ function RegisterForm() {
         </div>
 
         <button
-         type="button" type="submit"
+         type="submit"
           disabled={loading || password.length < 8 || password !== confirmPassword}
           className="mt-2 w-full bg-gradient-to-r from-iv-green to-iv-cyan text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
