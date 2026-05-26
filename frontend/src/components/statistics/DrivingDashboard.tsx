@@ -349,7 +349,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
 
   // Recent trips (last 10)
   const recentTrips = useMemo(() => {
-    return [...trips].sort((a, b) => {
+    return trips.toSorted((a, b) => {
       const da = new Date(a.start_time).getTime();
       const db = new Date(b.start_time).getTime();
       return db - da;

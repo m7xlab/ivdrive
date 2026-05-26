@@ -122,7 +122,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
     );
   }
 
-  const sorted = [...odometer].sort(
+  const sorted = odometer.toSorted(
     (a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
   );
   const lastOdometerKm = sorted[sorted.length - 1].mileage_in_km;
