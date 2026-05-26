@@ -74,7 +74,7 @@ function Toast({ status, message, onDismiss }: { status: "success" | "error"; me
     <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${status === "success" ? "bg-iv-green/10 text-iv-green" : "bg-iv-danger/10 text-iv-danger"}`}>
       {status === "success" ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
       <span className="flex-1">{message}</span>
-      <button type="button"onClick={onDismiss} className="opacity-60 hover:opacity-100">×</button>
+      <button type="button" onClick={onDismiss} className="opacity-60 hover:opacity-100">×</button>
     </div>
   );
 }
@@ -469,7 +469,7 @@ export default function SettingsPage() {
                   {/* Remove button – icon-only on mobile, icon+label on sm+ */}
                   {v.connector_status === "token_error" && (
                     <button
-                      type="button"onClick={() => {
+                      type="button" onClick={() => {
                         setReauthUsername("");
                         setReauthPassword("");
                         setReauthSpin("");
@@ -482,7 +482,7 @@ export default function SettingsPage() {
                     </button>
                   )}
                   <button
-                    type="button"onClick={() => setDeleteModalId(v.id)}
+                    type="button" onClick={() => setDeleteModalId(v.id)}
                     disabled={vehicleDeleting === v.id}
                     className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50"
                   >
@@ -492,7 +492,7 @@ export default function SettingsPage() {
                     <span className="hidden sm:inline">Remove</span>
                   </button>
                   <button
-                    type="button"onClick={() => setCalibrationExpanded(v.id)}
+                    type="button" onClick={() => setCalibrationExpanded(v.id)}
                     className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
                     title="Efficiency Calibration"
                   >
@@ -567,15 +567,15 @@ export default function SettingsPage() {
                         <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">Code</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <button type="button"onClick={() => handleSaveInterval(v.id)}
+                        <button type="button" onClick={() => handleSaveInterval(v.id)}
                           className="text-xs text-iv-green hover:underline">Save</button>
-                        <button type="button"onClick={() => setEditingInterval(null)}
+                        <button type="button" onClick={() => setEditingInterval(null)}
                           className="text-xs text-iv-muted hover:underline">Cancel</button>
                       </div>
                     </div>
                   ) : (
                     <button
-                      type="button"onClick={() => {
+                      type="button" onClick={() => {
                         setEditingInterval(v.id);
                         setEditForms(prev => ({
                           ...prev,
@@ -660,7 +660,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        type="button"onClick={async () => {
+                        type="button" onClick={async () => {
                           const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null>;
                           const defaults: Record<string, number> = {
                             charger_power_kw: 22.0, ice_l_per_100km: 8.0,
@@ -684,7 +684,7 @@ export default function SettingsPage() {
                         className="rounded-xl bg-iv-green px-4 py-2 text-xs font-semibold text-white hover:bg-iv-green/90"
                       >Save</button>
                       <button
-                        type="button"onClick={() => setCalibrationExpanded(null)}
+                        type="button" onClick={() => setCalibrationExpanded(null)}
                         className="rounded-xl border border-iv-border px-4 py-2 text-xs font-medium text-iv-muted hover:bg-iv-surface hover:text-iv-text"
                       >Cancel</button>
                     </div>
@@ -714,7 +714,7 @@ export default function SettingsPage() {
             <input id="profile-display-name" type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className={inputClasses} />
           </div>
           <div className="flex justify-end">
-            <button type="button"onClick={handleProfileSave} disabled={profileSaving} className={btnPrimaryClasses}>
+            <button type="button" onClick={handleProfileSave} disabled={profileSaving} className={btnPrimaryClasses}>
               {profileSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Saving</span> : "Save Profile"}
             </button>
           </div>
@@ -772,14 +772,14 @@ export default function SettingsPage() {
             </div>
             {user?.is_totp_enabled ? (
               <button
-                type="button"onClick={() => setShow2FADisable(true)}
+                type="button" onClick={() => setShow2FADisable(true)}
                 className="rounded-lg bg-iv-danger/10 px-4 py-2 text-sm font-medium text-iv-danger transition-colors hover:bg-iv-danger/20"
               >
                 Disable 2FA
               </button>
             ) : (
               <button
-                type="button"onClick={handleSetup2FA}
+                type="button" onClick={handleSetup2FA}
                 disabled={is2FASettingLoading}
                 className={btnPrimaryClasses}
               >
@@ -824,7 +824,7 @@ export default function SettingsPage() {
               </div>
               <div className="flex justify-end gap-2">
                 <button
-                  type="button"onClick={() => {
+                  type="button" onClick={() => {
                     setShow2FASetup(false);
                     setTwoFactorData(null);
                   }}
@@ -833,7 +833,7 @@ export default function SettingsPage() {
                   Cancel
                 </button>
                 <button
-                  type="button"onClick={handleEnable2FA}
+                  type="button" onClick={handleEnable2FA}
                   disabled={is2FASettingLoading || twoFactorCode.length !== 6}
                   className={btnPrimaryClasses}
                 >
@@ -863,7 +863,7 @@ export default function SettingsPage() {
 
               <div className="flex justify-center">
                 <button
-                  type="button"onClick={() => {
+                  type="button" onClick={() => {
                     setShowRecoveryCodes(false);
                     setTwoFactorData(null);
                   }}
@@ -891,13 +891,13 @@ export default function SettingsPage() {
               </div>
               <div className="flex justify-end gap-2">
                 <button
-                  type="button"onClick={() => setShow2FADisable(false)}
+                  type="button" onClick={() => setShow2FADisable(false)}
                   className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text"
                 >
                   Cancel
                 </button>
                 <button
-                  type="button"onClick={handleDisable2FA}
+                  type="button" onClick={handleDisable2FA}
                   disabled={is2FASettingLoading || !twoFactorPassword}
                   className="rounded-lg bg-iv-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-iv-danger/90"
                 >
@@ -932,7 +932,7 @@ export default function SettingsPage() {
                       {gf.address || `${gf.latitude.toFixed(4)}, ${gf.longitude.toFixed(4)}`} · {gf.radius_meters}m radius
                     </p>
                   </div>
-                  <button type="button"onClick={() => handleDeleteGeofence(gf.id)} disabled={gfDeleting === gf.id}
+                  <button type="button" onClick={() => handleDeleteGeofence(gf.id)} disabled={gfDeleting === gf.id}
                     className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50">
                     {gfDeleting === gf.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                   </button>
@@ -968,14 +968,14 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-1">
-                <button type="button"onClick={() => setShowAddForm(false)} className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text transition-colors">Cancel</button>
-                <button type="button"onClick={handleAddGeofence} disabled={gfSaving} className={btnPrimaryClasses}>
+                <button type="button" onClick={() => setShowAddForm(false)} className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text transition-colors">Cancel</button>
+                <button type="button" onClick={handleAddGeofence} disabled={gfSaving} className={btnPrimaryClasses}>
                   {gfSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Creating</span> : "Create Geofence"}
                 </button>
               </div>
             </div>
           ) : (
-            <button type="button"onClick={() => setShowAddForm(true)}
+            <button type="button" onClick={() => setShowAddForm(true)}
               className="flex items-center gap-2 rounded-lg border border-dashed border-iv-border px-4 py-2.5 text-sm text-iv-muted hover:text-iv-green hover:border-iv-green/40 transition-colors w-full justify-center">
               <Plus size={16} />
               Add Geofence
@@ -997,7 +997,7 @@ export default function SettingsPage() {
               </p>
             </div>
                         <button
-              type="button"onClick={handleExport}
+              type="button" onClick={handleExport}
               disabled={exporting}
               className="flex items-center gap-2 rounded-lg bg-iv-cyan/10 px-4 py-2.5 text-sm font-medium text-iv-cyan transition-colors hover:bg-iv-cyan/20 disabled:opacity-50"
             >
@@ -1028,7 +1028,7 @@ export default function SettingsPage() {
                   
                   {job.status === "COMPLETED" && (
                     <button
-                      type="button"onClick={() => handleDownload(job.job_id)}
+                      type="button" onClick={() => handleDownload(job.job_id)}
                       className="text-iv-cyan hover:underline text-xs font-medium"
                     >
                       Download ZIP
@@ -1065,7 +1065,7 @@ export default function SettingsPage() {
             <p className="text-sm font-medium text-iv-text">Sign out</p>
             <p className="text-xs text-iv-muted mt-0.5">End your current session</p>
           </div>
-          <button type="button"onClick={logout}
+          <button type="button" onClick={logout}
             className="flex items-center gap-2 rounded-lg bg-iv-danger/10 px-4 py-2.5 text-sm font-medium text-iv-danger transition-colors hover:bg-iv-danger/20">
             <LogOut size={16} />
             Logout
@@ -1077,7 +1077,7 @@ export default function SettingsPage() {
             <p className="text-sm font-medium text-iv-danger">Delete Account</p>
             <p className="text-xs text-iv-muted mt-0.5">Permanently delete your account and all collected data</p>
           </div>
-          <button type="button"onClick={() => setShowDeleteAccountModal(true)}
+          <button type="button" onClick={() => setShowDeleteAccountModal(true)}
             className="flex items-center gap-2 rounded-lg bg-iv-danger px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-iv-danger/90">
             <Trash2 size={16} />
             Delete Account
@@ -1100,11 +1100,11 @@ export default function SettingsPage() {
               <input type="password" placeholder="S-PIN (optional)" value={reauthSpin} onChange={(e) => setReauthSpin(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
             </div>
             <div className="flex gap-3">
-              <button type="button"onClick={() => setReauthModalId(null)} disabled={reauthLoading}
+              <button type="button" onClick={() => setReauthModalId(null)} disabled={reauthLoading}
                 className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
                 Cancel
               </button>
-              <button type="button"onClick={() => handleReauthVehicle(reauthModalId)} disabled={reauthLoading}
+              <button type="button" onClick={() => handleReauthVehicle(reauthModalId)} disabled={reauthLoading}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-cyan/20 px-4 py-2.5 text-sm font-semibold text-iv-cyan transition-all hover:bg-iv-cyan/30 disabled:opacity-50">
                 {reauthLoading ? <Loader2 size={14} className="animate-spin" /> : "Re-login"}
               </button>
@@ -1123,11 +1123,11 @@ export default function SettingsPage() {
               Are you sure? All collected data will be permanently removed.
             </p>
             <div className="flex gap-3">
-              <button type="button"onClick={() => setDeleteModalId(null)}
+              <button type="button" onClick={() => setDeleteModalId(null)}
                 className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
                 Cancel
               </button>
-              <button type="button"onClick={() => handleDeleteVehicle(deleteModalId)}
+              <button type="button" onClick={() => handleDeleteVehicle(deleteModalId)}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90">
                 Delete
               </button>
@@ -1156,11 +1156,11 @@ export default function SettingsPage() {
               className={inputClasses + " mb-6"}
             />
             <div className="flex gap-3">
-              <button type="button"onClick={() => { setShowDeleteAccountModal(false); setDeleteAccountConfirmText(""); }} disabled={accountDeleting}
+              <button type="button" onClick={() => { setShowDeleteAccountModal(false); setDeleteAccountConfirmText(""); }} disabled={accountDeleting}
                 className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
                 Cancel
               </button>
-              <button type="button"onClick={handleDeleteAccount} disabled={accountDeleting || (deleteAccountConfirmText !== "DELETE" && deleteAccountConfirmText !== user?.email)}
+              <button type="button" onClick={handleDeleteAccount} disabled={accountDeleting || (deleteAccountConfirmText !== "DELETE" && deleteAccountConfirmText !== user?.email)}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90 disabled:opacity-50 disabled:cursor-not-allowed">
                 {accountDeleting ? <Loader2 size={14} className="animate-spin" /> : "Delete Account"}
               </button>
