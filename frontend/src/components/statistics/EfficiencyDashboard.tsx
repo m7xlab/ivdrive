@@ -75,7 +75,7 @@ export function EfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
         </div>
       ) : (
         <div className="h-72 flex items-center justify-center text-iv-text-muted">
-          Collecting enough trip data to build the curve...
+          Collecting enough trip data to build the curve
         </div>
       )}
     </div>

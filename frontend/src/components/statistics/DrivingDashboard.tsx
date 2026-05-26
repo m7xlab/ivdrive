@@ -132,7 +132,7 @@ function matchGeofence(lat: number, lon: number, geofences: Geofence[]): Geofenc
 
 function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence[]): ActivityEvent[] {
   if (locations.length === 0) return [];
-  const sorted = [...locations].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const sorted = locations.toSorted((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const STAY_RADIUS_M = 80;
   const MIN_STAY_MS = 5 * 60 * 1000;
   const events: ActivityEvent[] = [];
@@ -344,7 +344,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
       if (existing) { existing.count++; existing.ms += 60000; }
       else map.set(key, { lat: loc.latitude, lon: loc.longitude, ms: 60000, count: 1 });
     }
-    return [...map.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+    return map.values().toSorted((a, b) => b.ms - a.ms).slice(0, 5);
   }, [visitedLocations]);
 
   // Recent trips (last 10)

@@ -715,7 +715,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex justify-end">
             <button type="button"onClick={handleProfileSave} disabled={profileSaving} className={btnPrimaryClasses}>
-              {profileSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Saving...</span> : "Save Profile"}
+              {profileSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Saving</span> : "Save Profile"}
             </button>
           </div>
         </div>
@@ -754,7 +754,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex justify-end">
             <button type="submit" disabled={passwordSaving || !oldPassword || !newPassword || !confirmPassword} className={btnPrimaryClasses}>
-              {passwordSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Changing...</span> : "Change Password"}
+              {passwordSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Changing</span> : "Change Password"}
             </button>
           </div>
         </form>
@@ -837,7 +837,7 @@ export default function SettingsPage() {
                   disabled={is2FASettingLoading || twoFactorCode.length !== 6}
                   className={btnPrimaryClasses}
                 >
-                  {is2FASettingLoading ? "Enabling..." : "Verify & Enable"}
+                  {is2FASettingLoading ? "Enabling" : "Verify & Enable"}
                 </button>
               </div>
             </div>
@@ -901,7 +901,7 @@ export default function SettingsPage() {
                   disabled={is2FASettingLoading || !twoFactorPassword}
                   className="rounded-lg bg-iv-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-iv-danger/90"
                 >
-                  {is2FASettingLoading ? "Disabling..." : "Confirm & Disable"}
+                  {is2FASettingLoading ? "Disabling" : "Confirm & Disable"}
                 </button>
               </div>
             </div>
@@ -970,7 +970,7 @@ export default function SettingsPage() {
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button"onClick={() => setShowAddForm(false)} className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text transition-colors">Cancel</button>
                 <button type="button"onClick={handleAddGeofence} disabled={gfSaving} className={btnPrimaryClasses}>
-                  {gfSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Creating...</span> : "Create Geofence"}
+                  {gfSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Creating</span> : "Create Geofence"}
                 </button>
               </div>
             </div>
@@ -1002,7 +1002,7 @@ export default function SettingsPage() {
               className="flex items-center gap-2 rounded-lg bg-iv-cyan/10 px-4 py-2.5 text-sm font-medium text-iv-cyan transition-colors hover:bg-iv-cyan/20 disabled:opacity-50"
             >
               {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              {exporting ? "Requesting..." : "Request Export"}
+              {exporting ? "Requesting" : "Request Export"}
             </button>
           </div>
 
