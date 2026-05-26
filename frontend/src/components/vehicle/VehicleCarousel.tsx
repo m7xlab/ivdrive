@@ -111,13 +111,13 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
 
         {/* Navigation Arrows */}
         <button
-          type="button"onClick={(e) => { e.stopPropagation(); setIsAutoPlaying(false); handlePrev(); }}
+          type="button" onClick={(e) => { e.stopPropagation(); setIsAutoPlaying(false); handlePrev(); }}
           className="absolute left-6 top-1/2 -translate-y-1/2 p-3 rounded-full bg-iv-charcoal/20 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all hover:bg-iv-cyan hover:text-iv-black shadow-lg z-40"
         >
           <ChevronLeft size={24} />
         </button>
         <button
-          type="button"onClick={(e) => { e.stopPropagation(); setIsAutoPlaying(false); handleNext(); }}
+          type="button" onClick={(e) => { e.stopPropagation(); setIsAutoPlaying(false); handleNext(); }}
           className="absolute right-6 top-1/2 -translate-y-1/2 p-3 rounded-full bg-iv-charcoal/20 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all hover:bg-iv-cyan hover:text-iv-black shadow-lg z-40"
         >
           <ChevronRight size={24} />
