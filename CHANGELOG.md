@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased] - 2026-05-10
+## [v1.0.24] - 2026-05-26
+### Fixed
+- analytics.py (`movement-stats`): YES/NO vehicle_states with `duration=0` now excluded — removed phantom parked time inflating stats by up to 65%. Interval cap at 24h applied.
+- analytics.py (`speed-temp-matrix`): Added `from_date`/`to_date` filter support; 5-year fallback when omitted.
+- SpeedTempMatrixDashboard: Respects DateRangePicker — selecting a custom period shows correct temperature/speed distribution.
+- StatisticsShell: Passes date-range filter to speed-temp-matrix API call.
+
+### Added
+- Migration `d35caca2eb03`: Added `home_lat`, `home_lon`, `home_tz` columns to `user_vehicles` (home geofencing support).
+
+## [Unreleased] - 2026-05-08
 ### Fixed
 - DrivingDashboard + MovementDashboard (frontend): All data sources now respect the selected dateRange — odometer, visited locations, time budget, and trips all use the same period filter. Previously time budget and mileage showed all-time data regardless of the date picker.
 - DrivingDashboard (frontend): KPI cards now show period totals (sum of all days in range) instead of only the latest-day values. Historical stats table now shows all available rows with scrollable overflow instead of hard-coded slice of 7.

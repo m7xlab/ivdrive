@@ -1465,8 +1465,6 @@ async def get_speed_temp_matrix(
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-    from_date: datetime | None = None,
-    to_date: datetime | None = None,
 ):
     """Speed × Temperature → avg kWh/100km matrix.
 
