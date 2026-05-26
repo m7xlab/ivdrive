@@ -336,9 +336,9 @@ export function Sidebar() {
                   {undismissedCount > 0 && (
                     <div className="border-t border-iv-border px-4 py-2.5">
                       <button
-                        type="button" onClick={async () => {
+                        type="button"
+                        onClick={async () => {
                           await Promise.all(announcements.filter(a => !a.dismissed).map(a => handleDismiss(a.id)));
-                          }
                         }}
                         className="text-xs text-iv-muted hover:text-iv-text transition-colors"
                       >

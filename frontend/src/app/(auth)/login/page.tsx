@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -29,7 +29,7 @@ export default function LoginPage() {
       if (res && res.requires_2fa) {
         setRequires2FA(true);
         // Note: Pydantic alias '2fa_token' maps to 'res["2fa_token"]' or 'res.tfa_token'
-        token2FA.current =res["2fa_token"] || res.tfa_token);
+        token2FA.current = res["2fa_token"] || res.tfa_token;
       }
     } catch (err: unknown) {
       const message =
@@ -143,7 +143,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => {
                 setRequires2FA(false);
-                token2FA.current ="");
+                token2FA.current = "";
                 setCode2FA("");
                 setRecoveryCode("");
                 setUseRecoveryCode(false);

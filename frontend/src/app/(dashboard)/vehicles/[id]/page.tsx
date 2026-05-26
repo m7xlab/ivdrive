@@ -698,7 +698,7 @@ export default function VehicleDetailPage() {
       {vehicle.warning_lights && vehicle.warning_lights.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7 mb-6">
           {vehicle.warning_lights.map((wl, idx) => (
-            <WarningLightPill key=item.vehicle_id || item.id || idx category={wl.category} defects={wl.defects} />
+            <WarningLightPill key={item.vehicle_id || item.id || idx} category={wl.category} defects={wl.defects} />
           ))}
         </div>
       )}

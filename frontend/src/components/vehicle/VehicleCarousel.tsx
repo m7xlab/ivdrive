@@ -157,7 +157,7 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
 
             return (
               <div 
-                key=render.id || render.vehicle_id || idx 
+                key={render.id || render.vehicle_id || idx} 
                 className={cn("shrink-0 flex items-center justify-center transition-all duration-700 ease-in-out", widthClass)}
                 style={{ zIndex }}
               >
