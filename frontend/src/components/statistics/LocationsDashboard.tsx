@@ -67,7 +67,7 @@ export function LocationsDashboard({ vehicleId, dateRange }: LocationsDashboardP
     <div className="space-y-6">
       <p className="text-sm text-iv-muted">
         Position-based overview. Full location statistics (cities, states, countries, neighbourhoods) require a
-        locations entity or reverse geocoding—not yet available in iVDrive.
+        locations entity or reverse geocoding - not yet available in iVDrive.
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

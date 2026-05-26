@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const [requires2FA, setRequires2FA] = useState(false);
-  const [token2FA, setToken2FA] = useState("");
+  const token2FA = useRef("");
   const [code2FA, setCode2FA] = useState("");
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
@@ -29,7 +29,7 @@ export default function LoginPage() {
       if (res && res.requires_2fa) {
         setRequires2FA(true);
         // Note: Pydantic alias '2fa_token' maps to 'res["2fa_token"]' or 'res.tfa_token'
-        setToken2FA(res["2fa_token"] || res.tfa_token);
+        token2FA.current =res["2fa_token"] || res.tfa_token);
       }
     } catch (err: unknown) {
       const message =
@@ -143,7 +143,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => {
                 setRequires2FA(false);
-                setToken2FA("");
+                token2FA.current ="");
                 setCode2FA("");
                 setRecoveryCode("");
                 setUseRecoveryCode(false);

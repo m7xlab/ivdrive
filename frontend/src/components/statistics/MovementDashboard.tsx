@@ -372,7 +372,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
 
 function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; stayEvents: StayEvent[] }) {
   const [MapComponents, setMapComponents] = useState<any>(null);
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(typeof window !== "undefined");
   const [isDark, setIsDark] = useState(true);
 
   useEffect(() => { setMounted(true); }, []);
