@@ -108,7 +108,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
     return (
       <div className="glass rounded-xl p-12 flex flex-col items-center justify-center gap-3">
         <Loader2 className="h-10 w-10 animate-spin text-iv-muted" />
-        <p className="text-sm text-iv-muted">Loading mileage data...</p>
+        <p className="text-sm text-iv-muted">Loading mileage data…</p>
       </div>
     );
   }

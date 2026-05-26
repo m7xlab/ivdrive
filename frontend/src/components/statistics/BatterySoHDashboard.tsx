@@ -44,7 +44,7 @@ export function BatterySoHDashboard({ vehicleId }: { vehicleId: string }) {
     fetchSoH();
   }, [vehicleId]);
 
-  if (loading) return <div className="p-4 text-center text-iv-muted">Loading battery health analysis...</div>;
+  if (loading) return <div className="p-4 text-center text-iv-muted">Loading battery health analysis…</div>;
   if (error) return <div className="p-4 text-red-500 text-center">{error}</div>;
   if (!data) return <div className="p-4 text-center">No data available</div>;
 

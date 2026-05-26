@@ -113,7 +113,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
         <div className="flex items-center gap-2">
           {/* Left arrow */}
           <button
-            onClick={() => navigate(-1)}
+            type="button"onClick={() => navigate(-1)}
             disabled={activeIdx === 0}
             className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-iv-border text-iv-muted hover:text-iv-text hover:bg-iv-charcoal transition-all disabled:opacity-20 disabled:cursor-not-allowed"
             aria-label="Previous tab"
@@ -129,7 +129,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           >
             {TABS.map((t, i) => (
               <button
-                key={t.id}
+                type="button"key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 className={cn(
                   "shrink-0 snap-start rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-all flex items-center gap-2 border",
@@ -147,7 +147,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
 
           {/* Right arrow */}
           <button
-            onClick={() => navigate(1)}
+            type="button"onClick={() => navigate(1)}
             disabled={activeIdx === TABS.length - 1}
             className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-iv-border text-iv-muted hover:text-iv-text hover:bg-iv-charcoal transition-all disabled:opacity-20 disabled:cursor-not-allowed"
             aria-label="Next tab"
@@ -160,7 +160,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
         <div className="flex justify-center gap-1.5 mt-2">
           {TABS.map((t, i) => (
             <button
-              key={t.id}
+              type="button"key={t.id}
               onClick={() => { setActiveTab(t.id); scrollIntoView(t.id); }}
               className={cn(
                 "rounded-full transition-all",

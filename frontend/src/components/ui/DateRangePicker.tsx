@@ -68,7 +68,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
-          className={cn(
+          type="button"className={cn(
             "flex items-center gap-2 rounded-lg border border-iv-border bg-iv-surface px-3 py-2 text-sm",
             "text-iv-text hover:border-iv-cyan/50 hover:bg-iv-charcoal transition-colors",
             "focus:outline-none focus:ring-2 focus:ring-iv-cyan/40",
@@ -105,7 +105,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
               )}
               {PRESETS.map((p) => (
                 <button
-                  key={p.label}
+                  type="button"key={p.label}
                   onClick={() => handlePreset(p)}
                   className={cn(
                     "rounded-md px-3 py-1.5 text-sm text-left transition-colors",

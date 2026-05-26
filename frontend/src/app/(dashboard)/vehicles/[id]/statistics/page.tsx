@@ -17,6 +17,7 @@ export default function StatisticsPage() {
       <div className="mb-8 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button
+            type="button"
             onClick={() => router.back()}
             className="rounded-full p-2 text-iv-text-muted hover:bg-iv-surface hover:text-iv-text transition-colors"
           >

@@ -235,7 +235,7 @@ export function VehicleCard({
           )}
           {onDelete && (
             <button
-              onClick={handleDelete}
+              type="button"onClick={handleDelete}
               disabled={deleting}
               className={`flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-colors ${
                 confirmDelete

@@ -388,7 +388,7 @@ export default function AdminPage() {
             <p className="text-xs text-iv-muted font-mono truncate">{copiedLink}</p>
           </div>
           <button
-            onClick={() => copyToClipboard(copiedLink)}
+            type="button"onClick={() => copyToClipboard(copiedLink)}
             className="flex-shrink-0 p-2 rounded-lg hover:bg-iv-cyan/10 text-iv-cyan transition-colors"
           >
             <Copy className="w-4 h-4" />
@@ -426,7 +426,7 @@ export default function AdminPage() {
           ] as const
         ).map((t) => (
           <button
-            key={t.id}
+            type="button"key={t.id}
             onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               tab === t.id
@@ -565,7 +565,7 @@ function InvitesTable({
                     {inv.status === "pending" && (
                       <>
                         <button
-                          onClick={() => onApprove(inv.email)}
+                          type="button"onClick={() => onApprove(inv.email)}
                           disabled={!!actionLoading}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-green/10 text-iv-green border border-iv-green/20 hover:bg-iv-green/20 transition-colors disabled:opacity-50"
                         >
@@ -577,7 +577,7 @@ function InvitesTable({
                           Approve
                         </button>
                         <button
-                          onClick={() => onReject(inv.email)}
+                          type="button"onClick={() => onReject(inv.email)}
                           disabled={!!actionLoading}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-danger/10 text-iv-danger border border-iv-danger/20 hover:bg-iv-danger/20 transition-colors disabled:opacity-50"
                         >
@@ -588,7 +588,7 @@ function InvitesTable({
                     )}
                     {inv.status === "approved" && (
                       <button
-                        onClick={() => onResend(inv)}
+                        type="button"onClick={() => onResend(inv)}
                         disabled={!!actionLoading}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-cyan/10 text-iv-cyan border border-iv-cyan/20 hover:bg-iv-cyan/20 transition-colors disabled:opacity-50"
                       >
@@ -602,7 +602,7 @@ function InvitesTable({
                     )}
                     {(inv.status === "approved" || inv.status === "pending") && (
                       <button
-                        onClick={() => onDelete(inv)}
+                        type="button"onClick={() => onDelete(inv)}
                         disabled={!!actionLoading}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-danger/10 text-iv-danger border border-iv-danger/20 hover:bg-iv-danger/20 transition-colors disabled:opacity-50"
                       >
@@ -709,7 +709,7 @@ function AnnouncementsPanel({
           />
         </div>
         <button
-          onClick={onSubmit}
+          type="button"onClick={onSubmit}
           disabled={formLoading}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-iv-green/15 text-iv-green border border-iv-green/25 hover:bg-iv-green/25 transition-colors disabled:opacity-50"
         >
@@ -755,7 +755,7 @@ function AnnouncementsPanel({
                   </p>
                 </div>
                 <button
-                  onClick={() => onDelete(ann)}
+                  type="button"onClick={() => onDelete(ann)}
                   disabled={!!actionLoading}
                   className="flex-shrink-0 p-2 rounded-lg text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50"
                 >
@@ -863,7 +863,7 @@ function UsersTable({
                   ) : (
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => onRefresh(u.id)}
+                        type="button"onClick={() => onRefresh(u.id)}
                         disabled={!!actionLoading}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-cyan/10 text-iv-cyan border border-iv-cyan/20 hover:bg-iv-cyan/20 transition-colors disabled:opacity-50"
                       >
@@ -876,7 +876,7 @@ function UsersTable({
                       </button>
                       {u.is_superuser ? (
                         <button
-                          onClick={() => onDemote(u.email)}
+                          type="button"onClick={() => onDemote(u.email)}
                           disabled={!!actionLoading}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-danger/10 text-iv-danger border border-iv-danger/20 hover:bg-iv-danger/20 transition-colors disabled:opacity-50"
                         >
@@ -889,7 +889,7 @@ function UsersTable({
                         </button>
                       ) : (
                         <button
-                          onClick={() => onPromote(u.email)}
+                          type="button"onClick={() => onPromote(u.email)}
                           disabled={!!actionLoading}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-colors disabled:opacity-50"
                         >
@@ -902,7 +902,7 @@ function UsersTable({
                         </button>
                       )}
                       <button
-                        onClick={() => onDelete(u)}
+                        type="button"onClick={() => onDelete(u)}
                         disabled={!!actionLoading}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-danger/10 text-iv-danger border border-iv-danger/20 hover:bg-iv-danger/20 transition-colors disabled:opacity-50"
                       >

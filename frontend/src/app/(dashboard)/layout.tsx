@@ -10,7 +10,7 @@ function LoadingScreen() {
     <div className="flex min-h-screen items-center justify-center bg-iv-black">
       <div className="flex flex-col items-center gap-4">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-iv-border border-t-iv-green" />
-        <p className="text-sm text-iv-muted">Loading...</p>
+        <p className="text-sm text-iv-muted">Loading…</p>
       </div>
     </div>
   );

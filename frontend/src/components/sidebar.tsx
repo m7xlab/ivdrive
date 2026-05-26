@@ -185,7 +185,7 @@ export function Sidebar() {
             </div>
             <p className="text-sm text-iv-muted leading-relaxed">{modalAnn.message}</p>
             <button
-              onClick={handleModalDismiss}
+              type="button"onClick={handleModalDismiss}
               className="w-full py-2.5 rounded-lg text-sm font-semibold bg-iv-green/15 text-iv-green border border-iv-green/25 hover:bg-iv-green/25 transition-colors"
             >
               Got it
@@ -257,7 +257,7 @@ export function Sidebar() {
           {user && (
             <div ref={bellRef} className="relative">
               <button
-                onClick={() => setBellOpen((o) => !o)}
+                type="button"onClick={() => setBellOpen((o) => !o)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg text-iv-muted hover:text-iv-text hover:bg-iv-surface transition-all w-full relative"
                 title="Announcements"
               >
@@ -291,7 +291,7 @@ export function Sidebar() {
                   <div className="flex items-center justify-between px-4 py-3 border-b border-iv-border">
                     <span className="text-sm font-semibold text-iv-text">Announcements</span>
                     <button
-                      onClick={() => setBellOpen(false)}
+                      type="button"onClick={() => setBellOpen(false)}
                       className="text-iv-muted hover:text-iv-text transition-colors"
                     >
                       <X size={14} />
@@ -320,7 +320,7 @@ export function Sidebar() {
                               </div>
                               {!ann.dismissed && (
                                 <button
-                                  onClick={() => handleDismiss(ann.id)}
+                                  type="button"onClick={() => handleDismiss(ann.id)}
                                   className="flex-shrink-0 text-iv-muted hover:text-iv-text transition-colors mt-0.5"
                                   title="Dismiss"
                                 >
@@ -336,7 +336,7 @@ export function Sidebar() {
                   {undismissedCount > 0 && (
                     <div className="border-t border-iv-border px-4 py-2.5">
                       <button
-                        onClick={async () => {
+                        type="button"onClick={async () => {
                           for (const a of announcements) {
                             if (!a.dismissed) await handleDismiss(a.id);
                           }
@@ -353,7 +353,7 @@ export function Sidebar() {
           )}
 
           <button
-            onClick={() => setTheme(isDark ? "light" : "dark")}
+            type="button"onClick={() => setTheme(isDark ? "light" : "dark")}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-iv-muted hover:text-iv-text hover:bg-iv-surface transition-all w-full"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
@@ -366,14 +366,14 @@ export function Sidebar() {
           </button>
 
           <button
-            onClick={logout}
+            type="button"onClick={logout}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-all w-full"
           >
             <LogOut size={18} className="flex-shrink-0" />
             {!collapsed && <span className="text-sm">Logout</span>}
           </button>
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            type="button"onClick={() => setCollapsed(!collapsed)}
             className="flex items-center justify-center w-full py-1 text-iv-muted hover:text-iv-text transition-colors"
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -422,7 +422,7 @@ export function BottomNav() {
 
       {/* Logout button as rightmost item */}
       <button
-        onClick={logout}
+        type="button"onClick={logout}
         className="flex flex-1 flex-col items-center justify-center gap-1 py-3 text-[10px] font-semibold tracking-wide text-iv-muted hover:text-iv-danger transition-colors"
       >
         <LogOut size={22} />

@@ -128,7 +128,7 @@ function RegisterForm() {
           <p className="text-center text-sm text-iv-muted mt-8">
             Already have an invite?{" "}
             <button
-              onClick={() => { setView("register"); setRequestSent(false); }}
+              type="button"onClick={() => { setView("register"); setRequestSent(false); }}
               className="text-iv-cyan hover:text-iv-glow transition-colors font-medium"
             >
               Register here
@@ -177,7 +177,7 @@ function RegisterForm() {
           </div>
 
           <button
-            type="submit"
+           type="button" type="submit"
             disabled={loading}
             className="mt-2 w-full bg-gradient-to-r from-iv-cyan to-iv-green text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -199,7 +199,7 @@ function RegisterForm() {
           <p className="text-sm text-iv-muted">
             Already have an invite token?{" "}
             <button
-              onClick={() => setView("register")}
+              type="button"onClick={() => setView("register")}
               className="text-iv-cyan hover:text-iv-glow transition-colors font-medium"
             >
               Register here
@@ -288,7 +288,7 @@ function RegisterForm() {
               className="w-full bg-iv-surface border border-iv-border rounded-lg py-2.5 pl-10 pr-10 text-iv-text placeholder:text-iv-muted/50 focus:outline-none focus:border-iv-green transition-colors"
             />
             <button
-              type="button"
+             type="button" type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors"
               tabIndex={-1}
@@ -318,7 +318,7 @@ function RegisterForm() {
               className="w-full bg-iv-surface border border-iv-border rounded-lg py-2.5 pl-10 pr-10 text-iv-text placeholder:text-iv-muted/50 focus:outline-none focus:border-iv-green transition-colors"
             />
             <button
-              type="button"
+             type="button" type="button"
               onClick={() => setShowConfirm(!showConfirm)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors"
               tabIndex={-1}
@@ -329,7 +329,7 @@ function RegisterForm() {
         </div>
 
         <button
-          type="submit"
+         type="button" type="submit"
           disabled={loading || password.length < 8 || password !== confirmPassword}
           className="mt-2 w-full bg-gradient-to-r from-iv-green to-iv-cyan text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -352,7 +352,7 @@ function RegisterForm() {
           <p className="text-sm text-iv-muted">
             Need an invite?{" "}
             <button
-              onClick={() => setView("request")}
+              type="button"onClick={() => setView("request")}
               className="text-iv-cyan hover:text-iv-glow transition-colors font-medium"
             >
               Request one here

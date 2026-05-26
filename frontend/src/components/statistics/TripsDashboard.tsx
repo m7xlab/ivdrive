@@ -286,7 +286,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
           <div className="flex flex-wrap gap-2">
             {structure.map(({ year }) => (
               <button
-                key={year}
+                type="button"key={year}
                 onClick={() => { setSelectedYear(year); setVisibleCount(10); }}
                 className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${selectedYear === year ? 'bg-iv-cyan text-iv-surface border-iv-cyan' : 'bg-iv-surface/40 text-iv-text border-iv-border/50 hover:border-iv-cyan/50'}`}
               >
@@ -299,7 +299,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
             <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1">
               {structure.find(s => s.year === selectedYear)?.months.map(m => (
                 <button
-                  key={m}
+                  type="button"key={m}
                   onClick={() => { setSelectedMonth(m); setVisibleCount(10); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedMonth === m ? 'bg-iv-cyan/20 text-iv-cyan border border-iv-cyan/30' : 'bg-iv-surface/20 text-iv-muted border border-iv-border/30 hover:text-iv-text'}`}
                 >
@@ -387,7 +387,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
               {!dateRange && selectedMonth !== null && visibleCount < displayTrips.length && (
                 <button
-                  onClick={() => setVisibleCount(prev => prev + 10)}
+                  type="button"onClick={() => setVisibleCount(prev => prev + 10)}
                   className="w-full py-3 mt-2 rounded-xl border border-dashed border-iv-border hover:border-iv-cyan hover:bg-iv-cyan/5 text-xs font-medium text-iv-muted hover:text-iv-cyan transition-all flex items-center justify-center gap-2"
                 >
                   Show More ({displayTrips.length - visibleCount} remaining)

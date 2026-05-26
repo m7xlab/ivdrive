@@ -58,7 +58,7 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
                 <p className="font-medium text-iv-text flex items-center gap-2">
                   {session.provider_name || "Unknown Provider"}
                   <button 
-                    onClick={() => {
+                    type="button"onClick={() => {
                       setEditingSession(session);
                       setEditForm({
                         actual_cost_eur: session.actual_cost_eur?.toString() || "",
@@ -109,7 +109,7 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
           <div className="w-full max-w-md rounded-2xl bg-iv-charcoal p-6 shadow-2xl border border-iv-border">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-iv-text">Edit Receipt Data</h3>
-              <button onClick={() => setEditingSession(null)} className="text-iv-text-muted hover:text-iv-text">
+              <button type="button"onClick={() => setEditingSession(null)} className="text-iv-text-muted hover:text-iv-text">
                 <X className="h-5 w-5" />
               </button>
             </div>

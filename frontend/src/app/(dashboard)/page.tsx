@@ -131,7 +131,7 @@ export default function DashboardPage() {
           <p className="mt-1 text-iv-muted">Your Vehicles</p>
         </div>
         <button
-          onClick={() => setShowAddModal(true)}
+          type="button"onClick={() => setShowAddModal(true)}
           className="inline-flex items-center gap-2 rounded-xl bg-iv-green/15 px-4 py-2.5 text-sm font-medium text-iv-green border border-iv-green/20 transition-all hover:bg-iv-green/25 hover:glow-green"
         >
           <Plus size={18} />
@@ -157,7 +157,7 @@ export default function DashboardPage() {
             Add your first vehicle to start monitoring
           </p>
           <button
-            onClick={() => setShowAddModal(true)}
+            type="button"onClick={() => setShowAddModal(true)}
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-iv-green/15 px-5 py-2.5 text-sm font-medium text-iv-green border border-iv-green/20 transition-all hover:bg-iv-green/25 hover:glow-green"
           >
             <Plus size={18} />
@@ -233,13 +233,13 @@ function ConfirmDeleteModal({
         </p>
         <div className="flex gap-3">
           <button
-            onClick={onCancel}
+            type="button"onClick={onCancel}
             className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text"
           >
             Cancel
           </button>
           <button
-            onClick={handleConfirm}
+            type="button"onClick={handleConfirm}
             disabled={loading}
             className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90 disabled:opacity-50"
           >
@@ -310,7 +310,7 @@ function AddVehicleModal({
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-iv-text">Add Vehicle</h2>
           <button
-            onClick={onClose}
+            type="button"onClick={onClose}
             className="rounded-lg p-1.5 text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text"
           >
             <X size={18} />
@@ -410,21 +410,21 @@ function AddVehicleModal({
 
           <div className="flex gap-3 pt-2">
             <button
-              type="button"
+             type="button" type="button"
               onClick={onClose}
               className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text"
             >
               Cancel
             </button>
             <button
-              type="submit"
+             type="button" type="submit"
               disabled={submitting || !vin || !skodaUsername || !skodaPassword}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-green px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-green/90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Adding...
+                  Adding…
                 </>
               ) : (
                 "Add Vehicle"

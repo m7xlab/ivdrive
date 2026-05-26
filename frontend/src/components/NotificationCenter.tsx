@@ -86,7 +86,7 @@ export function NotificationCenter() {
   return (
     <div className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"onClick={() => setIsOpen(!isOpen)}
         className={`relative p-2 rounded-lg transition-all ${
           isOpen ? "bg-iv-surface text-iv-text" : "text-iv-muted hover:text-iv-text hover:bg-iv-surface"
         }`}
@@ -124,7 +124,7 @@ export function NotificationCenter() {
                     className={`relative p-3 rounded-lg border transition-all ${getTypeStyles(ann.type)}`}
                   >
                     <button
-                      onClick={() => handleDismiss(ann.id)}
+                      type="button"onClick={() => handleDismiss(ann.id)}
                       className="absolute top-2 right-2 text-iv-muted hover:text-iv-text transition-colors"
                     >
                       <X size={14} />

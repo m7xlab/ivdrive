@@ -260,7 +260,7 @@ function CommandButton({ icon: Icon, label, onClick, loading, variant = "default
   icon: React.ElementType; label: string; onClick: () => void; loading: boolean; variant?: "default" | "danger";
 }) {
   return (
-    <button onClick={onClick} disabled={loading}
+    <button type="button"onClick={onClick} disabled={loading}
       className={`relative group h-32 w-full rounded-2xl p-4 flex flex-col items-start justify-between transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed border backdrop-blur-md shadow-sm overflow-hidden ${
         variant === "danger" 
           ? "bg-iv-danger/5 border-iv-danger/20 hover:bg-iv-danger/10 hover:border-iv-danger/30" 
@@ -566,7 +566,7 @@ export default function VehicleDetailPage() {
         </div>
         <div className="flex items-center gap-2 mt-1 ml-auto">
           <button
-            onClick={handleRefresh}
+            type="button"onClick={handleRefresh}
             disabled={refreshLoading}
             title="Trigger a one-time full telemetry fetch"
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-green hover:border-iv-green/40 hover:bg-iv-green/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -581,7 +581,7 @@ export default function VehicleDetailPage() {
             <TrendingUp size={16} />
             <span className="hidden sm:inline">Advanced</span>
           </Link>
-          <button onClick={() => setShowDeleteModal(true)}
+          <button type="button"onClick={() => setShowDeleteModal(true)}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border border-iv-border text-iv-muted hover:text-iv-danger hover:border-iv-danger/40 hover:bg-iv-danger/10 transition-all">
             <Trash2 size={16} />
             <span className="hidden sm:inline">Delete</span>
@@ -706,7 +706,7 @@ export default function VehicleDetailPage() {
       {/* Tabs */}
       <div className="flex flex-nowrap gap-1 rounded-xl bg-iv-surface p-1 overflow-x-auto no-scrollbar md:justify-center">
         {visibleTabs.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button type="button"key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 flex-shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
               tab === t.key ? "bg-iv-green/15 text-iv-green shadow-sm" : "text-iv-muted hover:text-iv-text"
             }`}>
@@ -1463,12 +1463,12 @@ export default function VehicleDetailPage() {
                <div>
                  <h3 className="font-semibold text-iv-text">Climate Control</h3>
                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => runCommand("climatization/start", { target_temperature: parseFloat(climateTemp) })}
+                    <button type="button"onClick={() => runCommand("climatization/start", { target_temperature: parseFloat(climateTemp) })}
                       disabled={cmdLoading !== null}
                       className="flex-1 py-2.5 rounded-xl bg-iv-text text-iv-black font-semibold text-sm hover:bg-iv-text/90 transition-colors disabled:opacity-50">
                       {cmdLoading === "climatization/start" ? "Starting..." : "Start"}
                     </button>
-                    <button onClick={() => runCommand("climatization/stop")}
+                    <button type="button"onClick={() => runCommand("climatization/stop")}
                       disabled={cmdLoading !== null}
                       className="px-4 py-2.5 rounded-xl bg-iv-surface border border-iv-border text-iv-text font-medium text-sm hover:bg-iv-border/50 transition-colors">
                       Stop
@@ -1490,7 +1490,7 @@ export default function VehicleDetailPage() {
                  <div className="flex gap-2 mt-3">
                     <input type="password" placeholder="S-PIN" value={unlockSpin} onChange={(e) => setUnlockSpin(e.target.value)}
                       className="flex-1 rounded-xl bg-iv-surface border border-iv-border px-3 text-sm text-iv-text text-center focus:outline-none focus:border-iv-warning/50 transition-all" />
-                    <button onClick={() => runCommand("unlock", { spin: unlockSpin })} disabled={cmdLoading !== null || !unlockSpin}
+                    <button type="button"onClick={() => runCommand("unlock", { spin: unlockSpin })} disabled={cmdLoading !== null || !unlockSpin}
                       className="px-6 py-2.5 rounded-xl bg-iv-warning/10 text-iv-warning border border-iv-warning/20 font-semibold text-sm hover:bg-iv-warning/20 transition-colors disabled:opacity-50">
                       {cmdLoading === "unlock" ? "..." : "Unlock"}
                     </button>
@@ -1518,11 +1518,11 @@ export default function VehicleDetailPage() {
               Are you sure? All collected data for <strong className="text-iv-text">{vehicle.display_name || vehicle.model}</strong> will be permanently removed.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowDeleteModal(false)}
+              <button type="button"onClick={() => setShowDeleteModal(false)}
                 className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-muted transition-colors hover:bg-iv-surface hover:text-iv-text">
                 Cancel
               </button>
-              <button onClick={handleDelete} disabled={deleteLoading}
+              <button type="button"onClick={handleDelete} disabled={deleteLoading}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-danger px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-danger/90 disabled:opacity-50">
                 {deleteLoading ? <Loader2 size={16} className="animate-spin" /> : null}
                 Delete
