@@ -1455,6 +1455,8 @@ async def get_elevation_penalty(
 @router.get("/{vehicle_id}/analytics/speed-temp-matrix")
 async def get_speed_temp_matrix(
     vehicle_id: UUID,
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     from_date: datetime | None = None,
@@ -1484,7 +1486,7 @@ async def get_speed_temp_matrix(
     if from_date:
         stmt = stmt.where(Trip.start_date >= from_date)
     if to_date:
-        stmt = stmt.where(Trip.start_date <= to_date)
+        stmt = stmt.where(Trip.end_date <= to_date)
 
     res = await db.execute(stmt)
     trips = res.scalars().all()
