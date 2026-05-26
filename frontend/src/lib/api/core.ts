@@ -1,4 +1,4 @@
-export const API_BASE =
+const API_BASE // unused export removed =
   typeof process.env.NEXT_PUBLIC_API_URL === "string" &&
   process.env.NEXT_PUBLIC_API_URL.trim() !== ""
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
@@ -28,7 +28,7 @@ export function clearTokens() {
   // Deprecated: No longer used for localStorage, backend handles HttpOnly cookies.
 }
 
-export async function refreshAccessToken(): Promise<boolean> {
+// export async function refreshAccessToken(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
       method: "POST",
@@ -81,7 +81,7 @@ export async function clearApiCache() {
   requestCache.clear();
 }
 
-export function invalidateApiCache(vehicleId?: string) {
+// export function invalidateApiCache(vehicleId?: string) {
   if (!vehicleId) {
     requestCache.clear();
     return;
@@ -97,7 +97,7 @@ export function invalidateApiCache(vehicleId?: string) {
   }
 }
 
-export function getCookie(name: string): string | null {
+// export function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
   if (match) return decodeURIComponent(match[2]);

@@ -1,5 +1,6 @@
 "use client";
 
+const EMPTY_STATS: any[] = [];
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { format } from "date-fns";
 import {
@@ -220,7 +221,7 @@ export function CarOverviewDashboard({
 
   vehicleId,
   dateRange,
-  stats = [],
+  // stats default at module level if needed,
 }: CarOverviewDashboardProps) {
   const [globalToggles, setGlobalToggles] = useState<Record<StateToggleId, boolean>>(() => loadGlobalToggles());
   const [battery, setBattery] = useState<BatteryPoint[]>([]);
