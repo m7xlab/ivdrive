@@ -232,11 +232,11 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
     (tb?.ignition_seconds ?? 0) + (tb?.offline_seconds ?? 0), 1
   );
   const allBuckets = tb ? [
-    { label: "Parked",   seconds: tb.parked_seconds,   barColor: "bg-iv-text-muted/50", textColor: "text-iv-text",     accent: "border-iv-border",      icon: <ParkingSquare size={16} className="text-iv-muted" /> },
-    { label: "Driving",  seconds: tb.driving_seconds,  barColor: "bg-iv-cyan",          textColor: "text-iv-cyan",     accent: "border-iv-cyan/30",     icon: <Car size={16} className="text-iv-cyan" /> },
-    { label: "Charging", seconds: tb.charging_seconds, barColor: "bg-iv-green",         textColor: "text-iv-green",    accent: "border-iv-green/30",    icon: <Zap size={16} className="text-iv-green" /> },
-    { label: "Ignition", seconds: tb.ignition_seconds, barColor: "bg-yellow-500/70",    textColor: "text-yellow-400",  accent: "border-yellow-500/30",  icon: <KeyRound size={16} className="text-yellow-400" /> },
-    { label: "Offline",  seconds: tb.offline_seconds,  barColor: "bg-iv-border",        textColor: "text-iv-muted",    accent: "border-iv-border",      icon: <WifiOff size={16} className="text-iv-muted" /> },
+    { label: "Parked",   seconds: tb.parked_seconds,   barColor: "bg-iv-text-muted/50", textColor: "text-iv-text",    accent: "border-iv-border",    icon: <ParkingSquare size={16} className="text-iv-muted" /> },
+    { label: "Driving",  seconds: tb.driving_seconds,  barColor: "bg-iv-cyan",          textColor: "text-iv-cyan",    accent: "border-iv-cyan/30",   icon: <Car size={16} className="text-iv-cyan" /> },
+    { label: "Charging", seconds: tb.charging_seconds,  barColor: "bg-iv-green",          textColor: "text-iv-green",   accent: "border-iv-green/30",  icon: <Zap size={16} className="text-iv-green" /> },
+    { label: "Ignition", seconds: tb.ignition_seconds, barColor: "bg-yellow-500/70",     textColor: "text-yellow-400", accent: "border-yellow-500/30", icon: <KeyRound size={16} className="text-yellow-400" /> },
+    { label: "Offline",  seconds: tb.offline_seconds,  barColor: "bg-iv-border",         textColor: "text-iv-muted",   accent: "border-iv-border",    icon: <WifiOff size={16} className="text-iv-muted" /> },
   ] : [];
   const visibleBuckets = allBuckets.filter((b) => b.seconds > 60);
 
@@ -257,16 +257,21 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              {allBuckets.map((b) => (
-                <div key={b.label} className={`bg-iv-surface/60 rounded-xl p-4 border ${b.accent} space-y-2`}>
-                  <div className="flex items-center gap-2">
-                    {b.icon}
-                    <span className="text-xs font-semibold text-iv-muted uppercase tracking-wide">{b.label}</span>
+              {allBuckets.map((b) => {
+                const pct = (b.seconds / totalS) * 100;
+                const hours = b.seconds / 3600;
+                return (
+                  <div key={b.label} className={`bg-iv-surface/60 rounded-xl p-4 border ${b.accent} space-y-1`}>
+                    <div className="flex items-center gap-2">
+                      {b.icon}
+                      <span className="text-xs font-semibold text-iv-muted uppercase tracking-wide">{b.label}</span>
+                    </div>
+                    <p className={`text-2xl font-bold ${b.textColor}`}>{formatSmartDuration(b.seconds / 60)}</p>
+                    <p className="text-xs text-iv-muted">{pct.toFixed(1)}%</p>
+                    <p className="text-xs text-iv-muted/70">{hours.toFixed(1)}h total</p>
                   </div>
-                  <p className={`text-2xl font-bold ${b.textColor}`}>{formatSmartDuration(b.seconds / 60)}</p>
-                  <p className="text-xs text-iv-muted">{((b.seconds / totalS) * 100).toFixed(1)}%</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {visibleBuckets.length > 0 && (
