@@ -17,9 +17,7 @@ from app.models.telemetry import (
     ChargingSession,
 )
 from app.models.vehicle import UserVehicle
-from app.services.external_apis import fetch_nordpool_price
-
-from app.services.external_apis import reverse_geocode_country
+from app.services.external_apis import reverse_geocode_country, _get_default_electricity_price
 
 logger = logging.getLogger(__name__)
 
@@ -223,9 +221,8 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                             if eco_price and eco_price.electricity_price_kwh_eur:
                                 open_charge.base_cost_eur = added_kwh * float(eco_price.electricity_price_kwh_eur)
                             else:
-                                # Fallback if no energy price found
-                                np_price = await fetch_nordpool_price()
-                                open_charge.base_cost_eur = added_kwh * np_price
+                                open_charge.base_cost_eur = added_kwh * _get_default_electricity_price()
+                                logger.warning("No electricity price found for country %s, using default %s EUR/kWh", country_code, _get_default_electricity_price())
                     
                     logger.info("Ended ChargingSession for %s (Cost: %s EUR)", user_vehicle_id, open_charge.base_cost_eur)
 

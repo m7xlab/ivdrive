@@ -2,7 +2,6 @@ import asyncio
 import httpx
 import logging
 from datetime import datetime
-from nordpool import elspot
 
 logger = logging.getLogger(__name__)
 
@@ -67,26 +66,9 @@ async def reverse_geocode_country(lat: float, lon: float) -> str | None:
         logger.warning("Failed to reverse geocode country: %s", e)
     return None
 
-def _sync_fetch_nordpool(area: str = "LT") -> float:
-    """Synchronous call to kipe/nordpool to get the current hourly price."""
-    try:
-        prices_spot = elspot.Prices()
-        hourly_data = prices_spot.hourly(areas=[area])
-        # Find the price for the current hour
-        current_hour = datetime.now()
-        for entry in hourly_data.get('areas', {}).get(area, {}).get('values', []):
-            start = entry.get('start')
-            end = entry.get('end')
-            if start and end and start <= current_hour < end:
-                # Value is usually in EUR/MWh, convert to EUR/kWh
-                return entry.get('value', 0) / 1000.0
-    except Exception as e:
-        logger.warning("NordPool fetch error: %s", e)
-    return 0.15  # Fallback EUR/kWh
-
-async def fetch_nordpool_price(area: str = "LT") -> float:
-    """Fetch current hourly NordPool price asynchronously."""
-    return await asyncio.to_thread(_sync_fetch_nordpool, area)
+def _get_default_electricity_price() -> float:
+    """Return a reasonable default electricity price in EUR/kWh when DB has no data."""
+    return 0.20  # EUR/kWh fallback — fuel-prices.eu primary, this is last resort
 
 
 async def reverse_geocode_address(lat: float, lon: float) -> str | None:

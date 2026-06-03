@@ -22,7 +22,7 @@ from app.models.vehicle import ConnectorSession, UserVehicle
 from app.services.crypto import decrypt_field, encrypt_field
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
 from app.services.analytics import process_completed_trips_and_charges
-from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
+from app.services.external_apis import fetch_weather_and_elevation
 from app.services.skoda_api import SkodaAPIClient
 from app.services.skoda_auth import SkodaAuthClient
 
