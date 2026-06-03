@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 import json
 
-from app.api.v1 import auth, commands, admin, notifications, geo
+from app.api.v1 import auth, commands, admin, notifications, geo, chat
 from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
@@ -146,6 +146,7 @@ app.include_router(analytics.router, prefix="/api/v1/vehicles", tags=["analytics
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(geo.router, prefix="/api/v1/geo", tags=["geo"])
+app.include_router(chat.router, prefix="/api/v1", tags=["ai"])
 
 
 @app.exception_handler(StarletteHTTPException)
