@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Sidebar, BottomNav } from "@/components/sidebar";
+import { IVDriveAIWidget } from "@/components/chat/IVDriveAIWidget";
 
 function LoadingScreen() {
   return (
@@ -49,6 +50,7 @@ export default function DashboardLayout({
         {children}
       </main>
       <BottomNav />
+      <IVDriveAIWidget />
     </div>
   );
 }
