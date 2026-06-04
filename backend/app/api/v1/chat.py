@@ -921,8 +921,13 @@ async def chat(
         q_lower = req.message.lower()
         q_words = set(_re.split(r"[\s,.!?;:+-]+", q_lower))
         for name, v_id in vehicle_name_to_id.items():
-            # Match whole word — e.g. "blackmagic" is a full vehicle name, not part of another word
-            if name in q_words or any(w.startswith(name + " ") or w.endswith(" " + name) for w in q_words):
+            # Normalize underscores/hyphens to spaces for matching
+            # "enyaq_v3" → "enyaq v3" in words list
+            name_norm = name.replace('_', ' ').replace('-', ' ')
+            name_words = set(name_norm.split())  # {"enyaq", "v3"} or {"enyaq", "2025"}
+            # Match if all vehicle name key words appear in query words (set subset)
+            matched = bool(name_words & q_words)  # intersection non-empty
+            if matched:
                 detected_vehicle_id = v_id
                 detected_vehicle_name = name  # for post-filtering + LLM context
                 break
