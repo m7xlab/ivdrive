@@ -69,7 +69,7 @@ def _build_conversation_context(history: list[dict]) -> str:
     """Build a conversation summary from chat history for LLM context."""
     if not history:
         return ""
-    lines = ["Previous conversation:"]
+    lines = ["Previous conversation (treat as ground truth):"]
     for msg in history[-6:]:  # last 6 messages max
         role = msg.get("role", "?").capitalize()
         content = msg.get("content", "")[:200]
@@ -226,6 +226,7 @@ async def call_llm(
     provider: str = "minimax",
     model: str | None = None,
     conversation_history: list[dict] | None = None,
+    detected_vehicle_name_for_llm: str | None = None,
 ) -> str:
     """Call LLM with RAG context + optional conversation history. Falls back between providers on failure."""
     if not prompt.strip():
@@ -252,13 +253,20 @@ async def call_llm(
     conv_block = _build_conversation_context(conversation_history or []) if conversation_history else ""
 
     system_prompt = (
-        "You are iVDrive AI assistant. Answer questions based ONLY on the provided vehicle data context. "
-        "If the context doesn't contain relevant information, say you don't have that data. "
-        "Be specific with numbers, dates, and locations when available. "
-        "Format answers clearly. Keep it concise. "
-        "IMPORTANT: Never mention internal content type labels like 'trip_summary', 'charging_event', 'location', 'Stats', 'Place' in your answer. "
-        "When previous conversation is provided, use it to understand context (e.g., vehicle names already mentioned)."
+        "You are iVDrive AI assistant. Answer questions based on the provided vehicle data context. "
+        "IMPORTANT RULES:"
+        "1. When previous conversation is provided, treat it as GROUND TRUTH — the user already confirmed facts there."
+        "2. If a previous answer stated something specific (e.g., 'last trip was May 24 at 09:34'), do NOT contradict it unless given new conflicting data."
+        "3. If the user asks to verify/confirm a previous answer, check the conversation history first — if the answer was there, confirm it."
+        "4. If vehicle context is given at the top (e.g., [Vehicle: BlackMagic]), all data in this question refers to that vehicle unless stated otherwise."
+        "5. Never say 'I don't have data' when conversation history already contains the answer."
+        "6. Be specific with numbers and dates. Format clearly. Keep concise."
+        "7. Never expose internal labels like 'trip_summary', 'charging_event', 'location' in your answer."
     )
+
+    # Inject vehicle context into context_block so LLM knows what vehicle we're discussing
+    if context_chunks and detected_vehicle_name_for_llm:
+        context_block = "[Vehicle: " + detected_vehicle_name_for_llm + "]\n" + context_block
 
     user_content = conv_block + context_block + f"Question: {prompt}"
 
@@ -903,32 +911,25 @@ async def chat(
     # Build name→id map for vehicle-name detection (case-insensitive)
     vehicle_name_to_id = {row[1].lower(): row[0] for row in vehicle_rows}
 
-    # Step 2: Detect vehicle from query if not explicitly filtered
+    # Step 2: Detect vehicle from query if not explicitly filtered.
+    # Sets BOTH detected_vehicle_id AND detected_vehicle_name in one pass.
     detected_vehicle_id = None
+    detected_vehicle_name = None
     if not req.vehicle_id:
         q_lower = req.message.lower()
+        q_words = set(_re.split(r"[\s,.!?;:+-]+", q_lower))
         for name, v_id in vehicle_name_to_id.items():
-            # Match whole word to avoid "enyaq" matching "enyaq85"
-            if any(w.lower() == name or w.lower().startswith(name + " ") or w.lower().endswith(" " + name)
-                   for w in _re.split(r"[\s,.!?;:+-]+", q_lower)):
-                detected_vehicle_id = v_id
-                break
-
-    # Explicit filter only; detected_vehicle_id is used for aggregate DB search + post-filtering
-    # (NOT passed to search_similar SQL filter because ai_embeddings.vehicle_id is only set for
-    # vehicle_stats — trip/charging chunks have NULL and would be lost.)
-    vehicle_ids = ([uuid.UUID(req.vehicle_id)] if req.vehicle_id and req.vehicle_id in user_vehicle_ids else None)
-
-    # Detect vehicle name for post-filtering (before SQL search so we can keep unfiltered chunks)
-    detected_vehicle_name = None
-    if not req.vehicle_id and not vehicle_ids:
-        q_lower = req.message.lower()
-        for name, v_id in vehicle_name_to_id.items():
-            q_words = set(_re.split(r"[\s,.!?;:+-]+", q_lower))
+            # Match whole word — e.g. "blackmagic" is a full vehicle name, not part of another word
             if name in q_words or any(w.startswith(name + " ") or w.endswith(" " + name) for w in q_words):
                 detected_vehicle_id = v_id
-                detected_vehicle_name = name
+                detected_vehicle_name = name  # for post-filtering + LLM context
                 break
+
+    # Explicit filter only; detected_vehicle_id is used for aggregate DB search + post-filtering.
+    # NOT passed to search_similar SQL because ai_embeddings.vehicle_id is only populated for
+    # vehicle_stats type — trip_summary / charging_event chunks have NULL vehicle_id and
+    # would be silently dropped. Instead we use post-filtering (Step 5).
+    vehicle_ids = ([uuid.UUID(req.vehicle_id)] if req.vehicle_id and req.vehicle_id in user_vehicle_ids else None)
 
     # Step 3: Check if query needs direct DB aggregation (arithmetic / counts / totals)
     chunks = []
@@ -959,20 +960,45 @@ async def chat(
     )
     logger.info(f"vector search returned {len(vec_chunks)} chunks")
 
-    # Step 5: Post-filter by detected vehicle name (covers NULL-vehicle_id trip/charging chunks)
+    # Step 5: Post-filter vector chunks by detected vehicle name.
+    # Be permissive: if a chunk mentions a DIFFERENT vehicle, drop it.
+    # If no vehicle name in chunk (NULL vehicle_id in DB), keep it as generic context.
+    # Only drop chunks that explicitly mention a different vehicle.
     if detected_vehicle_name and not vehicle_ids:
         vid_str = str(detected_vehicle_id)
 
-        def _matches_vehicle(c: dict) -> bool:
+        def _chunk_is_other_vehicle(c: dict) -> bool:
             chunk_lower = c.get("chunk", "").lower()
-            meta = c.get("metadata") or {}
-            return (detected_vehicle_name.lower() in chunk_lower or
-                    vid_str in chunk_lower or
-                    detected_vehicle_name.lower() in str(meta).lower())
+            meta_str = str(c.get("metadata") or {}).lower()
+            # Drop if chunk explicitly mentions a different vehicle (but not "BlackMagic" itself)
+            other_vehicles = {"enyaq", "enyaq_v3", "skoda enyaq", "octavia", "superb"}
+            for other in other_vehicles:
+                if other in chunk_lower or other in meta_str:
+                    return True
+            return False
 
         before = len(vec_chunks)
-        vec_chunks = [c for c in vec_chunks if _matches_vehicle(c)]
+        vec_chunks = [c for c in vec_chunks if not _chunk_is_other_vehicle(c)]
         logger.info(f"post-filtered to {len(vec_chunks)}/{before} chunks for vehicle '{detected_vehicle_name}'")
+
+        # Inject vehicle name into remaining vector chunks so LLM knows they're for this vehicle
+        vname_cap = detected_vehicle_name  # e.g. "BlackMagic"
+        for c in vec_chunks:
+            if c.get("chunk") and not c["chunk"].startswith(vname_cap):
+                c["chunk"] = f"{vname_cap}: {c['chunk']}"
+
+    # Step 5b: If aggregate data was found for the detected vehicle, prepend it to vector chunks
+    # so the LLM has authoritative data first (avoids hallucination from sparse vector results)
+    if agg_chunks and detected_vehicle_name and not vehicle_ids:
+        # Check if agg_chunks already contain vehicle name prefix
+        has_vehicle_prefix = any(
+            c.get("chunk", "").lower().startswith(detected_vehicle_name.lower() + ":")
+            for c in agg_chunks if c.get("id") == "aggregate"
+        )
+        if not has_vehicle_prefix:
+            for c in agg_chunks:
+                if c.get("id") == "aggregate" and c.get("chunk"):
+                    c["chunk"] = f"{detected_vehicle_name}: {c['chunk']}"
 
     # Combine: aggregate data first (for correct numbers), then semantic context
     chunks = agg_chunks + vec_chunks
@@ -983,7 +1009,12 @@ async def chat(
         logger.info(f"direct_db_search returned {len(chunks)} chunks")
 
     # Step 7: Call LLM with conversation history
-    answer = await call_llm(req.message, chunks, provider=req.provider, conversation_history=history)
+    answer = await call_llm(
+        req.message, chunks,
+        provider=req.provider,
+        conversation_history=history,
+        detected_vehicle_name_for_llm=detected_vehicle_name,
+    )
 
     # Step 8: Build source references (exclude aggregate chunks from sources)
     sources = [
