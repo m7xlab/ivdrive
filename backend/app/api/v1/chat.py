@@ -46,6 +46,7 @@ LLM_MODELS = {
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     vehicle_id: str | None = None
+    session_id: str | None = None
     provider: Literal["minimax", "gemini", "openai"] = "minimax"
 
 
@@ -61,14 +62,172 @@ class ChatResponse(BaseModel):
     session_id: str | None = None
 
 
+# ─── Chat session management ─────────────────────────────────────────────────────
+
+
+def _build_conversation_context(history: list[dict]) -> str:
+    """Build a conversation summary from chat history for LLM context."""
+    if not history:
+        return ""
+    lines = ["Previous conversation:"]
+    for msg in history[-6:]:  # last 6 messages max
+        role = msg.get("role", "?").capitalize()
+        content = msg.get("content", "")[:200]
+        lines.append(f"- {role}: {content}")
+    return "\n".join(lines) + "\n\n"
+
+
+async def _ensure_chat_tables(db: AsyncSession) -> None:
+    """Create chat tables using a separate autocommit connection so DDL doesn't affect main tx."""
+    try:
+        # Run DDL in full autocommit mode — DDL commits automatically in PostgreSQL
+        # and should never share a transaction with our main queries
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from app.config import settings
+
+        engine = create_async_engine(settings.database_url, isolation_level="AUTOCOMMIT")
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id UUID PRIMARY KEY,
+                    session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                    role VARCHAR(20) NOT NULL,
+                    content TEXT NOT NULL,
+                    sources_json TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_user ON chat_sessions(user_id)"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_messages_session ON chat_messages(session_id)"))
+        await engine.dispose()
+    except Exception as e:
+        logger.warning(f"_ensure_chat_tables: {e}")
+
+
+async def _get_or_create_session(db: AsyncSession, user_id: str, session_id: str | None) -> str:
+    """Return existing session_id or create a new one. Returns session_id string."""
+    await _ensure_chat_tables(db)
+    if session_id:
+        # Verify session belongs to user
+        result = await db.execute(
+            text("SELECT id FROM chat_sessions WHERE id = :sid AND user_id = :uid"),
+            {"sid": session_id, "uid": user_id},
+        )
+        if result.fetchone():
+            return session_id
+        # Session not found or wrong user — create new
+    new_id = session_id or str(uuid.uuid4())
+    try:
+        await db.execute(
+            text("INSERT INTO chat_sessions (id, user_id) VALUES (:id, :uid) ON CONFLICT DO NOTHING"),
+            {"id": new_id, "uid": user_id},
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"_get_or_create_session insert: {e}")
+        await db.rollback()
+        new_id = str(uuid.uuid4())
+        try:
+            await db.execute(
+                text("INSERT INTO chat_sessions (id, user_id) VALUES (:id, :uid)"),
+                {"id": new_id, "uid": user_id},
+            )
+            await db.commit()
+        except Exception as e2:
+            logger.warning(f"_get_or_create_session retry: {e2}")
+            await db.rollback()
+    return new_id
+
+
+async def _load_session_history(db: AsyncSession, session_id: str) -> list[dict]:
+    """Load conversation history for a session, most recent last."""
+    try:
+        result = await db.execute(
+            text("""
+                SELECT role, content, sources_json, created_at
+                FROM chat_messages
+                WHERE session_id = :sid
+                ORDER BY created_at ASC
+                LIMIT 20
+            """),
+            {"sid": session_id},
+        )
+        rows = result.fetchall()
+        history = []
+        for r in rows:
+            msg = {"role": r[0], "content": r[1]}
+            if r[2]:
+                try:
+                    msg["sources"] = json.loads(r[2])
+                except Exception:
+                    pass
+            history.append(msg)
+        return history
+    except Exception as e:
+        logger.warning(f"_load_session_history: {e}")
+        return []
+
+
+async def _save_message(db: AsyncSession, session_id: str, role: str, content: str, sources: list) -> None:
+    """Save a single chat message."""
+    try:
+        sources_json = json.dumps([{"type": s.type, "id": s.id, "score": s.score} for s in sources]) if sources else None
+        await db.execute(
+            text("""
+                INSERT INTO chat_messages (id, session_id, role, content, sources_json)
+                VALUES (:id, :sid, :role, :content, :sources_json)
+            """),
+            {
+                "id": str(uuid.uuid4()),
+                "sid": session_id,
+                "role": role,
+                "content": content,
+                "sources_json": sources_json,
+            },
+        )
+        await db.execute(
+            text("UPDATE chat_sessions SET updated_at = now() WHERE id = :sid"),
+            {"sid": session_id},
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"_save_message: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
+async def _upload_session_to_s3(session_id: str, user_id: str, messages: list[dict]) -> None:
+    """Upload full session to S3 in background — fire and forget."""
+    try:
+        from app.services.storage import StorageProvider
+        storage = StorageProvider()
+        if not getattr(storage, "use_s3", False):
+            return
+        asyncio.create_task(storage.upload_chat_session(session_id, user_id, messages))
+    except Exception as e:
+        logger.warning(f"_upload_session_to_s3: {e}")
+
+
 # ─── LLM calls ─────────────────────────────────────────────────────────────────
 async def call_llm(
     prompt: str,
     context_chunks: list[dict],
     provider: str = "minimax",
     model: str | None = None,
+    conversation_history: list[dict] | None = None,
 ) -> str:
-    """Call LLM with RAG context. Falls back between providers on failure."""
+    """Call LLM with RAG context + optional conversation history. Falls back between providers on failure."""
     if not prompt.strip():
         return "I didn't receive a message. Please try again."
 
@@ -89,16 +248,23 @@ async def call_llm(
             context_lines.append(f"[{i}] ({source}) {chunk.get('chunk', '')[:400]}")
         context_block = "Context from your vehicle data:\n" + "\n".join(context_lines) + "\n\n"
 
+    # Build conversation context from history
+    conv_block = _build_conversation_context(conversation_history or []) if conversation_history else ""
+
     system_prompt = (
         "You are iVDrive AI assistant. Answer questions based ONLY on the provided vehicle data context. "
         "If the context doesn't contain relevant information, say you don't have that data. "
         "Be specific with numbers, dates, and locations when available. "
-        "Format answers clearly. Keep it concise."
+        "Format answers clearly. Keep it concise. "
+        "IMPORTANT: Never mention internal content type labels like 'trip_summary', 'charging_event', 'location', 'Stats', 'Place' in your answer. "
+        "When previous conversation is provided, use it to understand context (e.g., vehicle names already mentioned)."
     )
+
+    user_content = conv_block + context_block + f"Question: {prompt}"
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": context_block + f"Question: {prompt}"},
+        {"role": "user", "content": user_content},
     ]
 
     # Try requested provider first, then fall back
@@ -492,7 +658,7 @@ async def aggregate_db_search(
                     })
 
     # ── Charging aggregates ────────────────────────────────────────────────────
-    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery"]) or (is_perf_query and vehicle_id)
+    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery", "cost"]) or (is_perf_query and vehicle_id)
     if charge_numeric:
         # Total charging energy
         energy_specific = any(p in q for p in ["kwh total", "energy total", "total energy", "total kwh",
@@ -585,7 +751,7 @@ async def aggregate_db_search(
         rows = await _run(text(f"""
             SELECT c.session_start, COALESCE(c.energy_kwh, 0)::float, COALESCE(c.charging_type, 'unknown')::text,
                    COALESCE(c.start_level, 0)::float, COALESCE(c.end_level, 0)::float,
-                   COALESCE(c.actual_cost_eur, 0)::float, v.display_name
+                   COALESCE(c.actual_cost_eur, 0)::float, COALESCE(c.base_cost_eur, 0)::float, v.display_name
             FROM charging_sessions c
             JOIN user_vehicles v ON v.id = c.user_vehicle_id
             WHERE c.user_vehicle_id IN {vid_subq} {cid_filter}
@@ -594,7 +760,8 @@ async def aggregate_db_search(
         if rows:
             r = rows[0]
             date_str = r[0].strftime("%Y-%m-%d %H:%M") if r[0] else "?"
-            cost_str = f", €{r[5]:.2f}" if r[5] else ""
+            cost_val = r[5] if r[5] else (r[6] if r[6] else 0)
+            cost_str = f", €{cost_val:.2f}" if cost_val else ""
             chunks.append({
                 "type": "charging_event",
                 "id": "aggregate",
@@ -617,11 +784,17 @@ async def chat(
     """
     RAG chat endpoint. Authenticates user, retrieves relevant vehicle data
     chunks via vector search, constructs prompt, calls LLM, returns answer.
+    Supports conversation sessions: pass session_id to continue a conversation.
     """
     from sqlalchemy import text
     import httpx
 
     user_id = user.id
+
+    # Step 0: Session management — get or create session, load history
+    session_id = await _get_or_create_session(db, str(user_id), req.session_id)
+    history = await _load_session_history(db, session_id)
+    logger.info(f"chat session {session_id}: {len(history)} history messages")
 
     # Step 1: Get user's vehicle IDs and display names for vehicle-name detection
     vehicle_result = await db.execute(
@@ -715,8 +888,8 @@ async def chat(
         chunks = await direct_db_search(db, user_id, req.message, effective_vid)
         logger.info(f"direct_db_search returned {len(chunks)} chunks")
 
-    # Step 7: Call LLM
-    answer = await call_llm(req.message, chunks, provider=req.provider)
+    # Step 7: Call LLM with conversation history
+    answer = await call_llm(req.message, chunks, provider=req.provider, conversation_history=history)
 
     # Step 8: Build source references (exclude aggregate chunks from sources)
     sources = [
@@ -725,4 +898,14 @@ async def chat(
         if c.get("score", 0) > 0.6 and c.get("id") != "aggregate"
     ]
 
-    return ChatResponse(answer=answer, sources=sources)
+    # Step 9: Persist messages to DB (fire-and-forget S3 backup)
+    await _save_message(db, session_id, "user", req.message, [])
+    await _save_message(db, session_id, "assistant", answer, sources)
+    # Upload full session to S3 in background
+    updated_history = history + [
+        {"role": "user", "content": req.message},
+        {"role": "assistant", "content": answer},
+    ]
+    asyncio.create_task(_upload_session_to_s3(session_id, str(user_id), updated_history))
+
+    return ChatResponse(answer=answer, sources=sources, session_id=session_id)
