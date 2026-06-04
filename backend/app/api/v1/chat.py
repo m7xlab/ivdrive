@@ -78,7 +78,14 @@ async def call_llm(
         context_lines = []
         for i, chunk in enumerate(context_chunks[:5], 1):
             meta = chunk.get("metadata", {}) or {}
-            source = meta.get("source", chunk.get("type", "unknown"))
+            raw_type = chunk.get("type", "unknown")
+            # Source label for display — never expose raw content_type names
+            source = meta.get("source") or {
+                "trip_summary": "Trip",
+                "charging_event": "Charge",
+                "vehicle_stats": "Stats",
+                "location": "Place",
+            }.get(raw_type, raw_type.title())
             context_lines.append(f"[{i}] ({source}) {chunk.get('chunk', '')[:400]}")
         context_block = "Context from your vehicle data:\n" + "\n".join(context_lines) + "\n\n"
 
