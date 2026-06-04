@@ -73,6 +73,9 @@ def _build_conversation_context(history: list[dict]) -> str:
     for msg in history[-6:]:  # last 6 messages max
         role = msg.get("role", "?").capitalize()
         content = msg.get("content", "")[:200]
+        # If this is the assistant's answer about a charging session, add cost if available
+        if msg.get("role") == "assistant" and "charging" in content.lower() and msg.get("cost_info"):
+            content += f" [Cost: {msg['cost_info']}]"
         lines.append(f"- {role}: {content}")
     return "\n".join(lines) + "\n\n"
 
@@ -177,7 +180,7 @@ async def _load_session_history(db: AsyncSession, session_id: str) -> list[dict]
         return []
 
 
-async def _save_message(db: AsyncSession, session_id: str, role: str, content: str, sources: list) -> None:
+async def _save_message(db: AsyncSession, session_id: str, role: str, content: str, sources: list, cost_info: str = None) -> None:
     """Save a single chat message."""
     try:
         sources_json = json.dumps([{"type": s.type, "id": s.id, "score": s.score} for s in sources]) if sources else None
@@ -571,6 +574,7 @@ async def aggregate_db_search(
                 pass
             return []
 
+    print(f"[aggregate] q={query[:40]}, hist={len(conversation_history or [])}, vehicle_id={vehicle_id}")
     # ── Trip aggregates ──────────────────────────────────────────────────────
     # Also trigger for "performance"/"performing" queries (implicit distance/trip interest)
     # For "performance"/"performing" queries with a specific vehicle, add implicit distance/kwh triggers
@@ -659,7 +663,7 @@ async def aggregate_db_search(
                     })
 
     # ── Charging aggregates ────────────────────────────────────────────────────
-    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery"]) or (is_perf_query and vehicle_id)
+    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery", "cost"]) or (is_perf_query and vehicle_id)
     if charge_numeric:
         # Total charging energy
         energy_specific = any(p in q for p in ["kwh total", "energy total", "total energy", "total kwh",
@@ -686,11 +690,9 @@ async def aggregate_db_search(
         # Charging cost — check if this is a follow-up "that cost" question (no vehicle specified)
         # Extract vehicle name from conversation history to scope the query correctly
         hist_vehicle = None
-        logger.info(f"hist_vehicle detection: history={[(m.get('role'), m.get('content','')[:50]) for m in (conversation_history or [])]}")
         if conversation_history and not vehicle_id:
             for msg in reversed(conversation_history[-4:]):
                 c = msg.get("content", "")
-                logger.info(f"  msg role={msg.get('role')}, content={c[:80]}")
                 if any(v in c for v in ["BlackMagic", "Enyaq", "Elroq", "Enyac", "JB RS"]):
                     for v in ["BlackMagic", "Enyaq", "Elroq", "Enyac", "JB RS"]:
                         if v in c:
@@ -700,21 +702,13 @@ async def aggregate_db_search(
                     if hist_vehicle:
                         break
 
-        is_follow_up_cost = (
-            any(k in q for k in ["cost", "spend", "spent", "eur", "price"]) and
-            len(conversation_history or []) > 0 and
-            not vehicle_id and
-            not any(k in q for k in ["total", "all", "month", "year", "may", "april", "march"])
-        )
-        
-        # DEBUG: inject diagnostic chunk
-        diag_lines = [
-            f"[DEBUG] q={q[:60]}, hist={len(conversation_history or [])}, vid={vehicle_id}",
-            f"[DEBUG] hist_vehicle={hist_vehicle}, is_follow_up={is_follow_up_cost}",
-            f"[DEBUG] history: {[(m.get('role'), m.get('content','')[:40]) for m in (conversation_history or [])[-4:]]}",
-        ]
-        chunks.append({"type": "debug", "id": "diag", "chunk": " | ".join(diag_lines)})
+        _a = any(k in q for k in ["cost", "spend", "spent", "eur", "price"])
+        _b = len(conversation_history or []) > 0
+        _c = not vehicle_id
+        _d = not any(k in q for k in ["total", "all", "month", "year", "may", "april", "march"])
+        is_follow_up_cost = _a and _b and _c and _d
         if is_follow_up_cost:
+            # Inject diagnostic chunk so LLM can see what's happening
             logger.info(f"is_follow_up_cost=True, hist_vehicle={hist_vehicle}")
             # Build filter for specific vehicle if detected from history
             vid_filter = f"AND v.display_name ILIKE :hveh" if hist_vehicle else ""
@@ -733,6 +727,7 @@ async def aggregate_db_search(
             
             def _add_cost_chunk(r):
                 cost_val = r[1] if r[1] else r[2]
+                logger.info(f"_add_cost_chunk: cost_val={cost_val}, name={r[3]}")
                 if cost_val:
                     date_str = r[0].strftime("%Y-%m-%d at %H:%M") if r[0] else "last session"
                     chunks.append({
@@ -745,13 +740,11 @@ async def aggregate_db_search(
             added = False
             if rows:
                 r = rows[0]
-                logger.info(f"follow_up_cost: cost_val={r[1] if r[1] else r[2]}, name={r[3]}")
                 added = _add_cost_chunk(r)
             
             if not added:
-                # No cost on last session — look for last session WITH cost
+                logger.info(f"No cost on last session for hist_vehicle={hist_vehicle}, searching alternatives")
                 if hist_vehicle:
-                    # Vehicle-specific: last session with cost for this vehicle
                     rows2 = await _run(text(f"""
                         SELECT c.session_start, COALESCE(c.actual_cost_eur, 0), COALESCE(c.base_cost_eur, 0),
                                v.display_name
@@ -762,10 +755,10 @@ async def aggregate_db_search(
                         ORDER BY c.session_start DESC LIMIT 1
                     """), {"uid": str(user_id), "hveh": f"%{hist_vehicle}%"})
                     if rows2:
+                        logger.info(f"Found rows2: {rows2[0]}")
                         added = _add_cost_chunk(rows2[0])
                 
-                if not added and not hist_vehicle:
-                    # General: last session with cost across all vehicles
+                if not added:
                     rows3 = await _run(text(f"""
                         SELECT c.session_start, COALESCE(c.actual_cost_eur, 0), COALESCE(c.base_cost_eur, 0),
                                v.display_name
@@ -776,6 +769,7 @@ async def aggregate_db_search(
                         ORDER BY c.session_start DESC LIMIT 1
                     """), {"uid": str(user_id)})
                     if rows3:
+                        logger.info(f"Found rows3: {rows3[0]}")
                         added = _add_cost_chunk(rows3[0])
         elif any(k in q for k in ["cost", "spend", "spent", "eur", "price"]):
             rows = await _run(text(f"""
@@ -865,6 +859,9 @@ async def aggregate_db_search(
                 ),
             })
 
+    print(f"[aggregate_db_search] EXIT returning {len(chunks)} chunks")
+    for c in chunks:
+        print(f"  {c["type"]}/{c.get("id","?")}: {c["chunk"][:80]}")
     return chunks
 
 
@@ -994,7 +991,19 @@ async def chat(
 
     # Step 9: Persist messages to DB (fire-and-forget S3 backup)
     await _save_message(db, session_id, "user", req.message, [])
-    await _save_message(db, session_id, "assistant", answer, sources)
+    # Extract cost from charging answer and append to content (persists in DB, carries forward in history)
+    import re
+    if any(k in req.message.lower() for k in ["charge", "charging"]):
+        cost_match = re.search(r"€[0-9.]+", answer)
+        if cost_match:
+            answer_with_cost = f"{answer} (Cost: {cost_match.group(0)})"
+        else:
+            answer_with_cost = answer
+    else:
+        answer_with_cost = answer
+    
+    await _save_message(db, session_id, "assistant", answer_with_cost, sources)
+    answer_for_llm = answer  # Use original for LLM response
     # Upload full session to S3 in background
     updated_history = history + [
         {"role": "user", "content": req.message},
