@@ -510,6 +510,7 @@ async def aggregate_db_search(
     user_id: uuid.UUID,
     query: str,
     vehicle_id: str | None = None,
+    conversation_history: list | None = None,
 ) -> list[dict]:
     """
     Answer arithmetic / aggregate / temporal queries via direct SQL.
@@ -658,7 +659,7 @@ async def aggregate_db_search(
                     })
 
     # ── Charging aggregates ────────────────────────────────────────────────────
-    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery", "cost"]) or (is_perf_query and vehicle_id)
+    charge_numeric = any(k in q for k in ["charge", "kwh", "energy", "charging", "battery"]) or (is_perf_query and vehicle_id)
     if charge_numeric:
         # Total charging energy
         energy_specific = any(p in q for p in ["kwh total", "energy total", "total energy", "total kwh",
@@ -682,8 +683,101 @@ async def aggregate_db_search(
                     ),
                 })
 
-        # Charging cost
-        if any(k in q for k in ["cost", "spend", "spent", "eur", "price"]):
+        # Charging cost — check if this is a follow-up "that cost" question (no vehicle specified)
+        # Extract vehicle name from conversation history to scope the query correctly
+        hist_vehicle = None
+        logger.info(f"hist_vehicle detection: history={[(m.get('role'), m.get('content','')[:50]) for m in (conversation_history or [])]}")
+        if conversation_history and not vehicle_id:
+            for msg in reversed(conversation_history[-4:]):
+                c = msg.get("content", "")
+                logger.info(f"  msg role={msg.get('role')}, content={c[:80]}")
+                if any(v in c for v in ["BlackMagic", "Enyaq", "Elroq", "Enyac", "JB RS"]):
+                    for v in ["BlackMagic", "Enyaq", "Elroq", "Enyac", "JB RS"]:
+                        if v in c:
+                            hist_vehicle = v
+                            logger.info(f"  -> hist_vehicle={hist_vehicle}")
+                            break
+                    if hist_vehicle:
+                        break
+
+        is_follow_up_cost = (
+            any(k in q for k in ["cost", "spend", "spent", "eur", "price"]) and
+            len(conversation_history or []) > 0 and
+            not vehicle_id and
+            not any(k in q for k in ["total", "all", "month", "year", "may", "april", "march"])
+        )
+        
+        # DEBUG: inject diagnostic chunk
+        diag_lines = [
+            f"[DEBUG] q={q[:60]}, hist={len(conversation_history or [])}, vid={vehicle_id}",
+            f"[DEBUG] hist_vehicle={hist_vehicle}, is_follow_up={is_follow_up_cost}",
+            f"[DEBUG] history: {[(m.get('role'), m.get('content','')[:40]) for m in (conversation_history or [])[-4:]]}",
+        ]
+        chunks.append({"type": "debug", "id": "diag", "chunk": " | ".join(diag_lines)})
+        if is_follow_up_cost:
+            logger.info(f"is_follow_up_cost=True, hist_vehicle={hist_vehicle}")
+            # Build filter for specific vehicle if detected from history
+            vid_filter = f"AND v.display_name ILIKE :hveh" if hist_vehicle else ""
+            lookup_params = {"uid": str(user_id)}
+            if hist_vehicle:
+                lookup_params["hveh"] = f"%{hist_vehicle}%"
+            rows = await _run(text(f"""
+                SELECT c.session_start, COALESCE(c.actual_cost_eur, 0), COALESCE(c.base_cost_eur, 0),
+                       v.display_name
+                FROM charging_sessions c
+                JOIN user_vehicles v ON v.id = c.user_vehicle_id
+                WHERE c.user_vehicle_id IN {vid_subq} {vid_filter}
+                ORDER BY c.session_start DESC LIMIT 1
+            """), lookup_params)
+            logger.info(f"follow_up_cost rows: {rows}")
+            
+            def _add_cost_chunk(r):
+                cost_val = r[1] if r[1] else r[2]
+                if cost_val:
+                    date_str = r[0].strftime("%Y-%m-%d at %H:%M") if r[0] else "last session"
+                    chunks.append({
+                        "type": "charging_event", "id": "last_cost",
+                        "chunk": f"Last charging ({r[3]}, {date_str}): €{cost_val:.2f}",
+                    })
+                    return True
+                return False
+            
+            added = False
+            if rows:
+                r = rows[0]
+                logger.info(f"follow_up_cost: cost_val={r[1] if r[1] else r[2]}, name={r[3]}")
+                added = _add_cost_chunk(r)
+            
+            if not added:
+                # No cost on last session — look for last session WITH cost
+                if hist_vehicle:
+                    # Vehicle-specific: last session with cost for this vehicle
+                    rows2 = await _run(text(f"""
+                        SELECT c.session_start, COALESCE(c.actual_cost_eur, 0), COALESCE(c.base_cost_eur, 0),
+                               v.display_name
+                        FROM charging_sessions c
+                        JOIN user_vehicles v ON v.id = c.user_vehicle_id
+                        WHERE c.user_vehicle_id IN {vid_subq} AND v.display_name ILIKE :hveh
+                          AND COALESCE(c.actual_cost_eur, c.base_cost_eur) > 0
+                        ORDER BY c.session_start DESC LIMIT 1
+                    """), {"uid": str(user_id), "hveh": f"%{hist_vehicle}%"})
+                    if rows2:
+                        added = _add_cost_chunk(rows2[0])
+                
+                if not added and not hist_vehicle:
+                    # General: last session with cost across all vehicles
+                    rows3 = await _run(text(f"""
+                        SELECT c.session_start, COALESCE(c.actual_cost_eur, 0), COALESCE(c.base_cost_eur, 0),
+                               v.display_name
+                        FROM charging_sessions c
+                        JOIN user_vehicles v ON v.id = c.user_vehicle_id
+                        WHERE c.user_vehicle_id IN {vid_subq}
+                          AND COALESCE(c.actual_cost_eur, c.base_cost_eur) > 0
+                        ORDER BY c.session_start DESC LIMIT 1
+                    """), {"uid": str(user_id)})
+                    if rows3:
+                        added = _add_cost_chunk(rows3[0])
+        elif any(k in q for k in ["cost", "spend", "spent", "eur", "price"]):
             rows = await _run(text(f"""
                 SELECT COALESCE(SUM(COALESCE(c.actual_cost_eur, c.base_cost_eur)), 0)::float,
                        COALESCE(SUM(base_cost_eur), 0)::float, COUNT(*)::int
@@ -743,10 +837,10 @@ async def aggregate_db_search(
             })
 
     # ── Last / most recent charging ──────────────────────────────────────────
-    # Skip temporal fallback for cost/spent/price queries — cost section handles those.
     # Run temporal for: "when did I last charge", "last charging session", etc.
-    asked_about_money = any(k in q for k in ["cost", "spend", "spent", "eur", "price", "how much", "total charge", "total cost"])
-    if is_temporal_query(q) and any(k in q for k in ["charge", "charging", "kwh"]) and not asked_about_money:
+    # Always include cost (base_cost_eur) in temporal — even if not explicitly asked, the LLM
+    # needs it for follow-up "how much did that cost?" questions (conversation carry-forward)
+    if is_temporal_query(q) and any(k in q for k in ["charge", "charging", "kwh"]):
         charge_params = {"uid": str(user_id), "vid": vehicle_id} if vehicle_id else {"uid": str(user_id)}
         rows = await _run(text(f"""
             SELECT c.session_start, COALESCE(c.energy_kwh, 0)::float, COALESCE(c.charging_type, 'unknown')::text,
@@ -842,7 +936,7 @@ async def chat(
     effective_vid = req.vehicle_id if req.vehicle_id and req.vehicle_id in user_vehicle_ids else (
         str(detected_vehicle_id) if detected_vehicle_id else None)
     if is_aggregate_query(req.message) or is_temporal_query(req.message):
-        agg_chunks = await aggregate_db_search(db, user_id, req.message, effective_vid)
+        agg_chunks = await aggregate_db_search(db, user_id, req.message, effective_vid, conversation_history=history)
         logger.info(f"aggregate_db_search returned {len(agg_chunks)} chunks")
 
     # Inject vehicle name into aggregate chunks so LLM knows the result is vehicle-specific
@@ -909,3 +1003,96 @@ async def chat(
     asyncio.create_task(_upload_session_to_s3(session_id, str(user_id), updated_history))
 
     return ChatResponse(answer=answer, sources=sources, session_id=session_id)
+
+# ─── Session management endpoints ─────────────────────────────────────────────
+
+@router.get("/sessions", response_model=list[dict])
+async def list_sessions(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all chat sessions for current user, newest first."""
+    from sqlalchemy import text
+    await _ensure_chat_tables(db)
+    result = await db.execute(text("""
+        SELECT s.id, s.created_at, s.updated_at,
+               COUNT(m.id) as message_count,
+               MAX(m.created_at) as last_message_at
+        FROM chat_sessions s
+        LEFT JOIN chat_messages m ON m.session_id = s.id
+        WHERE s.user_id = :uid
+        GROUP BY s.id
+        ORDER BY s.updated_at DESC
+        LIMIT 20
+    """), {"uid": str(user.id)})
+    return [
+        {
+            "id": str(row[0]),
+            "created_at": row[1].isoformat() if row[1] else None,
+            "updated_at": row[2].isoformat() if row[2] else None,
+            "message_count": row[3],
+            "last_message_at": row[4].isoformat() if row[4] else None,
+        }
+        for row in result.fetchall()
+    ]
+
+
+@router.get("/sessions/{session_id}", response_model=dict)
+async def get_session(
+    session_id: str,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all messages in a session."""
+    from sqlalchemy import text
+    await _ensure_chat_tables(db)
+    # Verify ownership
+    result = await db.execute(text(
+        "SELECT id FROM chat_sessions WHERE id = :sid AND user_id = :uid"
+    ), {"sid": session_id, "uid": str(user.id)})
+    if not result.fetchone():
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    msgs = await db.execute(text("""
+        SELECT role, content, created_at
+        FROM chat_messages
+        WHERE session_id = :sid
+        ORDER BY created_at ASC
+    """), {"sid": session_id})
+    return {
+        "id": session_id,
+        "messages": [
+            {"role": r[0], "content": r[1], "created_at": r[2].isoformat() if r[2] else None}
+            for r in msgs.fetchall()
+        ],
+    }
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a specific session and all its messages."""
+    from sqlalchemy import text
+    result = await db.execute(text(
+        "DELETE FROM chat_sessions WHERE id = :sid AND user_id = :uid RETURNING id"
+    ), {"sid": session_id, "uid": str(user.id)})
+    if not result.fetchone():
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"deleted": True}
+
+
+@router.delete("/sessions")
+async def delete_all_sessions(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all chat sessions for current user."""
+    from sqlalchemy import text
+    result = await db.execute(text(
+        "DELETE FROM chat_sessions WHERE user_id = :uid RETURNING id"
+    ), {"uid": str(user.id)})
+    deleted = len(result.fetchall())
+    return {"deleted_count": deleted}

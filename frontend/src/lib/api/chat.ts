@@ -4,6 +4,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   sources?: { type: string; id: string; score: number }[];
+  created_at?: string;
 }
 
 export interface ChatResponse {
@@ -12,39 +13,75 @@ export interface ChatResponse {
   session_id?: string;
 }
 
-const SESSION_KEY = "ivdrive_chat_session_id";
-
-export function getChatSessionId(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(SESSION_KEY);
+export interface SessionInfo {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_message_at: string | null;
 }
 
-export function setChatSessionId(sessionId: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SESSION_KEY, sessionId);
+// In-memory current session — never persisted to localStorage
+let _currentSessionId: string | null = null;
+
+export function getCurrentSessionId(): string | null {
+  return _currentSessionId;
 }
+
+function setCurrentSessionId(sid: string | null): void {
+  _currentSessionId = sid;
+}
+
+// ── Session management ────────────────────────────────────────────────────────
 
 export const chatApi = {
+  /** List user's chat sessions (newest first) */
+  async listSessions(): Promise<SessionInfo[]> {
+    const res = await apiFetch("/api/v1/chat/sessions");
+    return res.json();
+  },
+
+  /** Load all messages for a given session */
+  async getSessionMessages(sessionId: string): Promise<{ id: string; messages: ChatMessage[] }> {
+    const res = await apiFetch(`/api/v1/chat/sessions/${sessionId}`);
+    return res.json();
+  },
+
+  /** Delete a specific session */
+  async deleteSession(sessionId: string): Promise<void> {
+    await apiFetch(`/api/v1/chat/sessions/${sessionId}`, { method: "DELETE" });
+  },
+
+  /** Delete all sessions */
+  async deleteAllSessions(): Promise<{ deleted_count: number }> {
+    const res = await apiFetch("/api/v1/chat/sessions", { method: "DELETE" });
+    return res.json();
+  },
+
+  /** Send a message — pass sessionId to continue conversation, none to start new */
   async sendMessage(
     message: string,
+    sessionId?: string | null,
     vehicleId?: string,
     provider: "minimax" | "gemini" | "openai" = "minimax"
   ): Promise<ChatResponse> {
-    const sessionId = getChatSessionId();
     const body: Record<string, string> = { message };
-    if (vehicleId) body.vehicle_id = vehicleId;
     if (sessionId) body.session_id = sessionId;
+    if (vehicleId) body.vehicle_id = vehicleId;
     body.provider = provider;
+
     const res = await apiFetch("/api/v1/chat", {
       method: "POST",
       body: JSON.stringify(body),
       headers: { "Content-Type": "application/json" },
     });
     const data = await res.json();
-    // Persist session_id for next request
+
+    // Update in-memory current session
     if (data.session_id) {
-      setChatSessionId(data.session_id);
+      setCurrentSessionId(data.session_id);
     }
+
     return data;
   },
 };
