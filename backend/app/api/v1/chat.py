@@ -467,6 +467,7 @@ import re as _re
 
 def extract_date_range(query: str):
     """Extract (from_date, to_date) from query. Returns (None, None) if not found."""
+    import calendar
     q = query.lower()
     month_map = {
         "january": 1, "february": 2, "march": 3, "april": 4,
@@ -482,8 +483,9 @@ def extract_date_range(query: str):
         m = _re.search(pattern, q)
         if m:
             year = 2026
+            last_day = calendar.monthrange(year, month_num)[1]
             from_date = f"{year}-{month_num:02d}-01"
-            to_date = f"{year}-{month_num:02d}-31"
+            to_date = f"{year}-{month_num:02d}-{last_day:02d}"
             return from_date, to_date
     # Match "last week"
     if "last week" in q:
