@@ -33,6 +33,8 @@ services:
       S3_BUCKET: "${S3_BUCKET}"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
     networks:
       - backend
     volumes:
