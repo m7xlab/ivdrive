@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db, get_current_user
 from app.services.ai_embeddings import generate_embedding, search_similar
+from app.services.valkey_client import get_valkey, get_session_flag, set_session_flag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -227,8 +228,14 @@ async def call_llm(
     model: str | None = None,
     conversation_history: list[dict] | None = None,
     detected_vehicle_name_for_llm: str | None = None,
+    session_id: str | None = None,
+    detected_vehicle_id: str | None = None,
 ) -> str:
-    """Call LLM with RAG context + optional conversation history. Falls back between providers on failure."""
+    """
+    Call LLM with RAG context + optional conversation history + KV cache.
+    Falls back between providers on failure.
+    Cache: stored per session in Valkey, invalidated on vehicle change.
+    """
     if not prompt.strip():
         return "I didn't receive a message. Please try again."
 
@@ -275,6 +282,22 @@ async def call_llm(
         {"role": "user", "content": user_content},
     ]
 
+    # ── KV Cache (MiniMax) ──────────────────────────────────────────────────
+    cache_id = None
+    cached_vehicle_id = None
+    if session_id:
+        try:
+            cache_id = await get_session_flag(session_id, "minimax_cache_id")
+            cached_vehicle_id = await get_session_flag(session_id, "cache_vehicle_id")
+        except Exception as e:
+            logger.warning(f"KV cache read error: {e}")
+            cache_id = None
+
+    # Invalidate cache if vehicle changed
+    if cache_id and detected_vehicle_id and cached_vehicle_id != detected_vehicle_id:
+        logger.info(f"KV cache invalidated: vehicle changed {cached_vehicle_id} -> {detected_vehicle_id}")
+        cache_id = None
+
     # Try requested provider first, then fall back
     providers = [provider] + [p for p in LLM_URLS if p != provider]
     last_error = ""
@@ -284,6 +307,13 @@ async def call_llm(
             if prov == "minimax":
                 if not MINIMAX_API_KEY:
                     continue
+                req_json = {
+                    "model": model or LLM_MODELS.get(prov, "MiniMax-Text-01"),
+                    "messages": messages,
+                    "temperature": 0.3,
+                }
+                if cache_id:
+                    req_json["cache_id"] = cache_id
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         LLM_URLS[prov],
@@ -291,17 +321,23 @@ async def call_llm(
                             "Authorization": f"Bearer {MINIMAX_API_KEY}",
                             "Content-Type": "application/json",
                         },
-                        json={
-                            "model": model or LLM_MODELS.get(prov, "MiniMax-Text-01"),
-                            "messages": messages,
-                            "temperature": 0.3,
-                        },
+                        json=req_json,
                     )
                     if resp.status_code != 200:
                         last_error = f"minimax {resp.status_code}: {resp.text[:100]}"
                         continue
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    answer = data["choices"][0]["message"]["content"]
+                    # Store cache_id for next request
+                    new_cache_id = data.get("cache_id")
+                    if new_cache_id and session_id:
+                        try:
+                            await set_session_flag(session_id, "minimax_cache_id", new_cache_id, ttl_seconds=86400)
+                            if detected_vehicle_id:
+                                await set_session_flag(session_id, "cache_vehicle_id", detected_vehicle_id, ttl_seconds=86400)
+                        except Exception as e:
+                            logger.warning(f"KV cache store error: {e}")
+                    return answer
 
             elif prov == "gemini":
                 if not GEMINI_API_KEY:
@@ -451,6 +487,8 @@ AGGREGATE_PATTERNS = [
     r"how many", r"\btotal\b", r"sum of", r"count of",
     r"average", r"avg ", r"how much", r"overall ",
     r"longest", r"shortest", r"performance", r"performing",
+    r"\boverview\b", r"\bsummary\b", r"\btell me about\b",
+    r"\bwhat is.*status\b", r"\bhow.*doing\b",
 ]
 ARITHMETIC_PATTERNS = [
     r"cost", r"spend", r"spent", r"eur", r"kwh total", r"energy total",
@@ -459,6 +497,8 @@ ARITHMETIC_PATTERNS = [
 TEMPORAL_PATTERNS = [
     r"\blast\b", r"\blatest\b", r"\bmost recent\b",
     r"\bprevious\b", r"\bprior\b", r"\bthis year\b",
+    r"\boverview\b", r"\bsummary\b", r"\btell me about\b",
+    r"\bwhat is.*status\b", r"\bhow.*doing\b",
 ]
 
 # Month name → (year, month) for "May 2026" style queries
@@ -580,6 +620,54 @@ async def aggregate_db_search(
             except Exception:
                 pass
             return []
+
+    # ── Overview handler — comprehensive stats for "overview"/"summary" queries ──
+    is_overview_query = any(k in q for k in ["overview", "summary", "tell me about", "status"])
+    if is_overview_query and vehicle_id:
+        # All-time trip stats
+        rows = await _run(text(f"""
+            SELECT
+                COUNT(*)::int AS trip_count,
+                COALESCE(SUM(t.distance_km), 0)::float AS total_km,
+                COALESCE(SUM(t.kwh_consumed), 0)::float AS total_kwh,
+                COALESCE(AVG(t.avg_temp_celsius), 0)::float AS avg_temp,
+                MAX(t.start_date) AS last_trip
+            FROM trips t
+            WHERE t.user_vehicle_id = :vid AND t.end_date IS NOT NULL
+        """), {"vid": vehicle_id})
+        if rows and rows[0]:
+            r = rows[0]
+            last_trip_str = r[4].strftime("%Y-%m-%d") if r[4] else "?"
+            chunks.append({
+                "type": "trip_summary",
+                "id": "aggregate",
+                "chunk": (
+                    f"Total: {r[0]} trips, {r[1]:.0f} km, {r[2]:.1f} kWh consumed, "
+                    f"avg temp {r[3]:.1f}°C, last trip {last_trip_str}"
+                ),
+            })
+
+        # All-time charging stats
+        rows2 = await _run(text(f"""
+            SELECT
+                COUNT(*)::int AS charge_count,
+                COALESCE(SUM(c.energy_kwh), 0)::float AS total_kwh,
+                COALESCE(SUM(COALESCE(c.actual_cost_eur, c.base_cost_eur)), 0)::float AS total_cost,
+                MAX(c.session_start) AS last_charge
+            FROM charging_sessions c
+            WHERE c.user_vehicle_id = :vid AND c.session_end IS NOT NULL
+        """), {"vid": vehicle_id})
+        if rows2 and rows2[0]:
+            r2 = rows2[0]
+            last_charge_str = r2[3].strftime("%Y-%m-%d") if r2[3] else "?"
+            chunks.append({
+                "type": "charging_event",
+                "id": "aggregate",
+                "chunk": (
+                    f"Charging: {r2[0]} sessions, {r2[1]:.1f} kWh total, "
+                    f"€{r2[2]:.2f} total cost, last charge {last_charge_str}"
+                ),
+            })
 
     # ── Trip aggregates ──────────────────────────────────────────────────────
     # Also trigger for "performance"/"performing" queries (implicit distance/trip interest)
@@ -807,7 +895,7 @@ async def aggregate_db_search(
                 })
 
         # Charging count
-        if any(p in q for p in ["how many times", "number of charges", "count of charge", "charging count"]):
+        if any(p in q for p in ["how many times", "number of charges", "count of charge", "charging count", "charging sessions", "charging session", "how many charging", "how many sessions"]):
             rows = await _run(text(f"""
                 SELECT COUNT(*)::int
                 FROM charging_sessions c
@@ -921,15 +1009,13 @@ async def chat(
         q_lower = req.message.lower()
         q_words = set(_re.split(r"[\s,.!?;:+-]+", q_lower))
         for name, v_id in vehicle_name_to_id.items():
-            # Normalize underscores/hyphens to spaces for matching
-            # "enyaq_v3" → "enyaq v3" in words list
             name_norm = name.replace('_', ' ').replace('-', ' ')
-            name_words = set(name_norm.split())  # {"enyaq", "v3"} or {"enyaq", "2025"}
-            # Match if all vehicle name key words appear in query words (set subset)
-            matched = bool(name_words & q_words)  # intersection non-empty
+            name_words = set(name_norm.split())
+            matched = name_words <= q_words
             if matched:
                 detected_vehicle_id = v_id
-                detected_vehicle_name = name  # for post-filtering + LLM context
+                detected_vehicle_name = name
+                logger.info(f"Vehicle detected: '{name}' (id={v_id}) words={name_words} q_words={q_words}")
                 break
 
     # Explicit filter only; detected_vehicle_id is used for aggregate DB search + post-filtering.
@@ -946,6 +1032,8 @@ async def chat(
     if is_aggregate_query(req.message) or is_temporal_query(req.message):
         agg_chunks = await aggregate_db_search(db, user_id, req.message, effective_vid, conversation_history=history)
         logger.info(f"aggregate_db_search returned {len(agg_chunks)} chunks")
+        for i, c in enumerate(agg_chunks[:3]):
+            logger.info(f"  agg_chunk[{i}]: type={c.get('type')} id={c.get('id')} text={c.get('chunk','')[:100]}")
 
     # Inject vehicle name into aggregate chunks so LLM knows the result is vehicle-specific
     if effective_vid and detected_vehicle_name and agg_chunks:
@@ -973,14 +1061,24 @@ async def chat(
     # Only drop chunks that explicitly mention a different vehicle.
     if detected_vehicle_name and not vehicle_ids:
         vid_str = str(detected_vehicle_id)
+        # Build set of current user's vehicle name words for dynamic filtering
+        current_vehicle_names = {row[1].lower() for row in vehicle_rows}
+        # Normalize detected name for exclusion
+        detected_words = set(detected_vehicle_name.lower().replace('_', ' ').replace('-', ' ').split())
 
         def _chunk_is_other_vehicle(c: dict) -> bool:
             chunk_lower = c.get("chunk", "").lower()
             meta_str = str(c.get("metadata") or {}).lower()
-            # Drop if chunk explicitly mentions a different vehicle (but not "BlackMagic" itself)
-            other_vehicles = {"enyaq", "enyaq_v3", "skoda enyaq", "octavia", "superb"}
-            for other in other_vehicles:
-                if other in chunk_lower or other in meta_str:
+            # Drop if chunk mentions a vehicle name that is NOT the detected one
+            # and not a substring of the detected name
+            for veh_name in current_vehicle_names:
+                if veh_name == detected_vehicle_name.lower():
+                    continue
+                # Check if any word from this vehicle name appears in chunk
+                veh_words = set(veh_name.replace('_', ' ').replace('-', ' ').split())
+                # Only filter if significant words (len > 2) match
+                significant = {w for w in veh_words if len(w) > 2}
+                if significant and significant <= set(chunk_lower.split()):
                     return True
             return False
 
@@ -1021,6 +1119,8 @@ async def chat(
         provider=req.provider,
         conversation_history=history,
         detected_vehicle_name_for_llm=detected_vehicle_name,
+        session_id=session_id,
+        detected_vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
     )
 
     # Step 8: Build source references (exclude aggregate chunks from sources)

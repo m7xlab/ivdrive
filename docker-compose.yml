@@ -4,6 +4,7 @@ networks:
 
 services:
   ivdrive-api:
+    env_file: .env
     image: ivdrive-ivdrive-api:latest
     build:
       context: ./backend
