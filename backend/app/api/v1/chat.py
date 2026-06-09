@@ -31,13 +31,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 LLM_URLS = {
-    "minimax": "https://api.minimax.chat/v1/text/chatcompletion_v2",
+    "minimax": "https://api.minimax.io/v1/chat/completions",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     "openai": "https://api.openai.com/v1/chat/completions",
 }
 
 LLM_MODELS = {
-    "minimax": "MiniMax-Text-01",
+    "minimax": "MiniMax-M3",
     "gemini": "gemini-2.5-flash",
     "openai": "gpt-4o-mini",
 }
@@ -230,6 +230,7 @@ async def call_llm(
     detected_vehicle_name_for_llm: str | None = None,
     session_id: str | None = None,
     detected_vehicle_id: str | None = None,
+    system_override: str | None = None,
 ) -> str:
     """
     Call LLM with RAG context + optional conversation history + KV cache.
@@ -259,16 +260,19 @@ async def call_llm(
     # Build conversation context from history
     conv_block = _build_conversation_context(conversation_history or []) if conversation_history else ""
 
-    system_prompt = (
-        "You are iVDrive AI assistant. Answer questions based on the provided vehicle data context. "
-        "IMPORTANT RULES:"
-        "1. When previous conversation is provided, treat it as GROUND TRUTH — the user already confirmed facts there."
-        "2. If a previous answer stated something specific (e.g., 'last trip was May 24 at 09:34'), do NOT contradict it unless given new conflicting data."
-        "3. If the user asks to verify/confirm a previous answer, check the conversation history first — if the answer was there, confirm it."
-        "4. If vehicle context is given at the top (e.g., [Vehicle: BlackMagic]), all data in this question refers to that vehicle unless stated otherwise."
-        "5. Never say 'I don't have data' when conversation history already contains the answer."
-        "6. Be specific with numbers and dates. Format clearly. Keep concise."
-        "7. Never expose internal labels like 'trip_summary', 'charging_event', 'location' in your answer."
+    system_prompt = system_override or (
+        "You are iVDrive AI assistant, an expert in EV telemetry, driving data, and the European EV ecosystem. Answer questions based on the provided vehicle data context, BUT you are also allowed to use your general world knowledge (e.g., to compare charging prices, explain EV concepts, or discuss DC vs AC charging).\n"
+        "IMPORTANT RULES:\n"
+        "1. When previous conversation is provided, treat it as GROUND TRUTH — the user already confirmed facts there.\n"
+        "2. If a previous answer stated something specific (e.g., 'last trip was May 24 at 09:34'), do NOT contradict it unless given new conflicting data.\n"
+        "3. If the user asks to verify/confirm a previous answer, check the conversation history first — if the answer was there, confirm it.\n"
+        "4. If vehicle context is given at the top (e.g., [Vehicle: BlackMagic]), all data in this question refers to that vehicle unless stated otherwise.\n"
+        "5. If the user asks a general industry question (e.g., 'Is 0.37 EUR/kWh good in Europe?'), DO NOT say you cannot answer. Use your world knowledge to answer and provide context.\n"
+        "6. Be specific with numbers and dates. Format clearly. Keep concise.\n"
+        "7. Never expose internal labels like 'trip_summary', 'charging_event', 'location' in your answer.\n"
+        "8. ANOMALY ACKNOWLEDGEMENT: If the data explicitly contains an [ANOMALY: ...] tag, you MUST copy the anomaly warning into your final answer word-for-word. If you see SOH is exactly 95.0%, explicitly warn the user that this is likely a hardcoded/stale default from the Škoda API.\n"
+        "9. EFFICIENCY ADVISOR: When discussing energy consumption (kWh/100km), act as an advisor. Correlate the efficiency with the provided average ambient temperature. If temperature is below 10°C, explain that cold weather causes higher consumption due to battery heating and HVAC.\n"
+        "10. INTERACTIVE CHARTS: If you are presenting numeric data (e.g., fleet overview, battery health, or trip/charging stats), append a markdown block starting with ```json_chart and ending with ``` containing a JSON object for a Recharts chart. Schema: {\"title\": \"string\", \"type\": \"bar\"|\"line\"|\"pie\"|\"donut\", \"data\": [{\"name\": \"Label\", \"value1\": 10, ...}], \"categories\": [\"value1\", ...]}. Example for battery: {\"title\": \"Battery Metrics\", \"type\": \"bar\", \"data\": [{\"name\": \"SOH\", \"%\": 95}, {\"name\": \"Degradation\", \"%\": 5}], \"categories\": [\"%\"]}. Example for fleet: {\"title\": \"Fleet Capacity\", \"type\": \"bar\", \"data\": [{\"name\": \"BlackMagic\", \"kWh\": 58}, {\"name\": \"JB_RS\", \"kWh\": 77}], \"categories\": [\"kWh\"]}."
     )
 
     # Inject vehicle context into context_block so LLM knows what vehicle we're discussing
@@ -282,22 +286,6 @@ async def call_llm(
         {"role": "user", "content": user_content},
     ]
 
-    # ── KV Cache (MiniMax) ──────────────────────────────────────────────────
-    cache_id = None
-    cached_vehicle_id = None
-    if session_id:
-        try:
-            cache_id = await get_session_flag(session_id, "minimax_cache_id")
-            cached_vehicle_id = await get_session_flag(session_id, "cache_vehicle_id")
-        except Exception as e:
-            logger.warning(f"KV cache read error: {e}")
-            cache_id = None
-
-    # Invalidate cache if vehicle changed
-    if cache_id and detected_vehicle_id and cached_vehicle_id != detected_vehicle_id:
-        logger.info(f"KV cache invalidated: vehicle changed {cached_vehicle_id} -> {detected_vehicle_id}")
-        cache_id = None
-
     # Try requested provider first, then fall back
     providers = [provider] + [p for p in LLM_URLS if p != provider]
     last_error = ""
@@ -308,12 +296,10 @@ async def call_llm(
                 if not MINIMAX_API_KEY:
                     continue
                 req_json = {
-                    "model": model or LLM_MODELS.get(prov, "MiniMax-Text-01"),
+                    "model": model or LLM_MODELS.get(prov, "MiniMax-M3"),
                     "messages": messages,
                     "temperature": 0.3,
                 }
-                if cache_id:
-                    req_json["cache_id"] = cache_id
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         LLM_URLS[prov],
@@ -328,15 +314,6 @@ async def call_llm(
                         continue
                     data = resp.json()
                     answer = data["choices"][0]["message"]["content"]
-                    # Store cache_id for next request
-                    new_cache_id = data.get("cache_id")
-                    if new_cache_id and session_id:
-                        try:
-                            await set_session_flag(session_id, "minimax_cache_id", new_cache_id, ttl_seconds=86400)
-                            if detected_vehicle_id:
-                                await set_session_flag(session_id, "cache_vehicle_id", detected_vehicle_id, ttl_seconds=86400)
-                        except Exception as e:
-                            logger.warning(f"KV cache store error: {e}")
                     return answer
 
             elif prov == "gemini":
@@ -980,8 +957,39 @@ async def chat(
     """
     from sqlalchemy import text
     import httpx
+    from app.services.chat_tools import route_intent_via_llm, dispatch_tool_call_extended
+    from app.services.ai_gate import check_ai_access, log_ai_usage
 
     user_id = user.id
+
+    # ── AI Premium gate ──────────────────────────────────────────────────────
+    gate = await check_ai_access(db, str(user_id))
+    if not gate.allowed:
+        reason_msg = {
+            "disabled": "Your AI Assistant is currently disabled.",
+            "daily_cap": f"You've used {gate.used_today}/{gate.effective_max_per_day} AI questions today. Resets at UTC midnight.",
+            "monthly_cap": f"You've used {gate.used_this_month}/{gate.effective_max_per_month} AI questions this month.",
+        }.get(gate.reason, "AI Assistant not available.")
+        hint = ""
+        if gate.reason in ("daily_cap", "monthly_cap") and gate.tier == "free":
+            hint = " Ask an admin to upgrade your tier to continue."
+        await log_ai_usage(
+            db, user_id=str(user_id), vehicle_id=None, session_id=None,
+            model_provider="blocked", model_name=None,
+            prompt_tokens=None, completion_tokens=None, cached_tokens=None,
+            estimated_cost_usd=0, blocked_reason=gate.reason or "unknown",
+            question_chars=len(req.message),
+        )
+        return ChatResponse(
+            answer=f"{reason_msg}{hint}",
+            sources=[],
+            session_id=None,
+        )
+
+    # Override provider with the tier-mandated one. Admin controls this.
+    req_provider = gate.model_provider
+    # (ChatRequest is a Pydantic model without a `model` field; we pass it
+    # directly into call_llm below, where it has the final say.)
 
     # Step 0: Session management — get or create session, load history
     session_id = await _get_or_create_session(db, str(user_id), req.session_id)
@@ -998,6 +1006,7 @@ async def chat(
         return ChatResponse(answer="You have no vehicles connected yet.", sources=[])
 
     user_vehicle_ids = [str(row[0]) for row in vehicle_rows]
+    user_vehicle_names = [row[1] for row in vehicle_rows]
     # Build name→id map for vehicle-name detection (case-insensitive)
     vehicle_name_to_id = {row[1].lower(): row[0] for row in vehicle_rows}
 
@@ -1018,22 +1027,100 @@ async def chat(
                 logger.info(f"Vehicle detected: '{name}' (id={v_id}) words={name_words} q_words={q_words}")
                 break
 
+    # Multi-turn fallback: if the current message does NOT mention a vehicle name
+    # (e.g. follow-up "how much did that cost?", "what about the last trip?"),
+    # try to recover the vehicle from the most recent assistant turn that
+    # mentioned one. This unblocks the agentic router, which otherwise has no
+    # way to resolve pronouns and ends up refusing the question.
+    if not detected_vehicle_name and not req.vehicle_id and history:
+        # Walk backwards through history looking for a vehicle name in either
+        # the user message OR the assistant response. Assistant turns are more
+        # reliable because they always contain the chosen vehicle name.
+        for msg in reversed(history[-6:]):
+            content = msg.get("content", "") or ""
+            content_lower = content.lower()
+            for name, v_id in vehicle_name_to_id.items():
+                name_norm = name.replace('_', ' ').replace('-', ' ').lower()
+                # Word-boundary check (case-insensitive) so we don't false-match
+                # "Enyaq" inside "Enyaq_v3" when looking for "Enyaq" etc.
+                if _re.search(r"\b" + _re.escape(name_norm) + r"\b", content_lower):
+                    detected_vehicle_id = v_id
+                    detected_vehicle_name = name
+                    logger.info(
+                        f"Vehicle resolved from history ({msg.get('role')}): "
+                        f"'{name}' (id={v_id})"
+                    )
+                    break
+            if detected_vehicle_name:
+                break
+
     # Explicit filter only; detected_vehicle_id is used for aggregate DB search + post-filtering.
     # NOT passed to search_similar SQL because ai_embeddings.vehicle_id is only populated for
     # vehicle_stats type — trip_summary / charging_event chunks have NULL vehicle_id and
     # would be silently dropped. Instead we use post-filtering (Step 5).
     vehicle_ids = ([uuid.UUID(req.vehicle_id)] if req.vehicle_id and req.vehicle_id in user_vehicle_ids else None)
 
-    # Step 3: Check if query needs direct DB aggregation (arithmetic / counts / totals)
+    # Step 3: Check if query needs direct DB aggregation via Agentic Intent Routing
     chunks = []
     agg_chunks = []
     effective_vid = req.vehicle_id if req.vehicle_id and req.vehicle_id in user_vehicle_ids else (
         str(detected_vehicle_id) if detected_vehicle_id else None)
-    if is_aggregate_query(req.message) or is_temporal_query(req.message):
-        agg_chunks = await aggregate_db_search(db, user_id, req.message, effective_vid, conversation_history=history)
-        logger.info(f"aggregate_db_search returned {len(agg_chunks)} chunks")
-        for i, c in enumerate(agg_chunks[:3]):
-            logger.info(f"  agg_chunk[{i}]: type={c.get('type')} id={c.get('id')} text={c.get('chunk','')[:100]}")
+
+    # Phase 1: Native Function Calling Route
+    logger.info("Routing query to LLM tool dispatcher...")
+
+    max_loops = 3
+    # Pass conversation history so the router can resolve "that" / "it" / "the last one"
+    # in follow-up questions. Also pass detected_vehicle_name as a hint.
+    tool_calls = await route_intent_via_llm(
+        req.message,
+        user_vehicle_names,
+        call_llm,
+        conversation_history=history,
+        detected_vehicle_name=detected_vehicle_name,
+    )
+    
+    for _ in range(max_loops):
+        logger.info(f"LLM tool router decided to call: {tool_calls}")
+        if not tool_calls:
+            break
+            
+        executed_any = False
+        sql_error = None
+        
+        for tool_call in tool_calls:
+            if "vehicle_name" in tool_call.get("args", {}) and not tool_call["args"]["vehicle_name"]:
+                tool_call["args"]["vehicle_name"] = detected_vehicle_name or ""
+                
+            chunk = await dispatch_tool_call_extended(db, user_id, tool_call)
+            if chunk:
+                executed_any = True
+                agg_chunks.append(chunk)
+                
+                # Check for SQL error to trigger healing
+                if chunk["type"] == "sql_result" and "SQL_ERROR:" in chunk["chunk"]:
+                    sql_error = chunk["chunk"]
+                # Schema triggers a secondary LLM call to write the SQL
+                elif chunk["type"] == "schema":
+                    sql_error = f"SCHEMA LOADED: {chunk['chunk']}\nNow write the SQL query based on this schema to answer the user's question."
+
+        if sql_error:
+            # Re-feed the error/schema back to the LLM to get a new tool call
+            logger.info("Triggering Agentic Healing/Follow-up Loop...")
+            follow_up_prompt = req.message + "\n\nPREVIOUS TOOL RESULT:\n" + sql_error
+            tool_calls = await route_intent_via_llm(
+                follow_up_prompt,
+                user_vehicle_names,
+                call_llm,
+                conversation_history=history,
+                detected_vehicle_name=detected_vehicle_name,
+            )
+        else:
+            break
+
+    logger.info(f"agentic_tools returned {len(agg_chunks)} chunks")
+    for i, c in enumerate(agg_chunks[:3]):
+        logger.info(f"  agg_chunk[{i}]: type={c.get('type')} id={c.get('id')} text={c.get('chunk','')[:100]}")
 
     # Inject vehicle name into aggregate chunks so LLM knows the result is vehicle-specific
     if effective_vid and detected_vehicle_name and agg_chunks:
@@ -1041,7 +1128,7 @@ async def chat(
         vname = next((row[1] for row in vehicle_rows if str(row[0]) == str(effective_vid)), detected_vehicle_name)
         for c in agg_chunks:
             if c.get("id") == "aggregate":
-                c["chunk"] = f"{vname}: {c["chunk"]}"
+                c["chunk"] = f"{vname}: {c['chunk']}"
 
     # Step 4: Run vector search WITHOUT vehicle_ids filter (to keep all trip/charging chunks)
     vec_chunks = await search_similar(
@@ -1113,15 +1200,35 @@ async def chat(
         chunks = await direct_db_search(db, user_id, req.message, effective_vid)
         logger.info(f"direct_db_search returned {len(chunks)} chunks")
 
-    # Step 7: Call LLM with conversation history
+    # Step 7: Call LLM with conversation history. Provider/model come from the gate.
     answer = await call_llm(
         req.message, chunks,
-        provider=req.provider,
+        provider=req_provider,
+        model=gate.model_name or req.model,
         conversation_history=history,
         detected_vehicle_name_for_llm=detected_vehicle_name,
         session_id=session_id,
         detected_vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
     )
+
+    # Log the successful request to ai_usage_log
+    try:
+        from app.services.ai_gate import estimate_cost_usd
+        # We don't have a hard count of tokens (LLM responses don't include usage yet),
+        # so we record chars + provider. Cost will be 0 until the LLM responses include usage.
+        await log_ai_usage(
+            db, user_id=str(user_id),
+            vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
+            session_id=session_id,
+            model_provider=req_provider,
+            model_name=gate.model_name or None,
+            prompt_tokens=None, completion_tokens=None, cached_tokens=None,
+            estimated_cost_usd=0.0,
+            blocked_reason=None,
+            question_chars=len(req.message),
+        )
+    except Exception as _e:
+        logger.warning(f"post-call usage log failed: {_e}")
 
     # Step 8: Build source references (exclude aggregate chunks from sources)
     sources = [
