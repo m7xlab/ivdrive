@@ -231,6 +231,7 @@ async def call_llm(
     session_id: str | None = None,
     detected_vehicle_id: str | None = None,
     system_override: str | None = None,
+    usage_stats: dict | None = None,
 ) -> str:
     """
     Call LLM with RAG context + optional conversation history + KV cache.
@@ -313,6 +314,11 @@ async def call_llm(
                         last_error = f"minimax {resp.status_code}: {resp.text[:100]}"
                         continue
                     data = resp.json()
+                    if usage_stats is not None and "usage" in data:
+                        u = data["usage"]
+                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
+                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
+                        usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cached_tokens", 0)
                     answer = data["choices"][0]["message"]["content"]
                     return answer
 
@@ -332,6 +338,11 @@ async def call_llm(
                         last_error = f"gemini {resp.status_code}: {resp.text[:100]}"
                         continue
                     data = resp.json()
+                    if usage_stats is not None and "usageMetadata" in data:
+                        u = data["usageMetadata"]
+                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("promptTokenCount", 0)
+                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("candidatesTokenCount", 0)
+                        usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cachedContentTokenCount", 0)
                     return data["candidates"][0]["content"]["parts"][0]["text"]
 
             elif prov == "openai":
@@ -354,6 +365,11 @@ async def call_llm(
                         last_error = f"openai {resp.status_code}: {resp.text[:100]}"
                         continue
                     data = resp.json()
+                    if usage_stats is not None and "usage" in data:
+                        u = data["usage"]
+                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
+                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
+                        # openai might have prompt_tokens_details
                     return data["choices"][0]["message"]["content"]
 
         except Exception as e:
@@ -1068,6 +1084,8 @@ async def chat(
 
     # Phase 1: Native Function Calling Route
     logger.info("Routing query to LLM tool dispatcher...")
+    
+    usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
 
     max_loops = 3
     # Pass conversation history so the router can resolve "that" / "it" / "the last one"
@@ -1078,6 +1096,7 @@ async def chat(
         call_llm,
         conversation_history=history,
         detected_vehicle_name=detected_vehicle_name,
+        usage_stats=usage_stats,
     )
     
     for _ in range(max_loops):
@@ -1114,6 +1133,7 @@ async def chat(
                 call_llm,
                 conversation_history=history,
                 detected_vehicle_name=detected_vehicle_name,
+                usage_stats=usage_stats,
             )
         else:
             break
@@ -1209,21 +1229,45 @@ async def chat(
         detected_vehicle_name_for_llm=detected_vehicle_name,
         session_id=session_id,
         detected_vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
+        usage_stats=usage_stats,
     )
+
+    # Compute estimated cost based on the total token usage
+    estimated_cost_usd = 0.0
+    try:
+        provider_key = req_provider.lower()
+        # Pricing per 1M tokens (input / output). Cached tokens typically cost half or less.
+        PRICING = {
+            "minimax": {"input": 0.6, "output": 2.4},  # MiniMax-M3
+            "gemini": {"input": 1.25, "output": 5.0},   # Gemini 1.5 Pro
+            "openai": {"input": 0.15, "output": 0.6},   # GPT-4o-mini
+        }
+        prices = PRICING.get(provider_key, {"input": 0, "output": 0})
+        
+        p_toks = usage_stats.get("prompt_tokens", 0)
+        c_toks = usage_stats.get("completion_tokens", 0)
+        ca_toks = usage_stats.get("cached_tokens", 0)
+        
+        cost_in = (p_toks / 1000000.0) * prices["input"]
+        cost_out = (c_toks / 1000000.0) * prices["output"]
+        cost_cached = (ca_toks / 1000000.0) * (prices["input"] * 0.5)
+        estimated_cost_usd = cost_in + cost_out + cost_cached
+    except Exception as e:
+        logger.warning(f"Cost calculation failed: {e}")
 
     # Log the successful request to ai_usage_log
     try:
-        from app.services.ai_gate import estimate_cost_usd
-        # We don't have a hard count of tokens (LLM responses don't include usage yet),
-        # so we record chars + provider. Cost will be 0 until the LLM responses include usage.
+        from app.services.ai_gate import log_ai_usage
         await log_ai_usage(
             db, user_id=str(user_id),
             vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
             session_id=session_id,
             model_provider=req_provider,
             model_name=gate.model_name or None,
-            prompt_tokens=None, completion_tokens=None, cached_tokens=None,
-            estimated_cost_usd=0.0,
+            prompt_tokens=usage_stats.get("prompt_tokens"), 
+            completion_tokens=usage_stats.get("completion_tokens"), 
+            cached_tokens=usage_stats.get("cached_tokens"),
+            estimated_cost_usd=estimated_cost_usd,
             blocked_reason=None,
             question_chars=len(req.message),
         )

@@ -446,6 +446,7 @@ async def route_intent_via_llm(
     call_llm_func,
     conversation_history: list[dict] | None = None,
     detected_vehicle_name: str | None = None,
+    usage_stats: dict | None = None,
 ) -> list[dict]:
     """
     Uses the primary LLM to determine which tools to run.
@@ -516,6 +517,7 @@ async def route_intent_via_llm(
             context_chunks=[],
             provider="gemini",
             system_override="You are a JSON-only router. Return only valid JSON array.",
+            usage_stats=usage_stats,
         )
         
         # Extract the JSON array using regex just in case LLM added conversational text
