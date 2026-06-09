@@ -335,7 +335,7 @@ async def get_trip_and_charging_stats(
     trip_sql = text(f"""
         SELECT
             COUNT(*)::int AS trip_count,
-            COALESCE(SUM(t.distance_km), 0)::float AS total_km,
+            COALESCE(MAX(t.end_odometer) - MIN(t.start_odometer), COALESCE(SUM(t.distance_km), 0))::float AS total_km,
             COALESCE(SUM(t.kwh_consumed), 0)::float AS total_kwh,
             COALESCE(AVG(t.avg_temp_celsius), 0)::float AS avg_temp,
             MAX(t.start_date) AS last_trip,
