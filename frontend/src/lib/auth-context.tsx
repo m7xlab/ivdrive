@@ -17,6 +17,8 @@ interface User {
   is_active: boolean;
   is_superuser: boolean;
   is_totp_enabled: boolean;
+  ai_enabled: boolean;
+  ai_tier: string;
   created_at: string;
 }
 

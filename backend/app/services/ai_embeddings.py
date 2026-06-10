@@ -511,17 +511,17 @@ async def search_similar(
             type_boost = 0.9
         elif is_charge_query and chunk_type == "charging_curve_summary":
             type_boost = 0.7
-        elif is_charge_query and chunk_type in ("vehicle_summary", "battery_health_summary", "vehicle_state_summary"):
+        elif is_charge_query and chunk_type in ("battery_health_summary", "vehicle_state_summary"):
             type_boost = -0.5
         # Vehicle info queries
-        elif query_has_vehicle_intent and chunk_type == "vehicle_summary":
-            type_boost = 1.5
+        if query_has_vehicle_intent and chunk_type == "vehicle_summary":
+            type_boost += 1.5
         # Battery health queries
-        elif query_has_battery_intent and chunk_type == "battery_health_summary":
-            type_boost = 1.5
+        if query_has_battery_intent and chunk_type == "battery_health_summary":
+            type_boost += 1.5
         # State queries
-        elif query_has_state_intent and chunk_type == "vehicle_state_summary":
-            type_boost = 1.5
+        if query_has_state_intent and chunk_type == "vehicle_state_summary":
+            type_boost += 1.5
 
         # Recency boost: for "last/most recent" queries, parse date from chunk
         # and boost more recent dates. Chunk format:

@@ -1,0 +1,16 @@
+SELECT 'Q1' as q, battery_capacity_kwh::text FROM user_vehicles WHERE display_name = 'JB RS';
+SELECT 'Q2' as q, exterior_colour FROM user_vehicles WHERE display_name = 'BlackMagic';
+SELECT 'Q3' as q, count(*)::text FROM trips t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' AND start_date >= '2026-05-01' AND start_date < '2026-06-01';
+SELECT 'Q4' as q, round(sum(distance_km)::numeric, 2)::text FROM trips t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' AND start_date >= '2026-05-01' AND start_date < '2026-06-01';
+SELECT 'Q5' as q, round(sum(energy_kwh)::numeric, 2)::text FROM charging_sessions t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' AND session_start >= '2026-05-01' AND session_start < '2026-06-01';
+SELECT 'Q6' as q, hv_battery_soh::text FROM battery_health h JOIN user_vehicles v ON h.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' ORDER BY captured_at DESC LIMIT 1;
+SELECT 'Q7' as q, doors_locked::text FROM vehicle_states s JOIN user_vehicles v ON s.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' ORDER BY last_date DESC LIMIT 1;
+SELECT 'Q8' as q, wltp_range_km::text FROM user_vehicles WHERE display_name = 'Elroq' LIMIT 1;
+SELECT 'Q9' as q, count(*)::text FROM charging_sessions t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='JB RS';
+SELECT 'Q10' as q, round((sum(kwh_consumed)/sum(distance_km)*100)::numeric, 2)::text FROM trips t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic' AND distance_km > 0;
+SELECT 'Q15' as q, display_name || ': ' || wltp_range_km::text FROM user_vehicles WHERE display_name IN ('BlackMagic', 'JB RS');
+SELECT 'Q16' as q, round(max(distance_km)::numeric, 2)::text FROM trips t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic';
+SELECT 'Q17' as q, round(sum(actual_cost_eur)::numeric, 2)::text FROM charging_sessions t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic';
+SELECT 'Q18' as q, max_charging_power_kw::text FROM user_vehicles WHERE display_name = 'JB RS';
+SELECT 'Q19' as q, engine_power_kw::text FROM user_vehicles WHERE display_name = 'Elroq' LIMIT 1;
+SELECT 'Q20' as q, max(end_date)::text FROM trips t JOIN user_vehicles v ON t.user_vehicle_id=v.id WHERE v.display_name='BlackMagic';

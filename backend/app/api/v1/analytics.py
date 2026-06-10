@@ -1129,6 +1129,125 @@ async def get_hvac_cost(
     }
 
 
+# =============================================================================
+# Climate Penalty Breakdown — separates heating and cooling penalties
+# =============================================================================
+@router.get("/{vehicle_id}/analytics/climate-penalty")
+async def get_climate_penalty(
+    vehicle_id: UUID,
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Per-vehicle heating and cooling penalty (kWh/100km above the OFF baseline).
+
+    Uses v_climate_penalty_breakdown: each trip is attributed to its dominant
+    HVAC state (HEATING / COOLING / OFF) during the trip, then bucketed by
+    outside temperature.
+
+    Returns:
+        heating_penalty_kwh_100km, cooling_penalty_kwh_100km
+        baseline (OFF) avg kWh/100km
+        per-temperature breakdown for chart rendering
+        sample counts per state
+    """
+    await get_user_vehicle(user.id, vehicle_id, db)
+
+    from sqlalchemy import table, column, func
+    v = table("v_climate_penalty_breakdown",
+        column("user_vehicle_id"),
+        column("temperature"),
+        column("hvac_state"),
+        column("trip_count"),
+        column("avg_consumption_kwh_100km"),
+    )
+
+    # Per-temperature breakdown (all states, ordered for chart)
+    breakdown_stmt = (
+        select(
+            v.c.temperature,
+            v.c.hvac_state,
+            v.c.trip_count,
+            v.c.avg_consumption_kwh_100km,
+        )
+        .where(
+            v.c.user_vehicle_id == vehicle_id,
+            v.c.trip_count >= 1,
+        )
+        .order_by(v.c.temperature, v.c.hvac_state)
+    )
+    breakdown_rows = (await db.execute(breakdown_stmt)).fetchall()
+
+    # Per-state averages across all temperatures (weighted by trip count)
+    state_totals: dict[str, dict] = {
+        "HEATING": {"sum_consumption": 0.0, "trips": 0},
+        "COOLING": {"sum_consumption": 0.0, "trips": 0},
+        "OFF":     {"sum_consumption": 0.0, "trips": 0},
+    }
+    for r in breakdown_rows:
+        s = r.hvac_state
+        if s in state_totals:
+            state_totals[s]["sum_consumption"] += float(r.avg_consumption_kwh_100km or 0) * (r.trip_count or 0)
+            state_totals[s]["trips"] += r.trip_count or 0
+
+    def avg_kwh(state: str) -> float | None:
+        d = state_totals[state]
+        return round(d["sum_consumption"] / d["trips"], 2) if d["trips"] > 0 else None
+
+    baseline = avg_kwh("OFF")
+    heating_avg = avg_kwh("HEATING")
+    cooling_avg = avg_kwh("COOLING")
+
+    heating_penalty = round(heating_avg - baseline, 2) if (heating_avg is not None and baseline is not None) else None
+    cooling_penalty = round(cooling_avg - baseline, 2) if (cooling_avg is not None and baseline is not None) else None
+
+    # Min sample threshold: a state with too few trips is unreliable
+    MIN_TRIPS = 3
+    heating_reliable = state_totals["HEATING"]["trips"] >= MIN_TRIPS
+    cooling_reliable = state_totals["COOLING"]["trips"] >= MIN_TRIPS
+
+    # Per-temperature shape for chart
+    by_temp: dict[int, dict] = {}
+    for r in breakdown_rows:
+        t = int(r.temperature)
+        if t not in by_temp:
+            by_temp[t] = {"temperature": t, "states": {}}
+        by_temp[t]["states"][r.hvac_state] = {
+            "avg_kwh_100km": float(r.avg_consumption_kwh_100km) if r.avg_consumption_kwh_100km is not None else None,
+            "trip_count": int(r.trip_count),
+        }
+
+    # Build summary message
+    parts = []
+    if heating_reliable and heating_penalty and heating_penalty > 0:
+        parts.append(f"Heating costs you ~{heating_penalty:.1f} kWh/100km")
+    if cooling_reliable and cooling_penalty and cooling_penalty > 0:
+        parts.append(f"Cooling costs you ~{cooling_penalty:.1f} kWh/100km")
+    if parts:
+        summary = ". ".join(parts) + "."
+    elif not heating_reliable and not cooling_reliable:
+        summary = f"Not enough HVAC-active trips yet (need ≥{MIN_TRIPS} per state). More data needed as climate control is used."
+    else:
+        summary = "No measurable climate penalty detected for this vehicle in the selected period."
+
+    return {
+        "vehicle_id": str(vehicle_id),
+        "baseline_kwh_100km": baseline,
+        "heating_avg_kwh_100km": heating_avg,
+        "cooling_avg_kwh_100km": cooling_avg,
+        "heating_penalty_kwh_100km": heating_penalty if heating_reliable else None,
+        "cooling_penalty_kwh_100km": cooling_penalty if cooling_reliable else None,
+        "trips_heating": state_totals["HEATING"]["trips"],
+        "trips_cooling": state_totals["COOLING"]["trips"],
+        "trips_off": state_totals["OFF"]["trips"],
+        "min_trips_threshold": MIN_TRIPS,
+        "by_temperature": sorted(by_temp.values(), key=lambda x: x["temperature"]),
+        "summary": summary,
+    }
+
+
 
 # =============================================================================
 # TASK 1: Charging Curve Integrals (v2 using charging_curves table)

@@ -29,6 +29,10 @@ class User(TimestampMixin, Base):
     # stored as a JSON array. Each code is consumed (deleted) on use.
     recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
 
+    # AI Premium gating
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+    ai_tier: Mapped[str] = mapped_column(String(20), default="free", nullable=False, server_default="free")
+
     vehicles: Mapped[list["UserVehicle"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )

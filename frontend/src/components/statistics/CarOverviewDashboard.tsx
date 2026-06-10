@@ -25,6 +25,7 @@ import {
   ReferenceLine,
   CartesianGrid,
   ComposedChart,
+  Legend,
 } from "recharts";
 import { api } from "@/lib/api";
 import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
@@ -49,10 +50,13 @@ interface PulseData {
 }
 
 // ─── Winter Efficiency ──────────────────────────────────────────────
-interface EfficiencyDataPoint {
-  temperature_celsius: number;
-  consumption_kwh_100km: number;
-  trips_recorded: number;
+interface ClimatePenaltyRow {
+  temperature: number;
+  states: Record<string, { avg_kwh_100km: number | null; trip_count: number }>;
+}
+interface ClimatePenaltyData {
+  by_temperature: ClimatePenaltyRow[];
+  summary: string;
 }
 
 // ─── Section divider ────────────────────────────────────────────────
@@ -252,7 +256,7 @@ export function CarOverviewDashboard({
   const [batteryTemp, setBatteryTemp] = useState<Array<{ time: string; battery_temperature: number }>>([]);
   const [outsideTemp, setOutsideTemp] = useState<Array<{ time: string; outside_temp_celsius: number }>>([]);
   const [pulse, setPulse] = useState<PulseData | null>(null);
-  const [winterEfficiency, setWinterEfficiency] = useState<EfficiencyDataPoint[]>([]);
+  const [climatePenalty, setClimatePenalty] = useState<ClimatePenaltyData | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -282,9 +286,9 @@ export function CarOverviewDashboard({
           api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getVampireDrain(vehicleId, controller.signal),
           api.getAnalyticsPulse(vehicleId),
-          api.getAnalyticsEfficiency(vehicleId),
+          api.getClimatePenalty(vehicleId, { fromDate: fromISO, toDate: toISOVal }),
         ]);
-        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, winterEff] = results.map((res) => res.status === "fulfilled" ? res.value : null);
+        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, climPen] = results.map((res) => res.status === "fulfilled" ? res.value : null);
         setBattery(b ?? []);
         setRange(r ?? []);
         setCharging(c ?? []);
@@ -299,7 +303,7 @@ export function CarOverviewDashboard({
         setBatteryTemp(bTemp ?? []);
         setVampireDrain(vd ?? null);
         setPulse(pulseData ?? null);
-        setWinterEfficiency(winterEff ?? []);
+        setClimatePenalty(climPen ?? null);
       } finally {
         clearTimeout(timeoutId);
         setLoading(false);
@@ -1195,24 +1199,27 @@ export function CarOverviewDashboard({
       </div>
 
       {/* Period summary (existing stats table + bar charts when available) */}
-      {/* ── Winter Penalty ── */}
-      <SectionDivider label="Winter Penalty" />
+      {/* ── Climate Penalty ── */}
+      <SectionDivider label="Climate Penalty" />
       <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
-          <ThermometerSnowflake size={14} /> Winter Penalty
+        <h3 className="text-sm font-medium text-iv-muted mb-2 flex items-center gap-2">
+          <ThermometerSnowflake size={14} /> Climate Penalty
         </h3>
-        {winterEfficiency.length > 0 ? (
+        <p className="text-xs text-iv-text-muted mb-4">{climatePenalty?.summary || "Analyzing climate data..."}</p>
+        {climatePenalty?.by_temperature && climatePenalty.by_temperature.length > 0 ? (
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={winterEfficiency} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                <defs>
-                  <linearGradient id="winterGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00D4FF" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00D4FF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <LineChart 
+                data={climatePenalty.by_temperature.map(row => ({
+                  temperature: row.temperature,
+                  HEATING: row.states.HEATING?.avg_kwh_100km ?? null,
+                  COOLING: row.states.COOLING?.avg_kwh_100km ?? null,
+                  OFF: row.states.OFF?.avg_kwh_100km ?? null,
+                }))} 
+                margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+              >
                 <XAxis
-                  dataKey="temperature_celsius"
+                  dataKey="temperature"
                   tickFormatter={(v) => `${v}°C`}
                   stroke="#8b8fa3"
                   fontSize={11}
@@ -1229,26 +1236,18 @@ export function CarOverviewDashboard({
                 />
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
                 <Tooltip
-                  formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
                   labelFormatter={(label) => `${label}°C`}
                   contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
-                  itemStyle={{ color: "#00D4FF", fontWeight: "bold" }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="consumption_kwh_100km"
-                  stroke="#00D4FF"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#winterGradient)"
-                />
-              </AreaChart>
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
+                <Line type="monotone" dataKey="HEATING" stroke="#00D4FF" strokeWidth={2} dot={{ r: 2 }} connectNulls name="Heating" />
+                <Line type="monotone" dataKey="COOLING" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} connectNulls name="Cooling" />
+                <Line type="monotone" dataKey="OFF" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 1 }} connectNulls name="Climate Off" />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-56 flex items-center justify-center text-iv-muted text-sm">
-            Collecting sufficient trip data to build the winter penalty curve…
-          </div>
+          <div className="text-sm text-iv-muted">No climate penalty data available for this period.</div>
         )}
       </div>
 

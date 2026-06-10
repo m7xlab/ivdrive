@@ -1155,7 +1155,7 @@ async def chat(
         db=db,
         user_id=user_id,
         query=req.message,
-        content_types=["trip_summary", "charging_event", "vehicle_stats", "location"],
+        content_types=None,  # Search across all embedded RAG content types
         vehicle_ids=vehicle_ids,  # Only explicit filter from request
         limit=12,
         provider=req.provider,

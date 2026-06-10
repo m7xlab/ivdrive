@@ -21,8 +21,12 @@ from app.models.telemetry import (
 )
 from app.models.user import User
 from app.models.vehicle import ConnectorSession, UserVehicle
+from app.models.ai_premium import AITierConfig, AIUserOverride, AIUsageLog
 
 __all__ = [
+    "AITierConfig",
+    "AIUserOverride",
+    "AIUsageLog",
     "Announcement",
     "AirConditioningState",
     "Base",

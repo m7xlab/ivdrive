@@ -142,7 +142,27 @@ class DataCollector:
             id="fetch_fuel_prices",
             replace_existing=True,
         )
-        
+
+        # AI embedding worker — drains ai_embeddings_queue incrementally.
+        # Skipped entirely when embedding_worker_enabled is False.
+        from app.services.embedding_worker import run_embedding_worker_tick
+        self._scheduler.add_job(
+            run_embedding_worker_tick,
+            "interval",
+            seconds=settings.embedding_worker_poll_interval_seconds,
+            id="embedding_worker",
+            replace_existing=True,
+            max_instances=1,           # never run two ticks in parallel
+            coalesce=True,             # if missed, run once not catch-up
+        )
+        logger.info(
+            "Embedding worker scheduled: every %ds, batch=%d, max_attempts=%d, enabled=%s",
+            settings.embedding_worker_poll_interval_seconds,
+            settings.embedding_worker_batch_size,
+            settings.embedding_worker_max_attempts,
+            settings.embedding_worker_enabled,
+        )
+
         # Also run it once on startup if the table is empty
         asyncio.create_task(self._initial_energy_prices_check())
 
