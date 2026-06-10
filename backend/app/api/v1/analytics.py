@@ -1307,96 +1307,134 @@ async def get_charging_curve_integrals_v2(
         for row in curve_data
     ]
 
-    # SoC bracket integrals (0-20, 20-50, 50-80, 80-100)
-    stmt_brackets = (
+    # -------------------------------------------------------------------------
+    # PER-SESSION integration (BUG H2 fix)
+    #
+    # Previously this endpoint grouped ALL curves by SoC bracket with no
+    # per-session grouping, so total_minutes / wasted_pct spanned the entire
+    # ~102-day curve history (~146k minutes) and were meaningless, energy was
+    # estimated as avg_p * count / 12 (assumes contiguous 5-min samples), and
+    # the bracket→label mapping was off-by-one.
+    #
+    # Fix: pull ordered samples PER charging_session (session_id), integrate
+    # energy and time with ACTUAL inter-sample deltas (trapezoidal), then
+    # aggregate across sessions. Curves with NULL session_id have no parent
+    # session and are excluded from the per-session metrics.
+    #
+    # Bracket mapping is by floor(soc/20): 0→0-20, 1→20-40, 2→40-60, 3→60-80,
+    # 4→80-100. The "wasted" region is SoC >= 80 (bracket 4).
+    # -------------------------------------------------------------------------
+    stmt_samples = (
         select(
-            func.floor(ChargingCurve.soc_pct / 20).label("bracket"),
-            func.count(ChargingCurve.id).label("count"),
-            func.avg(ChargingCurve.power_kw).label("avg_power"),
-            func.min(ChargingCurve.captured_at).label("min_time"),
-            func.max(ChargingCurve.captured_at).label("max_time"),
+            ChargingCurve.session_id.label("session_id"),
+            ChargingCurve.captured_at.label("captured_at"),
+            ChargingCurve.soc_pct.label("soc"),
+            ChargingCurve.power_kw.label("power"),
         )
-        .where(*base_where)
-        .group_by("bracket")
-        .order_by("bracket")
+        .where(*base_where, ChargingCurve.session_id.is_not(None))
+        .order_by(ChargingCurve.session_id, ChargingCurve.captured_at)
     )
     if from_date:
-        stmt_brackets = stmt_brackets.where(ChargingCurve.captured_at >= from_date)
+        stmt_samples = stmt_samples.where(ChargingCurve.captured_at >= from_date)
     if to_date:
-        stmt_brackets = stmt_brackets.where(ChargingCurve.captured_at <= to_date)
+        stmt_samples = stmt_samples.where(ChargingCurve.captured_at <= to_date)
 
-    res_brackets = await db.execute(stmt_brackets)
+    res_samples = await db.execute(stmt_samples)
+    sample_rows = res_samples.all()
 
-    bracket_map = {row.bracket: row for row in res_brackets.all()}
+    # Group ordered samples by session.
+    sessions: dict[int, list] = {}
+    for r in sample_rows:
+        sessions.setdefault(r.session_id, []).append(r)
 
+    # Bracket definitions keyed by floor(soc/20). Labels now match the actual
+    # SoC range covered by each bracket.
     bracket_defs = [
         {"label": "0-20%", "key": 0.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
-        {"label": "20-50%", "key": 1.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
-        {"label": "50-80%", "key": 2.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
-        {"label": "80-100%", "key": 3.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
+        {"label": "20-40%", "key": 1.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
+        {"label": "40-60%", "key": 2.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
+        {"label": "60-80%", "key": 3.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
+        {"label": "80-100%", "key": 4.0, "energy_kwh": 0.0, "minutes": 0, "samples": 0},
     ]
+    bracket_by_key = {bd["key"]: bd for bd in bracket_defs}
 
-    # Estimate: 5-min sampling interval fallback; use actual time when min/max are available
+    def _bracket_key(soc: float) -> float:
+        # floor(soc/20), clamped to 0..4 (SoC of exactly 100 → bracket 5 → 4).
+        return float(min(4, max(0, int(soc // 20))))
+
+    def _norm(ts):
+        # captured_at is timestamptz; keep tz-aware for safe subtraction.
+        return ts
+
+    # Per-session accumulators for aggregation across sessions.
+    session_total_minutes: list[float] = []
+    session_wasted_minutes: list[float] = []
+    session_wasted_pct: list[float] = []
+    total_energy_kwh = 0.0
+
+    for sid, rows in sessions.items():
+        if not rows:
+            continue
+        # Count samples per bracket (independent of contiguity).
+        for r in rows:
+            bd = bracket_by_key.get(_bracket_key(float(r.soc)))
+            if bd is not None:
+                bd["samples"] += 1
+
+        sess_total_min = 0.0
+        sess_wasted_min = 0.0
+        # Trapezoidal integration over ACTUAL consecutive-sample time deltas.
+        for i in range(len(rows) - 1):
+            a = rows[i]
+            b = rows[i + 1]
+            dt_h = (_norm(b.captured_at) - _norm(a.captured_at)).total_seconds() / 3600.0
+            if dt_h <= 0:
+                continue
+            pa = float(a.power) if a.power is not None else 0.0
+            pb = float(b.power) if b.power is not None else 0.0
+            avg_p = (pa + pb) / 2.0
+            seg_energy = avg_p * dt_h            # kWh for this segment
+            seg_minutes = dt_h * 60.0
+            total_energy_kwh += seg_energy
+            sess_total_min += seg_minutes
+
+            # Attribute segment energy/time to the bracket of its starting SoC.
+            bd = bracket_by_key.get(_bracket_key(float(a.soc)))
+            if bd is not None:
+                bd["energy_kwh"] += seg_energy
+                bd["minutes"] += seg_minutes
+
+            # Wasted = time spent at SoC >= 80 within the session.
+            if float(a.soc) >= 80:
+                sess_wasted_min += seg_minutes
+
+        session_total_minutes.append(sess_total_min)
+        session_wasted_minutes.append(sess_wasted_min)
+        if sess_total_min > 0:
+            session_wasted_pct.append(sess_wasted_min / sess_total_min * 100.0)
+
+    # Round bracket accumulators for the response.
     for bd in bracket_defs:
-        row = bracket_map.get(bd["key"])
-        if row:
-            avg_p = float(row.avg_power) if row.avg_power else 0
-            count = row.count or 0
-            bd["energy_kwh"] = round(avg_p * count / 12, 2)
-            # Try to compute actual duration from timestamps
-            if row.min_time and row.max_time and hasattr(row.min_time, 'total_seconds'):
-                min_t = row.min_time
-                max_t = row.max_time
-                if min_t.tzinfo is not None and max_t.tzinfo is None:
-                    max_t = max_t.replace(tzinfo=min_t.tzinfo)
-                elif min_t.tzinfo is None and max_t.tzinfo is not None:
-                    min_t = min_t.replace(tzinfo=max_t.tzinfo)
-                actual_minutes = (max_t - min_t).total_seconds() / 60.0
-                if actual_minutes > 0:
-                    bd["minutes"] = round(actual_minutes)
-                else:
-                    bd["minutes"] = round(count * 5)
-            else:
-                bd["minutes"] = round(count * 5)
-            bd["samples"] = count
+        bd["energy_kwh"] = round(bd["energy_kwh"], 2)
+        bd["minutes"] = round(bd["minutes"])
 
-    wasted_row = bracket_map.get(3.0)
-    if wasted_row and hasattr(wasted_row, 'min_time') and wasted_row.min_time and wasted_row.max_time:
-        min_t = wasted_row.min_time
-        max_t = wasted_row.max_time
-        if min_t.tzinfo is not None and max_t.tzinfo is None:
-            max_t = max_t.replace(tzinfo=min_t.tzinfo)
-        elif min_t.tzinfo is None and max_t.tzinfo is not None:
-            min_t = min_t.replace(tzinfo=max_t.tzinfo)
-        wasted_minutes = round((max_t - min_t).total_seconds() / 60.0)
+    total_energy = round(total_energy_kwh, 2)
+
+    # Aggregate across sessions:
+    #   total_minutes      = SUM of per-session durations (total charging time)
+    #   wasted_minutes     = SUM of per-session SoC>=80 time
+    #   wasted_pct         = AVERAGE of per-session wasted_pct (each session
+    #                        weighted equally, so one long session does not
+    #                        dominate the "how much time do I typically waste
+    #                        at the top" question)
+    total_minutes = round(sum(session_total_minutes))
+    wasted_minutes = round(sum(session_wasted_minutes))
+    if session_wasted_pct:
+        wasted_pct = round(sum(session_wasted_pct) / len(session_wasted_pct), 1)
+    elif total_minutes > 0:
+        wasted_pct = round(wasted_minutes / total_minutes * 100, 1)
     else:
-        wasted_minutes = round(wasted_row.count * 5) if wasted_row and wasted_row.count else 0
-
-    total_energy = round(sum(b["energy_kwh"] for b in bracket_defs), 2)
-
-    # Compute overall session duration from earliest→latest timestamp across all brackets.
-    # This is consistent with wasted_minutes (which also uses actual timestamps), unlike
-    # the sum of bracket estimates which can be much smaller than the real session span
-    # (e.g. fast 0-80% brackets + slow 80-100% bracket → wasted_pct > 100%).
-    overall_min_ts = None
-    overall_max_ts = None
-    for row in bracket_map.values():
-        if hasattr(row, 'min_time') and hasattr(row, 'max_time') and row.min_time and row.max_time:
-            mt = row.min_time
-            mx = row.max_time
-            if mt.tzinfo is not None and mx.tzinfo is None:
-                mx = mx.replace(tzinfo=mt.tzinfo)
-            elif mt.tzinfo is None and mx.tzinfo is not None:
-                mt = mt.replace(tzinfo=mx.tzinfo)
-            if overall_min_ts is None or mt < overall_min_ts:
-                overall_min_ts = mt
-            if overall_max_ts is None or mx > overall_max_ts:
-                overall_max_ts = mx
-
-    if overall_min_ts is not None and overall_max_ts is not None and overall_max_ts > overall_min_ts:
-        total_minutes = round((overall_max_ts - overall_min_ts).total_seconds() / 60.0)
-    else:
-        total_minutes = sum(b["minutes"] for b in bracket_defs)
+        wasted_pct = 0
 
     if total_minutes == 0:
         return {
@@ -1406,7 +1444,9 @@ async def get_charging_curve_integrals_v2(
             "total_energy_kwh": 0,
             "total_minutes": 0,
             "wasted_pct": 0,
-            "message": "No charging data available for this period."
+            "sessions": len(sessions),
+            "message": "No charging data available for this period." if not sessions
+                       else "No multi-sample charging sessions available for this period."
         }
 
     return {
@@ -1415,7 +1455,8 @@ async def get_charging_curve_integrals_v2(
         "wasted_minutes_80_100": wasted_minutes,
         "total_energy_kwh": total_energy,
         "total_minutes": total_minutes,
-        "wasted_pct": min(100, round(wasted_minutes / total_minutes * 100, 1)) if total_minutes > 0 else 0
+        "wasted_pct": min(100, wasted_pct),
+        "sessions": len(sessions),
     }
 
 

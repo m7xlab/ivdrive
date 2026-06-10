@@ -1,13 +1,42 @@
 import logging
+import re
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import uuid
 import json
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+
+# C2 defense-in-depth: the analytical SQL tool may only reference these relations.
+# The primary control is the ivdrive_ai_readonly role's grants + RLS (see migration
+# a1b2c3d4e5f7, which REVOKED users/ai_embeddings), but this rejects out-of-scope
+# queries early with a clear message instead of a raw permission-denied error.
+_AI_SQL_ALLOWED_TABLES = {
+    "user_vehicles", "trips", "charging_sessions", "charging_states",
+    "vehicle_states", "battery_health", "vehicle_positions", "charging_curves",
+    "drives", "drive_consumptions", "drive_ranges", "odometer_readings",
+    "outside_temperatures", "connection_states", "climatization_states",
+    # curated analytical views
+    "v_trip_analytics", "v_advanced_trip_stats", "v_charging_sessions_analytics",
+    "v_climate_penalty_breakdown", "v_winter_penalty_stats", "v_phantom_drain_stats",
+    "v_vehicle_state_durations", "v_place_stay_durations",
+}
+_FROM_JOIN_RE = re.compile(r"\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_\.]*)", re.IGNORECASE)
+
+
+def _ai_sql_tables_allowed(sql_query: str) -> tuple[bool, str]:
+    """Return (ok, disallowed_csv). Rejects any relation after FROM/JOIN not on the allow-list."""
+    referenced = {
+        m.group(1).split(".")[-1].lower()
+        for m in _FROM_JOIN_RE.finditer(sql_query)
+    }
+    disallowed = referenced - _AI_SQL_ALLOWED_TABLES
+    if disallowed:
+        return False, ", ".join(sorted(disallowed))
+    return True, ""
 
 LLM_TOOLS = [
     {
@@ -149,22 +178,33 @@ TABLES & COLUMNS:
 - vehicle_positions (id, user_vehicle_id, recorded_at, latitude, longitude, speed_kmh, heading, altitude)
 
 IMPORTANT RULES:
-1. Row-Level Security (RLS) is ACTIVE. The database automatically filters ALL rows to only show data for the current user.
+1. Your query runs under a restricted, read-only role that can ONLY access the analytical tables listed above; row-level security scopes those tables to the current user automatically. Auth, embeddings, and internal tables are NOT accessible — querying anything outside the tables above will be rejected.
 2. You DO NOT need to filter by `user_id`. You DO NOT need to `JOIN user_vehicles` just to verify ownership.
 3. If the user mentions a vehicle by name (e.g., 'BlackMagic'), use exact matching: `JOIN user_vehicles v ON t.user_vehicle_id = v.id WHERE v.display_name = 'BlackMagic'`. Do not use ILIKE '%...%' because it will accidentally mix data from similar vehicle names (e.g. 'BlackMagic' vs 'BlackMagic80').
 4. Always use aggregate functions (SUM, AVG, COUNT) or LIMIT your queries to 50 rows max.
 """
 
 async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query: str) -> str:
-    lower_sql = sql_query.lower()
-    if any(forbidden in lower_sql for forbidden in ["insert ", "update ", "delete ", "drop ", "create ", "alter ", "truncate ", "grant ", "revoke ", "commit", "rollback"]):
-        return "SQL_ERROR: Only SELECT queries are allowed."
-        
+    lower_sql = sql_query.strip().lower()
+    # Must be a read query.
+    if not (lower_sql.startswith("select") or lower_sql.startswith("with")):
+        return "SQL_ERROR: Only SELECT/WITH queries are allowed."
+    if any(forbidden in lower_sql for forbidden in ["insert ", "update ", "delete ", "drop ", "create ", "alter ", "truncate ", "grant ", "revoke ", "commit", "rollback", ";"]):
+        return "SQL_ERROR: Only single read-only SELECT queries are allowed."
+    # C2: hard table allow-list — reject any relation outside the curated analytical set.
+    ok, disallowed = _ai_sql_tables_allowed(sql_query)
+    if not ok:
+        return f"SQL_ERROR: Access to table(s) not permitted: {disallowed}. Only the analytical tables in the schema may be queried."
+
     try:
         async with db.bind.connect() as conn:
             async with conn.begin():
                 await conn.execute(text("SET LOCAL ROLE ivdrive_ai_readonly;"))
-                await conn.execute(text(f"SET LOCAL app.current_user_id = '{user_id}';"))
+                # 1-1: parameterized GUC instead of f-string interpolation.
+                await conn.execute(
+                    text("SELECT set_config('app.current_user_id', :uid, true)"),
+                    {"uid": str(user_id)},
+                )
                 result = await conn.execute(text(sql_query))
                 rows = result.fetchall()
                 keys = list(result.keys())
@@ -326,11 +366,12 @@ async def get_trip_and_charging_stats(
     if start_date:
         date_filter_t += " AND t.start_date >= :start_dt"
         date_filter_c += " AND c.session_start >= :start_dt"
-        params["start_dt"] = datetime.strptime(f"{start_date} 00:00:00", "%Y-%m-%d %H:%M:%S")
+        params["start_dt"] = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     if end_date:
-        date_filter_t += " AND t.start_date <= :end_dt"
-        date_filter_c += " AND c.session_start <= :end_dt"
-        params["end_dt"] = datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S")
+        # Half-open upper bound (< next day, UTC) to match ground_truth.sql's `< '2026-06-01'` form (bug 0-8).
+        date_filter_t += " AND t.start_date < :end_dt"
+        date_filter_c += " AND c.session_start < :end_dt"
+        params["end_dt"] = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
 
     trip_sql = text(f"""
         SELECT
@@ -341,7 +382,7 @@ async def get_trip_and_charging_stats(
             MAX(t.start_date) AS last_trip,
             SUM(CASE WHEN t.distance_km = 0 OR t.distance_km IS NULL THEN 1 ELSE 0 END)::int AS zero_km_trips
         FROM trips t
-        WHERE t.user_vehicle_id = :vid AND t.end_date IS NOT NULL {date_filter_t}
+        WHERE t.user_vehicle_id = :vid {date_filter_t}
     """)
     t_rows = await run_query(db, trip_sql, params)
     
@@ -352,7 +393,7 @@ async def get_trip_and_charging_stats(
             COALESCE(SUM(COALESCE(c.actual_cost_eur, c.base_cost_eur)), 0)::float AS total_cost,
             MAX(c.session_start) AS last_charge
         FROM charging_sessions c
-        WHERE c.user_vehicle_id = :vid AND c.session_end IS NOT NULL {date_filter_c}
+        WHERE c.user_vehicle_id = :vid {date_filter_c}
     """)
     c_rows = await run_query(db, charge_sql, params)
 
@@ -447,6 +488,7 @@ async def route_intent_via_llm(
     conversation_history: list[dict] | None = None,
     detected_vehicle_name: str | None = None,
     usage_stats: dict | None = None,
+    provider: str = "minimax",
 ) -> list[dict]:
     """
     Uses the primary LLM to determine which tools to run.
@@ -515,7 +557,7 @@ async def route_intent_via_llm(
         response_text = await call_llm_func(
             prompt=prompt,
             context_chunks=[],
-            provider="gemini",
+            provider=provider,
             system_override="You are a JSON-only router. Return only valid JSON array.",
             usage_stats=usage_stats,
         )

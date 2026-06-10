@@ -1,11 +1,19 @@
+import os
 import urllib.request
 import json
 import time
 
+# Dev credentials come from the environment — NEVER hardcode secrets in a tracked file.
+#   export IVDRIVE_TEST_EMAIL=...  IVDRIVE_TEST_PASSWORD=...
+EMAIL = os.environ.get("IVDRIVE_TEST_EMAIL")
+PASSWORD = os.environ.get("IVDRIVE_TEST_PASSWORD")
+if not EMAIL or not PASSWORD:
+    raise SystemExit("Set IVDRIVE_TEST_EMAIL and IVDRIVE_TEST_PASSWORD env vars before running.")
+
 # Get token
 login_req = urllib.request.Request(
-    "http://localhost:8000/api/v1/auth/login", 
-    data=json.dumps({"email":"m7xlab@gmail.com","password":"dY9BZ84GH47T4sDUS2r6SzilFQ_JQ"}).encode(), 
+    "http://localhost:8000/api/v1/auth/login",
+    data=json.dumps({"email": EMAIL, "password": PASSWORD}).encode(),
     headers={"Content-Type": "application/json"}
 )
 token = json.loads(urllib.request.urlopen(login_req).read())["access_token"]

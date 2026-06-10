@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { format } from "date-fns";
 import {
   Wifi,
@@ -353,6 +353,71 @@ export function CarOverviewDashboard({
     });
   };
 
+  // Levels & Range: prefer step-style (first_date + last_date per segment) when available; else merge battery + range.
+  // PERF: O(n+m) instead of O(n·m) — build Maps once and do O(1) lookups while iterating the union of timestamps.
+  // MUST stay above the early returns below: hooks (useMemo) must run unconditionally on every render (React #310 fix).
+  const useStep = levelsStep.length > 0 || rangesStep.length > 0;
+  const levelsRangeData = useMemo(() => {
+    const timeSet = new Set<string>();
+    if (useStep) {
+      levelsStep.forEach((p) => timeSet.add(p.timestamp));
+      rangesStep.forEach((p) => timeSet.add(p.timestamp));
+    } else {
+      battery.forEach((p) => timeSet.add(p.timestamp));
+      range.forEach((p) => timeSet.add(p.timestamp));
+    }
+    outsideTemp.forEach((p) => timeSet.add(p.time));
+    batteryTemp.forEach((p) => timeSet.add(p.time));
+
+    // O(1) lookup maps keyed by exact timestamp.
+    const levelsStepMap = new Map(levelsStep.map((x) => [x.timestamp, x.level]));
+    const batteryMap = new Map(battery.map((x) => [x.timestamp, x.level]));
+    const rangesStepMap = new Map(rangesStep.map((x) => [x.timestamp, x.range_km]));
+    const rangeMap = new Map(range.map((x) => [x.timestamp, x.range_km]));
+
+    // Temp arrays match on exact time OR on the 19-char prefix (date+time, no fractional seconds).
+    // The original used `arr.find(x => x.time === ts || prefix(x.time) === prefix(ts))`. Since `time === ts`
+    // implies the prefixes match, the first row in each prefix bucket is exactly the first OR-match for any
+    // `ts` sharing that prefix. So a single prefix-keyed, first-wins map reproduces the original result O(1).
+    const buildTempMap = <T,>(arr: { time: string }[], pick: (x: { time: string }) => T) => {
+      const prefix = new Map<string, T>();
+      for (const x of arr) {
+        if (!x.time) continue;
+        const p = String(x.time).slice(0, 19);
+        if (!prefix.has(p)) prefix.set(p, pick(x));
+      }
+      return prefix;
+    };
+    const outsideTempMap = buildTempMap(outsideTemp, (x) => (x as { outside_temp_celsius: number }).outside_temp_celsius);
+    const batteryTempMap = buildTempMap(batteryTemp, (x) => (x as { battery_temperature: number }).battery_temperature);
+
+    return Array.from(timeSet).filter(Boolean)
+      .sort()
+      .map((ts) => {
+        const timeMs = new Date(ts).getTime();
+        const level = useStep
+          ? (levelsStepMap.get(ts) ?? batteryMap.get(ts) ?? null)
+          : (batteryMap.get(ts) ?? null);
+        const range_km = useStep
+          ? (rangesStepMap.get(ts) ?? rangeMap.get(ts) ?? null)
+          : (rangeMap.get(ts) ?? null);
+        const tsPrefix = ts ? String(ts).slice(0, 19) : "";
+        const otFound = !!ts && outsideTempMap.has(tsPrefix);
+        const btFound = !!ts && batteryTempMap.has(tsPrefix);
+        const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number; battery_temp?: number } = {
+          time: ts,
+          timeMs,
+          label: format(new Date(ts), "d MMM HH:mm"),
+          level,
+          range_km,
+        };
+        if (otFound) out.outside_temp = outsideTempMap.get(tsPrefix) as number;
+        if (btFound) out.battery_temp = batteryTempMap.get(tsPrefix) as number;
+        return out;
+      })
+      .filter((d) => d.level != null || d.range_km != null || d.outside_temp != null || d.battery_temp != null);
+  }, [useStep, levelsStep, rangesStep, battery, range, outsideTemp, batteryTemp]);
+
   const hasAnyData = battery.length > 0 || range.length > 0 || charging.length > 0 || stateBands.length > 0;
 
   if (loading && !hasAnyData) {
@@ -373,43 +438,6 @@ export function CarOverviewDashboard({
       </div>
     );
   }
-
-  // Levels & Range: prefer step-style (first_date + last_date per segment) when available; else merge battery + range.
-  const timeSet = new Set<string>();
-  const useStep = levelsStep.length > 0 || rangesStep.length > 0;
-  if (useStep) {
-    levelsStep.forEach((p) => timeSet.add(p.timestamp));
-    rangesStep.forEach((p) => timeSet.add(p.timestamp));
-  } else {
-    battery.forEach((p) => timeSet.add(p.timestamp));
-    range.forEach((p) => timeSet.add(p.timestamp));
-  }
-  outsideTemp.forEach((p) => timeSet.add(p.time));
-  batteryTemp.forEach((p) => timeSet.add(p.time));
-  const levelsRangeData = Array.from(timeSet).filter(Boolean)
-    .sort()
-    .map((ts) => {
-      const timeMs = new Date(ts).getTime();
-      const level = useStep
-        ? (levelsStep.find((x) => x.timestamp === ts)?.level ?? battery.find((x) => x.timestamp === ts)?.level ?? null)
-        : (battery.find((x) => x.timestamp === ts)?.level ?? null);
-      const range_km = useStep
-        ? (rangesStep.find((x) => x.timestamp === ts)?.range_km ?? range.find((x) => x.timestamp === ts)?.range_km ?? null)
-        : (range.find((x) => x.timestamp === ts)?.range_km ?? null);
-      const ot = outsideTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
-      const bt = batteryTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
-      const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number } = {
-        time: ts,
-        timeMs,
-        label: format(new Date(ts), "d MMM HH:mm"),
-        level,
-        range_km,
-      };
-      if (ot) out.outside_temp = ot.outside_temp_celsius;
-      if (bt) out.battery_temp = bt.battery_temperature;
-      return out;
-    })
-    .filter((d) => d.level != null || d.range_km != null || d.outside_temp != null || d.battery_temp != null);
 
   // Avg km/% (range/level) trend for Levels & Range caption
   const kmPerPctSamples = levelsRangeData.filter((d) => d.level != null && d.level > 0 && d.range_km != null);

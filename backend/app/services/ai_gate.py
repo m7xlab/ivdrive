@@ -219,16 +219,22 @@ async def log_ai_usage(
 # Pricing per 1M tokens (USD) — update from /docs/guides/pricing-paygo as needed
 # Cache hits = cache_read_input_tokens, input = input_tokens - cache_hits
 PRICING = {
-    "minimax-M3": {"input": 0.60, "output": 2.40, "cache_hit": 0.12},
+    "minimax-m3": {"input": 0.60, "output": 2.40, "cache_hit": 0.12},
     "gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00, "cache_hit": 0.31},
 }
+
+_PRICING_DEFAULT = "minimax-m3"
 
 
 def estimate_cost_usd(
     model_key: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0
 ) -> float:
-    """Estimate cost in USD from token usage. Per-1M-token rates."""
-    p = PRICING.get(model_key, PRICING["minimax-M3"])
+    """Estimate cost in USD from token usage. Per-1M-token rates. SINGLE source of truth (bug 2-13).
+
+    Keyed by the real model_name the gate returns (e.g. 'MiniMax-M3',
+    'gemini-3.1-pro-preview'), matched case-insensitively.
+    """
+    p = PRICING.get((model_key or "").lower(), PRICING[_PRICING_DEFAULT])
     new_input = max(0, prompt_tokens - cached_tokens)
     cost = (
         (new_input / 1_000_000) * p["input"]

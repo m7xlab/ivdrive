@@ -49,9 +49,11 @@ async def text_to_embedding(text: str, seed: int = 42) -> list[float]:
     Fallback: deterministic hash.
     """
     from app.services.ai_embeddings import generate_embedding, text_to_deterministic_embedding
+    # generate_embedding now returns (vector, model_used); this wrapper only
+    # needs the vector (embed_all upserts with a fixed model label).
     result = await generate_embedding(text)
     if result is not None:
-        return result
+        return result[0]
     return text_to_deterministic_embedding(text, seed=seed)
 
 

@@ -201,7 +201,7 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=settings.access_token_expire_minutes * 60,
     )
@@ -209,7 +209,7 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
     )
@@ -217,7 +217,7 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
         key="csrf_token",
         value=csrf_token,
         httponly=False,
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax",
     )
 
@@ -277,9 +277,9 @@ async def verify_2fa_login(response: Response, body: TwoFactorLoginRequest, db: 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
     csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -340,9 +340,9 @@ async def verify_recovery_code_login(response: Response, body: RecoveryCodeLogin
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
     csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -350,7 +350,7 @@ async def verify_recovery_code_login(response: Response, body: RecoveryCodeLogin
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(request: Request, response: Response, body: RefreshRequest = None):
+async def refresh(request: Request, response: Response, body: RefreshRequest = None, db: AsyncSession = Depends(get_db)):
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token and body and body.refresh_token:
         refresh_token = body.refresh_token
@@ -381,12 +381,23 @@ async def refresh(request: Request, response: Response, body: RefreshRequest = N
             detail="Invalid token",
         )
 
+    # Re-validate the user against the DB before minting new tokens. A refresh
+    # token alone must not keep a deactivated/deleted account alive for the
+    # full 7-day refresh window.
+    result = await db.execute(select(User).where(User.id == uuid.UUID(subject)))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+
     access_token = create_access_token(subject)
     new_refresh = create_refresh_token(subject)
     csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=not settings.debug if hasattr(settings, "debug") else False, samesite="lax")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
+    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
+    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
     return TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh,
@@ -400,19 +411,19 @@ async def logout(response: Response, request: Request, body: RefreshRequest = No
     response.delete_cookie(
         key="access_token", 
         httponly=True, 
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax"
     )
     response.delete_cookie(
         key="refresh_token", 
         httponly=True, 
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax"
     )
     response.delete_cookie(
         key="csrf_token", 
         httponly=False, 
-        secure=not settings.debug if hasattr(settings, "debug") else False,
+        secure=settings.cookie_secure,
         samesite="lax"
     )
     return {"detail": "Successfully logged out"}

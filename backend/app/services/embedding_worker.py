@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from typing import Optional
 
 from sqlalchemy import text
@@ -78,11 +79,16 @@ async def process_one(
 
     chunk, meta = result
     try:
-        # Use provider-dispatched async embedding (Gemini with deterministic fallback)
+        # Use provider-dispatched async embedding (Gemini with deterministic fallback).
+        # generate_embedding now returns (vector, model_used) so we persist the
+        # model that actually produced the vector.
         from app.services.ai_embeddings import generate_embedding
-        embedding = await generate_embedding(chunk)
-        if embedding is None:
+        emb_result = await generate_embedding(chunk)
+        if emb_result is None:
             embedding = text_to_embedding(chunk)
+            embedding_model = "deterministic@768"
+        else:
+            embedding, embedding_model = emb_result
         ch = content_hash(chunk)
         meta_json = json.dumps(meta)
         await session.execute(
@@ -117,7 +123,7 @@ async def process_one(
                 "embedding": emb_str(embedding),
                 "metadata": meta_json,
                 "provider": EMBEDDING_PROVIDER,
-                "model": f"gemini-embedding-001@{EMBEDDING_DIM}",
+                "model": embedding_model,
             },
         )
         await session.execute(

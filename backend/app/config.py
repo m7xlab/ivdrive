@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # CORS — non-credential, safe to have defaults; override via CORS_ORIGINS env
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Cookies — Secure flag on auth cookies. Set False only for local HTTP dev.
+    cookie_secure: bool = True
+
     log_level: str = "info"
 
     # When true, log each statistics/overview API request (route, params, result count) to container stdout
