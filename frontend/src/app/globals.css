@@ -100,6 +100,18 @@ body {
   border-color: rgba(75, 168, 46, 0.15);
 }
 
+/* Feedback (confirm dialog + toast) entrance animations */
+@keyframes iv-pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes iv-toast-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.iv-pop-in { animation: iv-pop-in 0.15s ease-out; }
+.iv-toast-in { animation: iv-toast-in 0.2s ease-out; }
+
 .glow-green {
   box-shadow: 0 0 20px rgba(75, 168, 46, 0.15), 0 0 60px rgba(75, 168, 46, 0.05);
 }

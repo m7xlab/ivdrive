@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { Loader2, Zap, Clock, BatteryWarning } from "lucide-react";
-import {
 import { formatSmartDuration } from "@/lib/format";
+import {
   LineChart,
   Line,
   BarChart,

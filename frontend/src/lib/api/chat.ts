@@ -1,4 +1,11 @@
-import { apiFetch } from "./core";
+import { apiFetch, API_BASE, getCookie } from "./core";
+
+export interface StreamHandlers {
+  onDelta: (text: string) => void;
+  onDone: (data: { session_id?: string; sources?: ChatResponse["sources"] }) => void;
+  onStatus?: () => void;
+  onError?: (detail: string) => void;
+}
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -83,5 +90,74 @@ export const chatApi = {
     }
 
     return data;
+  },
+
+  /**
+   * Streaming variant — consumes Server-Sent Events from /chat/stream.
+   * Keeps the connection alive via `status` heartbeats during the slow agentic
+   * phase (avoids the proxy timeout), then delivers the answer incrementally.
+   */
+  async sendMessageStream(
+    message: string,
+    sessionId: string | null | undefined,
+    handlers: StreamHandlers,
+    vehicleId?: string,
+    provider: "minimax" | "gemini" | "openai" = "minimax",
+  ): Promise<void> {
+    const body: Record<string, string> = { message, provider };
+    if (sessionId) body.session_id = sessionId;
+    if (vehicleId) body.vehicle_id = vehicleId;
+
+    const csrf = getCookie("csrf_token");
+    const res = await fetch(`${API_BASE}/api/v1/chat/stream`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(`Chat request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE frames are separated by a blank line.
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!dataLine) continue;
+        const payload = dataLine.slice(5).trim();
+        if (!payload) continue;
+        let evt: { type: string; text?: string; session_id?: string; sources?: ChatResponse["sources"]; detail?: string };
+        try {
+          evt = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        if (evt.type === "delta" && evt.text) {
+          handlers.onDelta(evt.text);
+        } else if (evt.type === "done") {
+          if (evt.session_id) setCurrentSessionId(evt.session_id);
+          handlers.onDone({ session_id: evt.session_id, sources: evt.sources });
+        } else if (evt.type === "status") {
+          handlers.onStatus?.();
+        } else if (evt.type === "error") {
+          handlers.onError?.(evt.detail || "Something went wrong.");
+        }
+      }
+    }
   },
 };

@@ -11,7 +11,7 @@ the baseline. Heating and cooling penalties can then be derived as the
 delta vs. the OFF baseline at similar temperatures.
 
 Revision ID: 5c0a1b2c3d4e
-Revises: f4b2c3d4e5f6
+Revises: f5a6b7c8d9e0
 Create Date: 2026-06-08 12:00:00.000000
 """
 from typing import Sequence, Union
@@ -20,7 +20,10 @@ from alembic import op
 
 
 revision: str = "5c0a1b2c3d4e"
-down_revision: Union[str, None] = "f4b2c3d4e5f6"
+# Re-pointed from the production bridge (f4b2c3d4e5f6) to the AI-base catch-up
+# (f5a6b7c8d9e0) so a production restore creates the missing vector/AI/RLS base
+# before 8b3c4d5e6f71 resizes ai_embeddings. See f5a6b7c8d9e0 for the full why.
+down_revision: Union[str, None] = "f5a6b7c8d9e0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

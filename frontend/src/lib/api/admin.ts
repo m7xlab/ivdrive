@@ -145,4 +145,17 @@ export const adminApi = {
     const res = await apiFetch(`/api/v1/admin/ai/usage${qs.toString() ? `?${qs}` : ""}`);
     return res.json();
   },
+
+  // ── RAG embeddings: status + manual backfill ─────────────────────────────
+  async adminGetAIEmbeddingStatus() {
+    const res = await apiFetch("/api/v1/admin/ai/embeddings/status");
+    return res.json();
+  },
+  async adminBackfillAIEmbeddings(mode: "missing" | "all" = "missing") {
+    const res = await apiFetch("/api/v1/admin/ai/embeddings/backfill", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    return res.json();
+  },
 };

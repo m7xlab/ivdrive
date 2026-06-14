@@ -45,6 +45,15 @@ class AITierConfigUpdate(BaseModel):
     description: str | None = None
 
 
+class EmbeddingBackfillRequest(BaseModel):
+    mode: Literal["missing", "all"] = Field(
+        "missing",
+        description="'missing' = only enqueue vehicle/content pairs not yet embedded "
+                    "(safe, cheap, idempotent). 'all' = re-enqueue every pair, forcing a "
+                    "full re-embed (use after an embedding model/dimension change).",
+    )
+
+
 # ─── User AI access (per-user overrides) ───────────────────────────────────
 @router.get("/ai/users")
 async def list_user_ai_access(
@@ -336,3 +345,125 @@ async def ai_usage_summary(
     """)
     row = (await db.execute(sql)).mappings().first()
     return dict(row) if row else {}
+
+
+# ─── RAG embeddings: status + manual backfill ──────────────────────────────
+@router.get("/ai/embeddings/status")
+async def ai_embeddings_status(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+):
+    """RAG corpus health for the admin console.
+
+    `expected` = vehicles × registered content types. `embedded` counts rows
+    actually present in ai_embeddings for those registered types. The queue
+    counts show in-flight backfill work the collector worker is draining.
+    """
+    from app.services.embedding_builders import CONTENT_TYPES
+
+    content_types = list(CONTENT_TYPES.keys())
+
+    scalars = (await db.execute(
+        text("""
+            SELECT
+              (SELECT COUNT(*) FROM user_vehicles)::int                                  AS vehicles,
+              (SELECT COUNT(*) FROM ai_embeddings WHERE content_type = ANY(:cts))::int   AS embedded,
+              (SELECT COUNT(*) FROM ai_embeddings_queue WHERE status = 'pending')::int    AS queue_pending,
+              (SELECT COUNT(*) FROM ai_embeddings_queue WHERE status = 'processing')::int AS queue_processing,
+              (SELECT COUNT(*) FROM ai_embeddings_queue WHERE status = 'error')::int       AS queue_error,
+              (SELECT MAX(updated_at) FROM ai_embeddings)                                  AS last_embedded_at
+        """),
+        {"cts": content_types},
+    )).mappings().first()
+
+    by_type = (await db.execute(
+        text("""
+            SELECT content_type, COUNT(*)::int AS embedded
+            FROM ai_embeddings
+            WHERE content_type = ANY(:cts)
+            GROUP BY content_type
+        """),
+        {"cts": content_types},
+    )).mappings().all()
+
+    out = dict(scalars) if scalars else {}
+    out["content_types"] = content_types
+    out["expected"] = (out.get("vehicles", 0) or 0) * len(content_types)
+    out["by_type"] = [dict(r) for r in by_type]
+    return out
+
+
+@router.post("/ai/embeddings/backfill")
+async def ai_embeddings_backfill(
+    body: EmbeddingBackfillRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+):
+    """Enqueue RAG embedding work for every vehicle × registered content type.
+
+    This does NOT call the embedding API — it only inserts 'pending' rows into
+    ai_embeddings_queue (pure SQL, fast, bounded). The collector's embedding
+    worker drains the queue asynchronously, building each doc and calling the
+    configured provider, with its own retry/attempts handling.
+
+    mode='missing' (default): skip pairs already embedded — cheap top-up.
+    mode='all': re-enqueue everything — full re-embed after a model change.
+
+    In both modes, pairs already 'pending' in the queue are skipped so repeated
+    clicks don't pile up duplicate work.
+    """
+    from app.services.embedding_builders import CONTENT_TYPES
+
+    ct_items = list(CONTENT_TYPES.items())  # [(content_type, (prefix, builder)), ...]
+    if not ct_items:
+        return {"ok": True, "enqueued": 0, "mode": body.mode, "detail": "no content builders registered"}
+
+    # Pass the registry as two parallel text[] arrays and unnest them into a
+    # (content_type, prefix) derived table. NOTE: we avoid the `:param::text`
+    # cast form — SQLAlchemy's text() bind-param regex does NOT match a param
+    # immediately followed by `::`, so `:cts::text[]` would leave a literal
+    # ":cts" in the SQL. Use CAST(:param AS ...) instead.
+    params = {
+        "cts": [c for c, _ in ct_items],
+        "pfxs": [p for _, (p, _b) in ct_items],
+    }
+
+    # mode='missing' additionally skips pairs that already have an embedding row.
+    missing_clause = ""
+    if body.mode == "missing":
+        missing_clause = """
+              AND NOT EXISTS (
+                SELECT 1 FROM ai_embeddings e
+                WHERE e.content_type = ct.content_type
+                  AND e.content_id = ct.prefix || ':' || v.id::text
+              )"""
+
+    result = await db.execute(
+        text(f"""
+            INSERT INTO ai_embeddings_queue
+              (id, user_id, vehicle_id, content_type, content_id, status, priority, created_at, updated_at)
+            SELECT
+              gen_random_uuid(), v.user_id, v.id,
+              ct.content_type, ct.prefix || ':' || v.id::text,
+              'pending', 0, NOW(), NOW()
+            FROM user_vehicles v
+            CROSS JOIN unnest(CAST(:cts AS text[]), CAST(:pfxs AS text[])) AS ct(content_type, prefix)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ai_embeddings_queue q
+                WHERE q.content_type = ct.content_type
+                  AND q.content_id = ct.prefix || ':' || v.id::text
+                  AND q.status = 'pending'
+              ){missing_clause}
+        """),
+        params,
+    )
+    await db.commit()
+
+    enqueued = result.rowcount if result.rowcount is not None and result.rowcount >= 0 else 0
+    return {
+        "ok": True,
+        "mode": body.mode,
+        "enqueued": enqueued,
+        "content_types": [c for c, _ in ct_items],
+        "detail": "Queued for the background embedding worker. Watch the queue depth fall on the status card.",
+    }

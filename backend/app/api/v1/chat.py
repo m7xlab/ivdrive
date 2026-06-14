@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import text
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1414,6 +1415,77 @@ async def chat(
     asyncio.create_task(_upload_session_to_s3(session_id, str(user_id), updated_history))
 
     return ChatResponse(answer=answer, sources=sources, session_id=session_id)
+
+def _sse(payload: dict) -> str:
+    """Format one Server-Sent Events frame."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@router.post("/stream")
+async def chat_stream(
+    req: ChatRequest,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE streaming variant of POST /chat.
+
+    The multi-turn agentic path chains several serial LLM calls and can take
+    ~10-25s. A plain request sits idle that whole time and the upstream proxy
+    eventually resets the socket (ECONNRESET → "Internal Server Error"). Here we
+    run the *exact same* pipeline as the non-streaming endpoint as a background
+    task and emit `status` heartbeats every 2s so the connection is never idle,
+    then stream the answer text as `delta` events and finish with a `done` event
+    carrying session_id + sources. No behaviour drift in the RAG/agentic logic.
+    """
+    async def gen():
+        task = asyncio.create_task(chat(req, user, db))
+        # First byte immediately so the proxy considers the response "started".
+        yield _sse({"type": "status", "state": "thinking"})
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=2.0)
+                if done:
+                    break
+                yield _sse({"type": "status", "state": "thinking"})
+        except asyncio.CancelledError:
+            # Client disconnected — abandon the work and propagate cancellation.
+            task.cancel()
+            raise
+
+        try:
+            result = task.result()  # ChatResponse
+        except Exception:
+            logger.exception("chat_stream pipeline failed")
+            yield _sse({
+                "type": "error",
+                "detail": "I'm having trouble answering right now. Please try again in a moment.",
+            })
+            return
+
+        answer = result.answer or ""
+        # Stream in small fixed-size slices so the exact content (markdown and any
+        # ```json_chart block) is preserved byte-for-byte while giving a live
+        # typing effect.
+        for i in range(0, len(answer), 6):
+            yield _sse({"type": "delta", "text": answer[i:i + 6]})
+            await asyncio.sleep(0.012)
+
+        yield _sse({
+            "type": "done",
+            "session_id": result.session_id,
+            "sources": [{"type": s.type, "id": s.id, "score": s.score} for s in result.sources],
+        })
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # don't let any nginx layer buffer SSE
+            "Connection": "keep-alive",
+        },
+    )
+
 
 # ─── Session management endpoints ─────────────────────────────────────────────
 

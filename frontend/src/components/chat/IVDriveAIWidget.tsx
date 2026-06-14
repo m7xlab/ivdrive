@@ -176,32 +176,46 @@ export function IVDriveAIWidget() {
     if (!trimmed || isLoading) return;
 
     const userMsg: ChatMessage = { role: "user", content: trimmed };
-    setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), userMsg]);
+    // Add the user message AND an empty assistant placeholder we stream into.
+    setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), userMsg, { role: "assistant", content: "" }]);
     setInput("");
     if (inputRef.current) inputRef.current.style.height = "44px";
     setIsLoading(true);
     setError(null);
 
+    let acc = "";
+    const setAssistant = (content: string, sources?: ChatMessage["sources"]) => {
+      setMessages((prev) => {
+        const copy = [...prev];
+        // The assistant placeholder is always the last message.
+        copy[copy.length - 1] = { role: "assistant", content, sources };
+        return copy;
+      });
+    };
+
     try {
-      const res = await chatApi.sendMessage(trimmed, currentSessionId);
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: res.answer,
-        sources: res.sources,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      if (res.session_id && res.session_id !== currentSessionId) {
-        setCurrentSessionId(res.session_id);
-        chatApi.listSessions().then(setSessions).catch(() => {});
-      }
-      if (!isOpen) setUnread(true);
+      await chatApi.sendMessageStream(trimmed, currentSessionId, {
+        onDelta: (text) => {
+          acc += text;
+          setAssistant(acc);
+        },
+        onDone: ({ session_id, sources }) => {
+          setAssistant(acc, sources);
+          if (session_id && session_id !== currentSessionId) {
+            setCurrentSessionId(session_id);
+            chatApi.listSessions().then(setSessions).catch(() => {});
+          }
+          if (!isOpen) setUnread(true);
+        },
+        onError: (detail) => {
+          setError(detail);
+          setAssistant(`Error: ${detail}`);
+        },
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to get response";
       setError(message);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Error: ${message}` },
-      ]);
+      setAssistant(`Error: ${message}`);
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
@@ -327,6 +341,11 @@ export function IVDriveAIWidget() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar">
         {messages.map((msg, i) => (
+          // While the assistant reply is still streaming (placeholder empty),
+          // show the typing indicator in its place instead of an empty bubble.
+          msg.role === "assistant" && msg.content === "" ? (
+            <TypingIndicator key={i} />
+          ) : (
           <div
             key={i}
             className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
@@ -353,9 +372,8 @@ export function IVDriveAIWidget() {
               </div>
             )}
           </div>
+          )
         ))}
-
-        {isLoading && <TypingIndicator />}
         {error && <div className="text-xs text-red-500 px-2">{error}</div>}
         <div ref={messagesEndRef} />
       </div>

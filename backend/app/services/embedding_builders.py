@@ -154,10 +154,15 @@ async def build_charging_curve_summary(session: AsyncSession, vid: str) -> Optio
     uid, name = r[0], r[1] or "Unknown"
     first_s = r[4].strftime("%Y-%m-%d") if r[4] else "?"
     last_s = r[5].strftime("%Y-%m-%d") if r[5] else "?"
+    # A vehicle can have curve rows (passes HAVING) while a whole column is NULL
+    # (e.g. power_kw / battery_temp_celsius / current_a never reported), so the
+    # AVG/MIN/MAX comes back None. Format defensively instead of crashing.
+    def _n(v, prec=1):
+        return f"{v:.{prec}f}" if v is not None else "n/a"
     chunk = (f"Charging curve data for {name}: {r[2]} data points across {r[3]} sessions "
-             f"({first_s} - {last_s}). Peak {r[6]:.1f}kW, avg {r[7]:.1f}kW. "
-             f"SOC range {r[11]:.0f}%-{r[12]:.0f}%. "
-             f"Battery temp range {r[8]:.1f}-{r[9]:.1f}C (avg {r[10]:.1f}C). Avg current {r[13]:.1f}A.")
+             f"({first_s} - {last_s}). Peak {_n(r[6])}kW, avg {_n(r[7])}kW. "
+             f"SOC range {_n(r[11], 0)}%-{_n(r[12], 0)}%. "
+             f"Battery temp range {_n(r[8])}-{_n(r[9])}C (avg {_n(r[10])}C). Avg current {_n(r[13])}A.")
     meta = {"source": "Charging Curves", "vehicle_name": name,
             "sessions": r[3], "max_power_kw": r[6], "avg_power_kw": r[7]}
     return chunk, meta
@@ -249,9 +254,13 @@ async def build_drive_consumption_summary(session: AsyncSession, vid: str) -> Op
     uid, name = r[0], r[1] or "Unknown"
     first_s = r[9].strftime("%Y-%m-%d") if r[9] else "?"
     last_s = r[10].strftime("%Y-%m-%d") if r[10] else "?"
+    # consumption / temperature_celsius can be entirely NULL for a vehicle that
+    # has drive rows (passes HAVING), making AVG/MIN/MAX None. Format defensively.
+    def _n(v, prec=2):
+        return f"{v:.{prec}f}" if v is not None else "n/a"
     chunk = (f"Drive consumption for {name}: {r[2]} records ({first_s} - {last_s}). "
-             f"Average consumption {r[3]:.2f}kWh/100km (range {r[4]:.2f}-{r[5]:.2f}). "
-             f"Average ambient temp {r[6]:.1f}C (range {r[7]:.1f}-{r[8]:.1f}C).")
+             f"Average consumption {_n(r[3])}kWh/100km (range {_n(r[4])}-{_n(r[5])}). "
+             f"Average ambient temp {_n(r[6], 1)}C (range {_n(r[7], 1)}-{_n(r[8], 1)}C).")
     meta = {"source": "Drive Consumption", "vehicle_name": name,
             "avg_consumption": r[3], "record_count": r[2]}
     return chunk, meta

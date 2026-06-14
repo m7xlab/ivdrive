@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Sparkles, Crown, Zap, Users as UsersIcon, Edit2, Save, X,
   TrendingUp, DollarSign, AlertCircle, Loader2, RefreshCw, Check,
+  Database, Layers, RotateCcw,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useConfirm, useToast } from "@/components/ui/feedback";
 
 type Tier = "free" | "pro" | "team";
 type TierConfig = {
@@ -47,8 +49,21 @@ type UsageSummary = {
   top_users: { email: string; ai_tier: Tier; calls: number }[];
   blocked_breakdown: { blocked_reason: string; n: number }[];
 };
+type EmbeddingStatus = {
+  vehicles: number;
+  embedded: number;
+  expected: number;
+  queue_pending: number;
+  queue_processing: number;
+  queue_error: number;
+  last_embedded_at: string | null;
+  content_types: string[];
+  by_type: { content_type: string; embedded: number }[];
+};
 
 export function AIAssistantPanel() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [users, setUsers] = useState<UserAI[]>([]);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
@@ -57,6 +72,17 @@ export function AIAssistantPanel() {
   const [savingTier, setSavingTier] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | Tier>("all");
   const [userFilter, setUserFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [emb, setEmb] = useState<EmbeddingStatus | null>(null);
+  const [backfilling, setBackfilling] = useState<null | "missing" | "all">(null);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+
+  const fetchEmb = useCallback(async () => {
+    try {
+      setEmb(await api.adminGetAIEmbeddingStatus());
+    } catch (e) {
+      console.error("embedding status load failed:", e);
+    }
+  }, []);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -69,14 +95,42 @@ export function AIAssistantPanel() {
       setTiers(Array.isArray(t) ? t : []);
       setUsers(Array.isArray(u) ? u : []);
       setSummary(s || null);
+      await fetchEmb();
     } catch (e) {
       console.error("AI panel load failed:", e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchEmb]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleBackfill = async (mode: "missing" | "all") => {
+    if (mode === "all" && !(await confirm({
+      title: "Re-embed all vehicles?",
+      message: "This re-queues every document and makes a fresh embedding API call for each. Only needed after an embedding model or dimension change.",
+      confirmText: "Re-embed all",
+      variant: "danger",
+    }))) return;
+    setBackfilling(mode);
+    setBackfillMsg(null);
+    try {
+      const res = await api.adminBackfillAIEmbeddings(mode);
+      const msg = `Queued ${res.enqueued} document${res.enqueued === 1 ? "" : "s"} (${mode}). The worker is embedding them in the background.`;
+      setBackfillMsg(msg);
+      toast.success(msg);
+      await fetchEmb();
+      // The worker drains on a poll cadence; nudge the numbers a few times.
+      setTimeout(fetchEmb, 4000);
+      setTimeout(fetchEmb, 12000);
+    } catch (e) {
+      const msg = `Backfill failed: ${(e as Error).message}`;
+      setBackfillMsg(msg);
+      toast.error(msg);
+    } finally {
+      setBackfilling(null);
+    }
+  };
 
   const filteredUsers = users.filter((u) => {
     if (tierFilter !== "all" && u.ai_tier !== tierFilter) return false;
@@ -91,7 +145,7 @@ export function AIAssistantPanel() {
       await fetchAll();
     } catch (e) {
       console.error("toggle failed:", e);
-      alert(`Failed to toggle user: ${(e as Error).message}`);
+      toast.error(`Failed to toggle user: ${(e as Error).message}`);
     }
   };
 
@@ -101,7 +155,7 @@ export function AIAssistantPanel() {
       await fetchAll();
     } catch (e) {
       console.error("tier change failed:", e);
-      alert(`Failed to change tier: ${(e as Error).message}`);
+      toast.error(`Failed to change tier: ${(e as Error).message}`);
     }
   };
 
@@ -118,9 +172,10 @@ export function AIAssistantPanel() {
       });
       setEditingTier(null);
       await fetchAll();
+      toast.success("Tier configuration saved");
     } catch (e) {
       console.error("tier save failed:", e);
-      alert(`Failed to save: ${(e as Error).message}`);
+      toast.error(`Failed to save: ${(e as Error).message}`);
     } finally {
       setSavingTier(false);
     }
@@ -193,6 +248,79 @@ export function AIAssistantPanel() {
             color="amber"
           />
         </div>
+      )}
+
+      {/* RAG embeddings — corpus health + manual backfill */}
+      {emb && (
+        <section>
+          <h3 className="text-sm font-semibold text-iv-muted uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Database className="w-4 h-4" /> RAG Embeddings
+          </h3>
+          <div className="bg-iv-surface/40 border border-iv-border/50 rounded-lg p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <MiniStat
+                label="Embedded"
+                value={`${emb.embedded} / ${emb.expected}`}
+                sub={`${emb.vehicles} vehicles × ${emb.content_types.length} types`}
+              />
+              <MiniStat
+                label="Coverage"
+                value={emb.expected > 0 ? `${Math.round((emb.embedded / emb.expected) * 100)}%` : "—"}
+                sub={emb.last_embedded_at ? `last ${new Date(emb.last_embedded_at).toLocaleString()}` : "never"}
+              />
+              <MiniStat
+                label="Queue"
+                value={emb.queue_pending + emb.queue_processing}
+                sub={`${emb.queue_pending} pending · ${emb.queue_processing} running`}
+                pulse={emb.queue_pending + emb.queue_processing > 0}
+              />
+              <MiniStat
+                label="Errors"
+                value={emb.queue_error}
+                sub={emb.queue_error > 0 ? "check worker logs" : "none"}
+                danger={emb.queue_error > 0}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleBackfill("missing")}
+                disabled={backfilling !== null}
+                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-iv-text/10 text-iv-text hover:bg-iv-text/20 transition-colors disabled:opacity-50"
+              >
+                {backfilling === "missing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
+                Backfill missing
+              </button>
+              <button
+                onClick={() => handleBackfill("all")}
+                disabled={backfilling !== null}
+                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+              >
+                {backfilling === "all" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                Re-embed all
+              </button>
+              <button
+                onClick={fetchEmb}
+                className="flex items-center gap-1.5 text-sm text-iv-muted hover:text-iv-text transition-colors ml-auto"
+              >
+                <RefreshCw className="w-4 h-4" /> Refresh
+              </button>
+            </div>
+
+            {backfillMsg && (
+              <div className="mt-3 text-xs text-iv-muted bg-iv-charcoal/50 rounded px-3 py-2 flex items-start gap-2">
+                <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400" />
+                <span>{backfillMsg}</span>
+              </div>
+            )}
+
+            <p className="mt-3 text-[11px] text-iv-muted leading-relaxed">
+              Backfill only <em>queues</em> work — the collector worker embeds in the background.
+              Use <strong>Backfill missing</strong> after a fresh DB restore; <strong>Re-embed all</strong> only
+              after an embedding model or dimension change.
+            </p>
+          </div>
+        </section>
       )}
 
       {/* Tier configs */}
@@ -337,6 +465,20 @@ function SummaryCard({ label, value, sub, icon, color }: {
       </div>
       <div className="text-xl font-semibold text-iv-text">{value}</div>
       <div className="text-xs text-iv-muted mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, sub, pulse, danger }: {
+  label: string; value: string | number; sub: string; pulse?: boolean; danger?: boolean;
+}) {
+  return (
+    <div className="bg-iv-charcoal/40 rounded-md px-3 py-2">
+      <div className="text-[10px] text-iv-muted uppercase tracking-wide">{label}</div>
+      <div className={`text-lg font-semibold ${danger ? "text-amber-400" : "text-iv-text"} ${pulse ? "animate-pulse" : ""}`}>
+        {value}
+      </div>
+      <div className="text-[11px] text-iv-muted truncate">{sub}</div>
     </div>
   );
 }
