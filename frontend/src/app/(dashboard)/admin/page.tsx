@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { useConfirm } from "@/components/ui/feedback";
 import {
   Shield,
   Users,
@@ -30,8 +31,10 @@ import {
   Activity,
   Globe2,
   Car,
+  Sparkles,
 } from "lucide-react";
 import { StatisticsDashboard } from "./statistics";
+import { AIAssistantPanel } from "@/components/admin/AIAssistantPanel";
 
 // ── Types ──
 
@@ -62,7 +65,7 @@ interface Announcement {
   is_active: boolean;
 }
 
-type Tab = "statistics" | "invites" | "users" | "announcements";
+type Tab = "statistics" | "invites" | "users" | "announcements" | "ai";
 
 // ── Helpers ──
 
@@ -116,6 +119,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("statistics");
   const [invites, setInvites] = useState<InviteRequest[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -245,7 +249,12 @@ export default function AdminPage() {
       showToast("Cannot delete your own account", "err");
       return;
     }
-    if (!window.confirm(`Delete user "${u.email}"? This will remove all their data permanently.`)) return;
+    if (!(await confirm({
+      title: "Delete user?",
+      message: `Delete "${u.email}"? This permanently removes all of their data and cannot be undone.`,
+      confirmText: "Delete user",
+      variant: "danger",
+    }))) return;
     setActionLoading(u.id);
     try {
       await api.adminDeleteUser(u.id);
@@ -294,7 +303,12 @@ export default function AdminPage() {
   };
 
   const handleDeleteAnnouncement = async (ann: Announcement) => {
-    if (!window.confirm(`Delete announcement "${ann.title}"?`)) return;
+    if (!(await confirm({
+      title: "Delete announcement?",
+      message: `"${ann.title}" will be removed for all users.`,
+      confirmText: "Delete",
+      variant: "danger",
+    }))) return;
     setActionLoading(`ann-${ann.id}`);
     try {
       await api.adminDeleteAnnouncement(ann.id);
@@ -309,9 +323,19 @@ export default function AdminPage() {
 
   const handleDeleteInvite = async (inv: InviteRequest) => {
     if (inv.status === "approved") {
-      if (!window.confirm(`WARNING: This invite is approved but NOT YET USED! If you delete it now, the user's invite link will be destroyed and they will get an "Expired" error. Are you sure you want to delete it?`)) return;
+      if (!(await confirm({
+        title: "Delete an approved invite?",
+        message: `This invite is approved but NOT yet used. Deleting it destroys ${inv.email}'s invite link — they'll get an "Expired" error when they try it.`,
+        confirmText: "Delete anyway",
+        variant: "danger",
+      }))) return;
     } else {
-      if (!window.confirm(`Delete invite for "${inv.email}"?`)) return;
+      if (!(await confirm({
+        title: "Delete invite?",
+        message: `Delete the invite for "${inv.email}"?`,
+        confirmText: "Delete",
+        variant: "danger",
+      }))) return;
     }
 
     setActionLoading(`del-${inv.id}`);
@@ -423,6 +447,7 @@ export default function AdminPage() {
             { id: "invites" as Tab, label: "Invites", icon: Mail, badge: pendingCount },
             { id: "users" as Tab, label: "Users", icon: Users, badge: 0 },
             { id: "announcements" as Tab, label: "Announcements", icon: Bell, badge: activeAnnouncementsCount },
+            ...(user.is_superuser ? [{ id: "ai" as Tab, label: "AI Assistant", icon: Sparkles, badge: 0 }] : []),
           ] as const
         ).map((t) => (
           <button
@@ -472,6 +497,8 @@ export default function AdminPage() {
           onDelete={handleDeleteUser}
           onRefresh={handleRefreshUserVehicles}
         />
+      ) : tab === "ai" ? (
+        <AIAssistantPanel />
       ) : (
         <AnnouncementsPanel
           announcements={announcements}

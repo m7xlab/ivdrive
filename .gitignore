@@ -14,3 +14,5 @@ _local_docs/
 _deprecated_scripts/
 .claudemem
 CLAUDE.md
+.claude
+run_tests.py

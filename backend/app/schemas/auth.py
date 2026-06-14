@@ -45,6 +45,8 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool = False
     is_totp_enabled: bool = False
+    ai_enabled: bool = False
+    ai_tier: str = "free"
     created_at: datetime
 
     model_config = {"from_attributes": True}

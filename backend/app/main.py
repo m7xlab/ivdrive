@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 import json
 
-from app.api.v1 import auth, commands, admin, notifications, geo
+from app.api.v1 import auth, commands, admin, admin_ai, notifications, geo, chat
 from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
@@ -58,25 +58,57 @@ class CacheMiddleware(BaseHTTPMiddleware):
                         
                     cached_data = await cache_get(cache_key)
                     if cached_data:
-                        # Add header to show it was cached
-                        response = JSONResponse(content=cached_data)
-                        response.headers["X-Cache"] = "HIT"
-                        return response
+                        # Cache HIT: rebuild the response from the stored
+                        # body/content-type/status and flag it as a HIT.
+                        return Response(
+                            content=cached_data.get("body", ""),
+                            status_code=cached_data.get("status", 200),
+                            media_type=cached_data.get("media_type", "application/json"),
+                            headers={"X-Cache": "HIT"},
+                        )
 
+                    # Cache MISS: run the route. call_next() returns a
+                    # _StreamingResponse, so we must drain its body_iterator,
+                    # then rebuild a fresh Response from the collected bytes
+                    # (consuming the iterator without re-sending it would
+                    # leave the client with an empty body).
                     response = await call_next(request)
-                    
-                    if response.status_code == 200 and response.headers.get("content-type") == "application/json":
-                        # Prevent memory leaks: only cache if the body is already materialized (e.g. JSONResponse)
-                        # Do not consume body_iterator for StreamingResponses.
-                        if isinstance(response, JSONResponse) and hasattr(response, "body"):
-                            body_bytes = response.body
-                            try:
-                                json_data = json.loads(body_bytes.decode())
-                                await cache_set(cache_key, json_data, expire_seconds=60)
-                            except Exception as e:
-                                logging.error(f"Cache middleware serialization error: {e}")
-                            return response
-                    return response
+
+                    content_type = response.headers.get("content-type", "")
+                    body_bytes = b""
+                    async for chunk in response.body_iterator:
+                        if isinstance(chunk, str):
+                            chunk = chunk.encode(response.charset or "utf-8")
+                        body_bytes += chunk
+
+                    # Only cache successful JSON responses. Anything else
+                    # (errors, non-JSON, streaming media) is passed through
+                    # untouched aside from being re-materialized.
+                    if response.status_code == 200 and content_type.startswith("application/json"):
+                        try:
+                            await cache_set(
+                                cache_key,
+                                {
+                                    "body": body_bytes.decode(response.charset or "utf-8"),
+                                    "status": response.status_code,
+                                    "media_type": content_type,
+                                },
+                                expire_seconds=60,
+                            )
+                        except Exception as e:
+                            logging.error(f"Cache middleware serialization error: {e}")
+
+                    new_response = Response(
+                        content=body_bytes,
+                        status_code=response.status_code,
+                        media_type=content_type or None,
+                    )
+                    # Preserve original headers (e.g. set-cookie), then mark MISS.
+                    for k, v in response.headers.items():
+                        if k.lower() not in ("content-length", "x-cache"):
+                            new_response.headers[k] = v
+                    new_response.headers["X-Cache"] = "MISS"
+                    return new_response
         
         return await call_next(request)
 
@@ -84,6 +116,13 @@ class CacheMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_cache()
+    # Create chat tables once at startup (perf fix 3-2: avoids building a new
+    # autocommit engine on every chat request). Best-effort — never block startup.
+    try:
+        from app.api.v1.chat import _ensure_chat_tables
+        await _ensure_chat_tables()
+    except Exception:
+        logging.getLogger("app").warning("startup _ensure_chat_tables failed", exc_info=True)
     # So that logger.info() from app (e.g. STATISTICS_QUERY_DEBUG) appears in docker logs
     if getattr(settings, "statistics_query_debug", False):
         app_logger = logging.getLogger("app")
@@ -114,7 +153,7 @@ async def csrf_middleware(request: Request, call_next):
             "/api/v1/auth/register",
             "/api/v1/auth/forgot-password",
             "/api/v1/auth/reset-password",
-            "/api/v1/auth/invite-request"
+            "/api/v1/auth/invite-request",
         ]
         # Strip trailing slash for consistent exemption matching
         normalized_path = request.url.path.rstrip("/")
@@ -144,8 +183,10 @@ app.include_router(commands.router, prefix="/api/v1/vehicles", tags=["commands"]
 app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(analytics.router, prefix="/api/v1/vehicles", tags=["analytics"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(admin_ai.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(geo.router, prefix="/api/v1/geo", tags=["geo"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 
 
 @app.exception_handler(StarletteHTTPException)

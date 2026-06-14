@@ -142,7 +142,27 @@ class DataCollector:
             id="fetch_fuel_prices",
             replace_existing=True,
         )
-        
+
+        # AI embedding worker — drains ai_embeddings_queue incrementally.
+        # Skipped entirely when embedding_worker_enabled is False.
+        from app.services.embedding_worker import run_embedding_worker_tick
+        self._scheduler.add_job(
+            run_embedding_worker_tick,
+            "interval",
+            seconds=settings.embedding_worker_poll_interval_seconds,
+            id="embedding_worker",
+            replace_existing=True,
+            max_instances=1,           # never run two ticks in parallel
+            coalesce=True,             # if missed, run once not catch-up
+        )
+        logger.info(
+            "Embedding worker scheduled: every %ds, batch=%d, max_attempts=%d, enabled=%s",
+            settings.embedding_worker_poll_interval_seconds,
+            settings.embedding_worker_batch_size,
+            settings.embedding_worker_max_attempts,
+            settings.embedding_worker_enabled,
+        )
+
         # Also run it once on startup if the table is empty
         asyncio.create_task(self._initial_energy_prices_check())
 
@@ -867,9 +887,38 @@ class DataCollector:
                 if is_charging and charging and charging.status and charging.status.battery:
                     soc_pct = charging.status.battery.state_of_charge_in_percent
                     if soc_pct is not None and charging.status.charge_power_in_kw is not None:
+                        # Going-forward population of charging_curves.session_id
+                        # (data dependency for the per-session analytics rewrite).
+                        #
+                        # The parent ChargingSession is created/closed asynchronously
+                        # by process_completed_trips_and_charges() AFTER each poll
+                        # commits. By the time charging is ongoing, the open session
+                        # (session_end IS NULL) created by a prior poll already exists,
+                        # so we can stamp session_id directly at insert time. Wrapped
+                        # so a lookup failure never breaks collection.
+                        #
+                        # The very first curve(s) of a session may land before its
+                        # session row exists; those are caught by the backfill UPDATE
+                        # below once the session has been created.
+                        curve_session_id = None
+                        try:
+                            open_sess_res = await session.execute(
+                                select(ChargingSession.id)
+                                .where(
+                                    ChargingSession.user_vehicle_id == user_vehicle_id,
+                                    ChargingSession.session_end.is_(None),
+                                )
+                                .order_by(ChargingSession.session_start.desc())
+                                .limit(1)
+                            )
+                            curve_session_id = open_sess_res.scalar_one_or_none()
+                        except Exception as e:
+                            logger.warning("Could not resolve open ChargingSession for curve link (%s): %s", user_vehicle_id, e)
+
                         session.add(ChargingCurve(
                             user_vehicle_id=user_vehicle_id,
                             captured_at=now,
+                            session_id=curve_session_id,
                             soc_pct=soc_pct,
                             power_kw=charging.status.charge_power_in_kw,
                             # Voltage / current / temps — not exposed by Skoda API
@@ -878,6 +927,30 @@ class DataCollector:
                             battery_temp_celsius=getattr(charging.status.battery, "temperature", None),
                             charger_temp_celsius=None,
                         ))
+
+                        # Backfill: link any still-unlinked curves for this vehicle
+                        # that fall within the open session's window. Catches the
+                        # first curve(s) inserted before the session row existed.
+                        if curve_session_id is not None:
+                            try:
+                                open_bounds_res = await session.execute(
+                                    select(ChargingSession.session_start)
+                                    .where(ChargingSession.id == curve_session_id)
+                                )
+                                sess_start = open_bounds_res.scalar_one_or_none()
+                                if sess_start is not None:
+                                    await session.execute(
+                                        update(ChargingCurve)
+                                        .where(
+                                            ChargingCurve.session_id.is_(None),
+                                            ChargingCurve.user_vehicle_id == user_vehicle_id,
+                                            ChargingCurve.captured_at >= sess_start,
+                                            ChargingCurve.captured_at <= now,
+                                        )
+                                        .values(session_id=curve_session_id)
+                                    )
+                            except Exception as e:
+                                logger.warning("Curve session_id backfill failed for %s: %s", user_vehicle_id, e)
 
                 # --- Legacy Grafana metrics ---
                 if is_charging and charging and charging.status and charging.status.charge_power_in_kw is not None:
@@ -1007,6 +1080,31 @@ class DataCollector:
                 task = asyncio.create_task(process_completed_trips_and_charges(user_vehicle_id))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._handle_task_result)
+
+                # ── Re-queue RAG embeddings for this vehicle ────────────────
+                # Fresh telemetry just landed, so the registered content builders
+                # now have new source data. Enqueue each registered content_type
+                # for re-embedding. The worker drains the queue and upserts into
+                # ai_embeddings (idempotent on content_type+content_id+chunk_index).
+                # Guarded so a queueing failure NEVER breaks the collection poll.
+                if settings.embedding_worker_enabled:
+                    try:
+                        from app.services.ai_embeddings import queue_content
+                        from app.services.embedding_builders import CONTENT_TYPES
+                        for ct, (prefix, _builder) in CONTENT_TYPES.items():
+                            await queue_content(
+                                session,
+                                user_id=vehicle.user_id,
+                                content_type=ct,
+                                content_id=f"{prefix}:{user_vehicle_id}",
+                                vehicle_id=user_vehicle_id,
+                            )
+                        await session.commit()
+                    except Exception:
+                        logger.warning(
+                            "Failed to enqueue embeddings for vehicle %s",
+                            user_vehicle_id, exc_info=True,
+                        )
 
             except Exception:
                 logger.exception("Collection failed for vehicle %s", user_vehicle_id)

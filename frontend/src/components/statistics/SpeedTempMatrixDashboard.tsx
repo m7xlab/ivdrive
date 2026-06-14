@@ -53,9 +53,7 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-import { TimelineRange } from "./StatisticsShell";
-
-export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
+export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: DateRangeValue }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -64,9 +62,10 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
     const fetchData = async () => {
       try {
         setLoading(true);
-        const fromStr = dateRange?.from?.toISOString();
-        const toStr = dateRange?.to?.toISOString();
-        const res = await api.getSpeedTempMatrix(vehicleId, fromStr, toStr);
+        const params = new URLSearchParams();
+        if (dateRange?.from) params.set("from_date", dateRange.from.toISOString());
+        if (dateRange?.to) params.set("to_date", dateRange.to.toISOString());
+        const res = await api.getSpeedTempMatrix(vehicleId, params.toString() ? `?${params}` : "");
         setData(res);
       } catch {
         // ErrorBoundary catches render errors; network errors logged server-side

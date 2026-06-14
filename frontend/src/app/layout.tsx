@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-provider";
+import { FeedbackProvider } from "@/components/ui/feedback";
 
 export const metadata: Metadata = {
   title: "iVDrive",
@@ -42,7 +43,9 @@ export default function RootLayout({
       </head>
       <body className="antialiased" suppressHydrationWarning>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <FeedbackProvider>{children}</FeedbackProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

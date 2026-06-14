@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # CORS — non-credential, safe to have defaults; override via CORS_ORIGINS env
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Cookies — Secure flag on auth cookies. Set False only for local HTTP dev.
+    cookie_secure: bool = True
+
     log_level: str = "info"
 
     # When true, log each statistics/overview API request (route, params, result count) to container stdout
@@ -45,6 +48,13 @@ class Settings(BaseSettings):
     collector_debug: bool = False
     collect_raw_data: bool = False
     skoda_client_debug: bool = False
+
+    # Embedding worker — drains ai_embeddings_queue and stores into ai_embeddings.
+    # Runs inside the collector container. Incremental: only processes pending items.
+    embedding_worker_enabled: bool = True
+    embedding_worker_poll_interval_seconds: int = 300   # 5 min default
+    embedding_worker_batch_size: int = 50
+    embedding_worker_max_attempts: int = 3              # mark 'failed' after this many tries
 
     # Registration mode — non-credential, safe to have default
     service_registration: str = "invite_only"  # open / invite_only

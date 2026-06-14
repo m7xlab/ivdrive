@@ -174,9 +174,14 @@ export async function apiFetch(
      }
      let errData;
      try {
-       errData = await errorClone.json();
+       const textData = await errorClone.text();
+       try {
+         errData = JSON.parse(textData);
+       } catch {
+         errData = textData;
+       }
      } catch {
-       errData = await errorClone.text();
+       errData = "An error occurred";
      }
      
      const message = errData?.error?.message || errData?.detail || (typeof errData === 'string' ? errData : "An error occurred");

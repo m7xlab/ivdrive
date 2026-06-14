@@ -16,6 +16,7 @@ import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
 import { MileageKMDashboard } from "./MileageKMDashboard";
 import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
 import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
+import { ClimatePenaltyDashboard } from "./ClimatePenaltyDashboard";
 import { ChargingCurveIntegralsDashboard } from "./ChargingCurveIntegralsDashboard";
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
@@ -38,6 +39,7 @@ const TABS = [
   { id: "charging-stats",      label: "Charging Stats",     icon: "🔌" },
   { id: "charging-curve",      label: "Charging Curve",     icon: "📉" },
   { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
+  { id: "climate-penalty",     label: "Climate Penalty",   icon: "❄️" },
   { id: "charging-curve-integrals", label: "Curve Int.",    icon: "🔋" },
   { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
   { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
@@ -205,6 +207,9 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
           <Tabs.Content value="hvac-isolation">
             <HVACIsolationDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
+          <Tabs.Content value="climate-penalty">
+            <ClimatePenaltyDashboard vehicleId={vehicleId} dateRange={range} />
+          </Tabs.Content>
           <Tabs.Content value="charging-curve-integrals">
             <ChargingCurveIntegralsDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
@@ -212,7 +217,7 @@ export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
             <ElevationPenaltyDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
           <Tabs.Content value="speed-temp-matrix">
-            <SpeedTempMatrixDashboard vehicleId={vehicleId} dateRange={dateRange} />
+            <SpeedTempMatrixDashboard vehicleId={vehicleId} dateRange={range} />
           </Tabs.Content>
           <Tabs.Content value="ice-tco">
             <IceTcoDashboard vehicleId={vehicleId} dateRange={dateRange} />

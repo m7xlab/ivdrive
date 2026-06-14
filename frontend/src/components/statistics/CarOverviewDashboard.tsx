@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { format } from "date-fns";
 import {
   Wifi,
@@ -25,6 +25,7 @@ import {
   ReferenceLine,
   CartesianGrid,
   ComposedChart,
+  Legend,
 } from "recharts";
 import { api } from "@/lib/api";
 import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
@@ -49,10 +50,13 @@ interface PulseData {
 }
 
 // ─── Winter Efficiency ──────────────────────────────────────────────
-interface EfficiencyDataPoint {
-  temperature_celsius: number;
-  consumption_kwh_100km: number;
-  trips_recorded: number;
+interface ClimatePenaltyRow {
+  temperature: number;
+  states: Record<string, { avg_kwh_100km: number | null; trip_count: number }>;
+}
+interface ClimatePenaltyData {
+  by_temperature: ClimatePenaltyRow[];
+  summary: string;
 }
 
 // ─── Section divider ────────────────────────────────────────────────
@@ -252,7 +256,7 @@ export function CarOverviewDashboard({
   const [batteryTemp, setBatteryTemp] = useState<Array<{ time: string; battery_temperature: number }>>([]);
   const [outsideTemp, setOutsideTemp] = useState<Array<{ time: string; outside_temp_celsius: number }>>([]);
   const [pulse, setPulse] = useState<PulseData | null>(null);
-  const [winterEfficiency, setWinterEfficiency] = useState<EfficiencyDataPoint[]>([]);
+  const [climatePenalty, setClimatePenalty] = useState<ClimatePenaltyData | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -282,9 +286,9 @@ export function CarOverviewDashboard({
           api.getElectricConsumption(vehicleId, 10000, fromISO, toISOVal, controller.signal),
           api.getVampireDrain(vehicleId, controller.signal),
           api.getAnalyticsPulse(vehicleId),
-          api.getAnalyticsEfficiency(vehicleId),
+          api.getClimatePenalty(vehicleId, { fromDate: fromISO, toDate: toISOVal }),
         ]);
-        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, winterEff] = results.map((res) => res.status === "fulfilled" ? res.value : null);
+        const [b, r, c, bands, range100, wltp, eff, lStep, rStep, oTemp, bTemp, elecCons, vd, pulseData, climPen] = results.map((res) => res.status === "fulfilled" ? res.value : null);
         setBattery(b ?? []);
         setRange(r ?? []);
         setCharging(c ?? []);
@@ -299,7 +303,7 @@ export function CarOverviewDashboard({
         setBatteryTemp(bTemp ?? []);
         setVampireDrain(vd ?? null);
         setPulse(pulseData ?? null);
-        setWinterEfficiency(winterEff ?? []);
+        setClimatePenalty(climPen ?? null);
       } finally {
         clearTimeout(timeoutId);
         setLoading(false);
@@ -349,6 +353,71 @@ export function CarOverviewDashboard({
     });
   };
 
+  // Levels & Range: prefer step-style (first_date + last_date per segment) when available; else merge battery + range.
+  // PERF: O(n+m) instead of O(n·m) — build Maps once and do O(1) lookups while iterating the union of timestamps.
+  // MUST stay above the early returns below: hooks (useMemo) must run unconditionally on every render (React #310 fix).
+  const useStep = levelsStep.length > 0 || rangesStep.length > 0;
+  const levelsRangeData = useMemo(() => {
+    const timeSet = new Set<string>();
+    if (useStep) {
+      levelsStep.forEach((p) => timeSet.add(p.timestamp));
+      rangesStep.forEach((p) => timeSet.add(p.timestamp));
+    } else {
+      battery.forEach((p) => timeSet.add(p.timestamp));
+      range.forEach((p) => timeSet.add(p.timestamp));
+    }
+    outsideTemp.forEach((p) => timeSet.add(p.time));
+    batteryTemp.forEach((p) => timeSet.add(p.time));
+
+    // O(1) lookup maps keyed by exact timestamp.
+    const levelsStepMap = new Map(levelsStep.map((x) => [x.timestamp, x.level]));
+    const batteryMap = new Map(battery.map((x) => [x.timestamp, x.level]));
+    const rangesStepMap = new Map(rangesStep.map((x) => [x.timestamp, x.range_km]));
+    const rangeMap = new Map(range.map((x) => [x.timestamp, x.range_km]));
+
+    // Temp arrays match on exact time OR on the 19-char prefix (date+time, no fractional seconds).
+    // The original used `arr.find(x => x.time === ts || prefix(x.time) === prefix(ts))`. Since `time === ts`
+    // implies the prefixes match, the first row in each prefix bucket is exactly the first OR-match for any
+    // `ts` sharing that prefix. So a single prefix-keyed, first-wins map reproduces the original result O(1).
+    const buildTempMap = <T,>(arr: { time: string }[], pick: (x: { time: string }) => T) => {
+      const prefix = new Map<string, T>();
+      for (const x of arr) {
+        if (!x.time) continue;
+        const p = String(x.time).slice(0, 19);
+        if (!prefix.has(p)) prefix.set(p, pick(x));
+      }
+      return prefix;
+    };
+    const outsideTempMap = buildTempMap(outsideTemp, (x) => (x as { outside_temp_celsius: number }).outside_temp_celsius);
+    const batteryTempMap = buildTempMap(batteryTemp, (x) => (x as { battery_temperature: number }).battery_temperature);
+
+    return Array.from(timeSet).filter(Boolean)
+      .sort()
+      .map((ts) => {
+        const timeMs = new Date(ts).getTime();
+        const level = useStep
+          ? (levelsStepMap.get(ts) ?? batteryMap.get(ts) ?? null)
+          : (batteryMap.get(ts) ?? null);
+        const range_km = useStep
+          ? (rangesStepMap.get(ts) ?? rangeMap.get(ts) ?? null)
+          : (rangeMap.get(ts) ?? null);
+        const tsPrefix = ts ? String(ts).slice(0, 19) : "";
+        const otFound = !!ts && outsideTempMap.has(tsPrefix);
+        const btFound = !!ts && batteryTempMap.has(tsPrefix);
+        const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number; battery_temp?: number } = {
+          time: ts,
+          timeMs,
+          label: format(new Date(ts), "d MMM HH:mm"),
+          level,
+          range_km,
+        };
+        if (otFound) out.outside_temp = outsideTempMap.get(tsPrefix) as number;
+        if (btFound) out.battery_temp = batteryTempMap.get(tsPrefix) as number;
+        return out;
+      })
+      .filter((d) => d.level != null || d.range_km != null || d.outside_temp != null || d.battery_temp != null);
+  }, [useStep, levelsStep, rangesStep, battery, range, outsideTemp, batteryTemp]);
+
   const hasAnyData = battery.length > 0 || range.length > 0 || charging.length > 0 || stateBands.length > 0;
 
   if (loading && !hasAnyData) {
@@ -369,43 +438,6 @@ export function CarOverviewDashboard({
       </div>
     );
   }
-
-  // Levels & Range: prefer step-style (first_date + last_date per segment) when available; else merge battery + range.
-  const timeSet = new Set<string>();
-  const useStep = levelsStep.length > 0 || rangesStep.length > 0;
-  if (useStep) {
-    levelsStep.forEach((p) => timeSet.add(p.timestamp));
-    rangesStep.forEach((p) => timeSet.add(p.timestamp));
-  } else {
-    battery.forEach((p) => timeSet.add(p.timestamp));
-    range.forEach((p) => timeSet.add(p.timestamp));
-  }
-  outsideTemp.forEach((p) => timeSet.add(p.time));
-  batteryTemp.forEach((p) => timeSet.add(p.time));
-  const levelsRangeData = Array.from(timeSet).filter(Boolean)
-    .sort()
-    .map((ts) => {
-      const timeMs = new Date(ts).getTime();
-      const level = useStep
-        ? (levelsStep.find((x) => x.timestamp === ts)?.level ?? battery.find((x) => x.timestamp === ts)?.level ?? null)
-        : (battery.find((x) => x.timestamp === ts)?.level ?? null);
-      const range_km = useStep
-        ? (rangesStep.find((x) => x.timestamp === ts)?.range_km ?? range.find((x) => x.timestamp === ts)?.range_km ?? null)
-        : (range.find((x) => x.timestamp === ts)?.range_km ?? null);
-      const ot = outsideTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
-      const bt = batteryTemp.find((x) => x.time && ts && (x.time === ts || String(x.time).slice(0, 19) === String(ts).slice(0, 19)));
-      const out: { time: string; timeMs: number; label: string; level: number | null; range_km: number | null; outside_temp?: number } = {
-        time: ts,
-        timeMs,
-        label: format(new Date(ts), "d MMM HH:mm"),
-        level,
-        range_km,
-      };
-      if (ot) out.outside_temp = ot.outside_temp_celsius;
-      if (bt) out.battery_temp = bt.battery_temperature;
-      return out;
-    })
-    .filter((d) => d.level != null || d.range_km != null || d.outside_temp != null || d.battery_temp != null);
 
   // Avg km/% (range/level) trend for Levels & Range caption
   const kmPerPctSamples = levelsRangeData.filter((d) => d.level != null && d.level > 0 && d.range_km != null);
@@ -1195,24 +1227,27 @@ export function CarOverviewDashboard({
       </div>
 
       {/* Period summary (existing stats table + bar charts when available) */}
-      {/* ── Winter Penalty ── */}
-      <SectionDivider label="Winter Penalty" />
+      {/* ── Climate Penalty ── */}
+      <SectionDivider label="Climate Penalty" />
       <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
-          <ThermometerSnowflake size={14} /> Winter Penalty
+        <h3 className="text-sm font-medium text-iv-muted mb-2 flex items-center gap-2">
+          <ThermometerSnowflake size={14} /> Climate Penalty
         </h3>
-        {winterEfficiency.length > 0 ? (
+        <p className="text-xs text-iv-text-muted mb-4">{climatePenalty?.summary || "Analyzing climate data..."}</p>
+        {climatePenalty?.by_temperature && climatePenalty.by_temperature.length > 0 ? (
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={winterEfficiency} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                <defs>
-                  <linearGradient id="winterGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00D4FF" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00D4FF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <LineChart 
+                data={climatePenalty.by_temperature.map(row => ({
+                  temperature: row.temperature,
+                  HEATING: row.states.HEATING?.avg_kwh_100km ?? null,
+                  COOLING: row.states.COOLING?.avg_kwh_100km ?? null,
+                  OFF: row.states.OFF?.avg_kwh_100km ?? null,
+                }))} 
+                margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+              >
                 <XAxis
-                  dataKey="temperature_celsius"
+                  dataKey="temperature"
                   tickFormatter={(v) => `${v}°C`}
                   stroke="#8b8fa3"
                   fontSize={11}
@@ -1228,27 +1263,19 @@ export function CarOverviewDashboard({
                   domain={["auto", "auto"]}
                 />
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
-                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
-                  formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
+                <Tooltip
                   labelFormatter={(label) => `${label}°C`}
-                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", borderColor: "var(--iv-border)", borderRadius: "12px", color: "var(--iv-text)" }}
-                  itemStyle={{ color: "#00D4FF", fontWeight: "bold" }}
+                  contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="consumption_kwh_100km"
-                  stroke="#00D4FF"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#winterGradient)"
-                />
-              </AreaChart>
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
+                <Line type="monotone" dataKey="HEATING" stroke="#00D4FF" strokeWidth={2} dot={{ r: 2 }} connectNulls name="Heating" />
+                <Line type="monotone" dataKey="COOLING" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} connectNulls name="Cooling" />
+                <Line type="monotone" dataKey="OFF" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 1 }} connectNulls name="Climate Off" />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-56 flex items-center justify-center text-iv-muted text-sm">
-            Collecting sufficient trip data to build the winter penalty curve…
-          </div>
+          <div className="text-sm text-iv-muted">No climate penalty data available for this period.</div>
         )}
       </div>
 
