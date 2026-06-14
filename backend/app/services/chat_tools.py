@@ -185,7 +185,11 @@ IMPORTANT RULES:
 """
 
 async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query: str) -> str:
-    lower_sql = sql_query.strip().lower()
+    # Tolerate a single trailing semicolon — LLMs almost always terminate a query
+    # with one, and rejecting it broke every well-formed SELECT. Any ";" that
+    # survives this strip is a genuine second statement and is still rejected below.
+    sql_query = sql_query.strip().rstrip(";").strip()
+    lower_sql = sql_query.lower()
     # Must be a read query.
     if not (lower_sql.startswith("select") or lower_sql.startswith("with")):
         return "SQL_ERROR: Only SELECT/WITH queries are allowed."

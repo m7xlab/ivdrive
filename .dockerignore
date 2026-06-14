@@ -9,3 +9,4 @@ transfer-images-to-nas.sh
 transfer-project-and-build-on-nas.sh
 _local_docs/
 _deprecated_scripts/
+.claude

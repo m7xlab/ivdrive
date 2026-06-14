@@ -1162,27 +1162,62 @@ async def chat(
     
     usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
 
+    # Hard total-time budget for all LLM work in this request. Serial LLM calls
+    # (intent routing + agentic healing loop + final synthesis) could otherwise
+    # stack past the upstream proxy timeout and surface a bare 500. Every LLM
+    # call below is bounded against this shared deadline; if it runs out we
+    # synthesize from whatever context we already have rather than hanging.
+    _loop = asyncio.get_running_loop()
+    _deadline = _loop.time() + 50.0  # seconds — stays under typical 60s gateway limit
+
+    def _remaining() -> float:
+        return max(1.0, _deadline - _loop.time())
+
     max_loops = 3
     # Pass conversation history so the router can resolve "that" / "it" / "the last one"
     # in follow-up questions. Also pass detected_vehicle_name as a hint.
-    tool_calls = await route_intent_via_llm(
-        req.message,
-        user_vehicle_names,
-        call_llm,
-        conversation_history=history,
-        detected_vehicle_name=detected_vehicle_name,
-        usage_stats=usage_stats,
-        provider=req_provider,
-    )
-    
+    try:
+        tool_calls = await asyncio.wait_for(
+            route_intent_via_llm(
+                req.message,
+                user_vehicle_names,
+                call_llm,
+                conversation_history=history,
+                detected_vehicle_name=detected_vehicle_name,
+                usage_stats=usage_stats,
+                provider=req_provider,
+            ),
+            timeout=_remaining(),
+        )
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Intent router failed/timed out: {e}; falling back to vector search only.")
+        tool_calls = []
+
+    seen_tool_sigs: set[str] = set()
     for _ in range(max_loops):
         logger.info(f"LLM tool router decided to call: {tool_calls}")
         if not tool_calls:
             break
-            
+
+        # Out of time budget — stop looping and synthesize from current context.
+        if _remaining() <= 2.0:
+            logger.info("Agentic loop hit time budget — stopping to avoid upstream timeout.")
+            break
+
+        # Break the death-spiral: if the router re-proposes an identical set of
+        # tool calls it already tried (e.g. the same failing SQL or another schema
+        # fetch), re-feeding it again will never converge and just burns serial
+        # 30s LLM calls until the upstream proxy times out. Stop and synthesize
+        # from whatever context we already have.
+        sig = json.dumps(tool_calls, sort_keys=True, default=str)
+        if sig in seen_tool_sigs:
+            logger.info("Agentic loop repeated an identical tool call — stopping to avoid timeout.")
+            break
+        seen_tool_sigs.add(sig)
+
         executed_any = False
         sql_error = None
-        
+
         for tool_call in tool_calls:
             if "vehicle_name" in tool_call.get("args", {}) and not tool_call["args"]["vehicle_name"]:
                 tool_call["args"]["vehicle_name"] = detected_vehicle_name or ""
@@ -1203,15 +1238,22 @@ async def chat(
             # Re-feed the error/schema back to the LLM to get a new tool call
             logger.info("Triggering Agentic Healing/Follow-up Loop...")
             follow_up_prompt = req.message + "\n\nPREVIOUS TOOL RESULT:\n" + sql_error
-            tool_calls = await route_intent_via_llm(
-                follow_up_prompt,
-                user_vehicle_names,
-                call_llm,
-                conversation_history=history,
-                detected_vehicle_name=detected_vehicle_name,
-                usage_stats=usage_stats,
-                provider=req_provider,
-            )
+            try:
+                tool_calls = await asyncio.wait_for(
+                    route_intent_via_llm(
+                        follow_up_prompt,
+                        user_vehicle_names,
+                        call_llm,
+                        conversation_history=history,
+                        detected_vehicle_name=detected_vehicle_name,
+                        usage_stats=usage_stats,
+                        provider=req_provider,
+                    ),
+                    timeout=_remaining(),
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"Healing-loop router failed/timed out: {e}; stopping loop.")
+                break
         else:
             break
 
@@ -1298,16 +1340,28 @@ async def chat(
         logger.info(f"direct_db_search returned {len(chunks)} chunks")
 
     # Step 7: Call LLM with conversation history. Provider/model come from the gate.
-    answer = await call_llm(
-        req.message, chunks,
-        provider=req_provider,
-        model=gate.model_name,
-        conversation_history=history,
-        detected_vehicle_name_for_llm=detected_vehicle_name,
-        session_id=session_id,
-        detected_vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
-        usage_stats=usage_stats,
-    )
+    # Bounded by the shared deadline so a slow provider can't hang the request
+    # into an upstream 500 — on timeout we return a graceful message (HTTP 200).
+    try:
+        answer = await asyncio.wait_for(
+            call_llm(
+                req.message, chunks,
+                provider=req_provider,
+                model=gate.model_name,
+                conversation_history=history,
+                detected_vehicle_name_for_llm=detected_vehicle_name,
+                session_id=session_id,
+                detected_vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
+                usage_stats=usage_stats,
+            ),
+            timeout=_remaining(),
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Final synthesis timed out against request budget; returning graceful message.")
+        answer = (
+            "I'm taking longer than usual to put that together right now. "
+            "Please try asking again in a moment."
+        )
 
     # Compute estimated cost via the single source of truth in ai_gate (bug 2-13:
     # was a divergent local PRICING table keyed by provider with a mislabeled gemini rate).
