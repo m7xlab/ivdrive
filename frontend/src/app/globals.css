@@ -113,6 +113,15 @@ body {
   margin-bottom: 2.2rem;
 }
 
+/* Confine Leaflet's internal stacking order. Leaflet assigns high z-indexes to its
+   panes/controls (tiles ~200, popups ~700, controls ~1000); without a contained
+   stacking context these leak into the page root and paint OVER fixed overlays like
+   the floating AI assistant widget (z-50). `isolation: isolate` makes each map its
+   own stacking context so its internals stay below app-level overlays. */
+.leaflet-container {
+  isolation: isolate;
+}
+
 .glow-cyan {
   box-shadow: 0 0 20px rgba(0, 212, 255, 0.15), 0 0 60px rgba(0, 212, 255, 0.05);
 }

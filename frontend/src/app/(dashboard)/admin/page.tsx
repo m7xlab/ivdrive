@@ -30,8 +30,10 @@ import {
   Activity,
   Globe2,
   Car,
+  Sparkles,
 } from "lucide-react";
 import { StatisticsDashboard } from "./statistics";
+import { AIAssistantPanel } from "@/components/admin/AIAssistantPanel";
 
 // ── Types ──
 
@@ -62,7 +64,7 @@ interface Announcement {
   is_active: boolean;
 }
 
-type Tab = "statistics" | "invites" | "users" | "announcements";
+type Tab = "statistics" | "invites" | "users" | "announcements" | "ai";
 
 // ── Helpers ──
 
@@ -423,6 +425,7 @@ export default function AdminPage() {
             { id: "invites" as Tab, label: "Invites", icon: Mail, badge: pendingCount },
             { id: "users" as Tab, label: "Users", icon: Users, badge: 0 },
             { id: "announcements" as Tab, label: "Announcements", icon: Bell, badge: activeAnnouncementsCount },
+            ...(user.is_superuser ? [{ id: "ai" as Tab, label: "AI Assistant", icon: Sparkles, badge: 0 }] : []),
           ] as const
         ).map((t) => (
           <button
@@ -472,6 +475,8 @@ export default function AdminPage() {
           onDelete={handleDeleteUser}
           onRefresh={handleRefreshUserVehicles}
         />
+      ) : tab === "ai" ? (
+        <AIAssistantPanel />
       ) : (
         <AnnouncementsPanel
           announcements={announcements}

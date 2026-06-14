@@ -210,6 +210,14 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async getClimatePenalty(id: string, opts?: { fromDate?: string; toDate?: string }) {
+    const params = new URLSearchParams();
+    if (opts?.fromDate) params.set("from_date", opts.fromDate);
+    if (opts?.toDate) params.set("to_date", opts.toDate);
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/climate-penalty?${params.toString()}`);
+    return res.json();
+  },
+
   async getChargingCurveIntegralsV2(id: string, opts?: { sessionId?: string | number; fromDate?: string; toDate?: string }) {
     const params = new URLSearchParams();
     if (opts?.sessionId != null) params.set("session_id", String(opts.sessionId));

@@ -1,11 +1,36 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Send, Bot, Loader2, ChevronDown, Trash2, Plus, MessageSquare } from "lucide-react";
+import { X, Send, Bot, Loader2, MessageSquare, Trash2, Plus, Sparkles } from "lucide-react";
 import { chatApi, ChatMessage, SessionInfo } from "@/lib/api/chat";
+import { ChartRenderer } from "./ChartRenderer";
+import { useAuth } from "@/lib/auth-context";
 
 const MAX_SESSIONS = 15;
 const MAX_MESSAGES = 50;
+
+function parseMessageContent(content: string) {
+  // Regex to match ```json_chart ... ``` — tolerate any/no whitespace after the
+  // language tag, since the LLM doesn't always emit a leading newline.
+  const regex = /```json_chart\s*([\s\S]*?)```/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.substring(lastIndex, match.index) });
+    }
+    parts.push({ type: "chart", content: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", content: content.substring(lastIndex) });
+  }
+
+  return parts.length > 0 ? parts : [{ type: "text", content }];
+}
 
 function SourceBadge({ type, score }: { type: string; score: number }) {
   const labels: Record<string, string> = {
@@ -13,9 +38,11 @@ function SourceBadge({ type, score }: { type: string; score: number }) {
     charging_event: "Charge",
     vehicle_stats: "Stats",
     location: "Place",
+    all_vehicles_summary: "Fleet",
+    battery_health_summary: "Battery",
   };
   return (
-    <span className="text-xs px-1.5 py-0.5 rounded bg-iv-cyan/10 text-iv-cyan border border-iv-cyan/20">
+    <span className="text-[10px] uppercase font-medium px-2 py-0.5 rounded-full bg-iv-surface text-iv-muted">
       {labels[type] || type} {score > 0.9 ? "✓" : ""}
     </span>
   );
@@ -23,53 +50,16 @@ function SourceBadge({ type, score }: { type: string; score: number }) {
 
 function TypingIndicator() {
   return (
-    <div className="flex gap-1.5 p-3">
-      <span className="w-2 h-2 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "0ms" }} />
-      <span className="w-2 h-2 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "150ms" }} />
-      <span className="w-2 h-2 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "300ms" }} />
-    </div>
-  );
-}
-
-function SessionRow({
-  session,
-  isActive,
-  onSelect,
-  onDelete,
-}: {
-  session: SessionInfo;
-  isActive: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  const date = session.last_message_at
-    ? new Date(session.last_message_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-    : new Date(session.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
-  return (
-    <div
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors group ${
-        isActive ? "bg-iv-green/20 border border-iv-green/40" : "hover:bg-iv-surface"
-      }`}
-      onClick={onSelect}
-    >
-      <MessageSquare className="w-4 h-4 text-iv-muted shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-iv-muted">{date}</p>
-        <p className="text-xs text-iv-text/70 truncate">{session.message_count} messages</p>
-      </div>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-iv-danger/20 text-iv-danger transition-all"
-        aria-label="Delete session"
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
+    <div className="flex gap-1.5 px-4 py-3 bg-iv-surface rounded-2xl rounded-bl-sm w-fit">
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "150ms" }} />
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "300ms" }} />
     </div>
   );
 }
 
 export function IVDriveAIWidget() {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -82,21 +72,18 @@ export function IVDriveAIWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load session list on open
   useEffect(() => {
     if (isOpen) {
       chatApi.listSessions().then(setSessions).catch(() => {});
     }
   }, [isOpen]);
 
-  // Intro message when no session selected
   useEffect(() => {
     if (isOpen && messages.length === 0 && !currentSessionId) {
       setMessages([
         {
           role: "assistant",
-          content:
-            "Hello! I'm iVDrive AI. Ask me anything about your vehicles — trips, charging, consumption, range, and more. All answers are based only on your real vehicle data.",
+          content: "Hello! I'm iVDrive AI. Ask me anything about your vehicles — trips, charging, consumption, range, and more. All answers are based only on your real vehicle data.",
         },
       ]);
     }
@@ -138,23 +125,6 @@ export function IVDriveAIWidget() {
     }
   };
 
-  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await chatApi.deleteSession(sessionId);
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      if (sessionId === currentSessionId) {
-        setCurrentSessionId(null);
-        setMessages([{
-          role: "assistant",
-          content: "Session deleted. What would you like to know?",
-        }]);
-      }
-    } catch {
-      // silently fail
-    }
-  };
-
   const handleNewSession = () => {
     setCurrentSessionId(null);
     setMessages([{
@@ -162,6 +132,42 @@ export function IVDriveAIWidget() {
       content: "Starting a new conversation. What would you like to know?",
     }]);
     setShowSessions(false);
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    try {
+      await chatApi.deleteSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        handleNewSession();
+      }
+    } catch (err) {
+      console.error("Failed to delete session", err);
+    }
+  };
+
+  const handleDeleteAllSessions = async () => {
+    try {
+      await chatApi.deleteAllSessions();
+      setSessions([]);
+      handleNewSession();
+    } catch (err) {
+      console.error("Failed to delete all sessions", err);
+    }
+  };
+
+  // Grow the input up to max-h-32 (128px) as the user types, then collapse back.
+  const adjustInputHeight = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "44px";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    adjustInputHeight();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -172,6 +178,7 @@ export function IVDriveAIWidget() {
     const userMsg: ChatMessage = { role: "user", content: trimmed };
     setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), userMsg]);
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "44px";
     setIsLoading(true);
     setError(null);
 
@@ -185,7 +192,6 @@ export function IVDriveAIWidget() {
       setMessages((prev) => [...prev, assistantMsg]);
       if (res.session_id && res.session_id !== currentSessionId) {
         setCurrentSessionId(res.session_id);
-        // Refresh session list
         chatApi.listSessions().then(setSessions).catch(() => {});
       }
       if (!isOpen) setUnread(true);
@@ -209,137 +215,138 @@ export function IVDriveAIWidget() {
     }
   };
 
-  // Collapse widget on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) setIsOpen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isOpen]);
+  // Premium tier check — hide entirely if not enabled
+  if (!user || !user.ai_enabled) {
+    return null;
+  }
 
   if (!isOpen) {
-    // Floating button
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-iv-green shadow-lg hover:bg-iv-green/90 transition-all flex items-center justify-center group"
+        className="fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#007AFF] shadow-xl shadow-blue-500/30 hover:scale-105 hover:shadow-2xl transition-all duration-300 flex items-center justify-center group border border-white/10 backdrop-blur-md"
         aria-label="Open iVDrive AI Assistant"
-        title="iVDrive AI"
       >
-        {unread ? (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-iv-danger rounded-full flex items-center justify-center">
-            <span className="w-2 h-2 bg-white rounded-full" />
-          </span>
-        ) : null}
-        <Bot className="w-7 h-7 text-iv-black group-hover:scale-110 transition-transform" />
+        {unread && (
+          <span className="absolute 0 top-0 right-0 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center border-2 border-iv-black shadow-sm" />
+        )}
+        <MessageSquare className="w-7 h-7 text-white group-hover:scale-110 transition-transform duration-300" />
       </button>
     );
   }
 
-  // Chat panel
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[540px] flex flex-col bg-iv-black border border-iv-border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
+    <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[600px] flex flex-col bg-iv-charcoal/80 dark:bg-iv-black/80 backdrop-blur-2xl border border-iv-border rounded-[2rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 ease-out">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-iv-border bg-iv-surface shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-iv-green flex items-center justify-center">
-            <Bot className="w-5 h-5 text-iv-black" />
+      <div className="flex items-center justify-between px-5 py-4 border-b border-iv-border bg-iv-charcoal/40 dark:bg-iv-black/20 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#007AFF] to-[#34C759] flex items-center justify-center shadow-inner">
+            <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-iv-text">iVDrive AI</p>
-            <p className="text-xs text-iv-muted">
-              {currentSessionId
-                ? `${messages.filter(m => m.role === "assistant").length} messages`
-                : "New conversation"}
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-iv-text tracking-tight">iVDrive Intelligence</p>
+              {user.ai_tier !== "free" && (
+                <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                  {user.ai_tier}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-iv-muted font-medium">
+              {currentSessionId ? "Active Session" : "New Chat"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setShowSessions(!showSessions)}
-            className={`p-1.5 rounded-lg transition-colors ${showSessions ? "bg-iv-green/20 text-iv-green" : "hover:bg-iv-border/50 text-iv-muted"}`}
-            aria-label="Toggle sessions"
-            title="My sessions"
+            className={`p-2 rounded-full transition-colors ${showSessions ? "bg-iv-surface" : "hover:bg-iv-surface"}`}
           >
-            <MessageSquare className="w-4 h-4" />
+            <MessageSquare className="w-4 h-4 text-iv-muted" />
           </button>
           <button
             onClick={handleNewSession}
-            className="p-1.5 rounded-lg hover:bg-iv-border/50 text-iv-muted transition-colors"
-            aria-label="New conversation"
-            title="New conversation"
+            className="p-2 rounded-full hover:bg-iv-surface transition-colors"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 text-iv-muted" />
           </button>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-iv-border/50 transition-colors"
-            aria-label="Close chat"
+            className="p-2 rounded-full hover:bg-iv-surface transition-colors"
           >
             <X className="w-4 h-4 text-iv-muted" />
           </button>
         </div>
       </div>
 
-      {/* Sessions sidebar */}
+      {/* Sessions sidebar overlay */}
       {showSessions && (
-        <div className="border-b border-iv-border bg-iv-surface/80 max-h-48 overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-2">
-            <p className="text-xs font-semibold text-iv-muted uppercase tracking-wider">My Sessions</p>
-            <button
-              onClick={async () => {
-                if (confirm(`Delete all ${sessions.length} sessions?`)) {
-                  await chatApi.deleteAllSessions();
-                  setSessions([]);
-                  setCurrentSessionId(null);
-                  setMessages([{
-                    role: "assistant",
-                    content: "All sessions deleted. What would you like to know?",
-                  }]);
-                }
-              }}
-              className="text-xs text-iv-danger hover:text-iv-danger/80 transition-colors"
-            >
-              Clear all
-            </button>
-          </div>
-          {sessions.length === 0 ? (
-            <p className="text-xs text-iv-muted px-3 pb-2">No sessions yet. Start a conversation!</p>
-          ) : (
-            <div className="px-2 pb-2 space-y-1">
-              {sessions.slice(0, MAX_SESSIONS).map((s) => (
-                <SessionRow
+        <div className="absolute top-[73px] left-0 right-0 z-10 bg-iv-charcoal/90 dark:bg-iv-black/95 backdrop-blur-xl border-b border-iv-border shadow-lg max-h-80 overflow-y-auto rounded-b-3xl flex flex-col">
+          <div className="p-2 flex-1 overflow-y-auto">
+            {sessions.length === 0 ? (
+              <p className="p-4 text-center text-xs text-iv-muted">No previous sessions</p>
+            ) : (
+              sessions.map((s) => (
+                <div
                   key={s.id}
-                  session={s}
-                  isActive={s.id === currentSessionId}
-                  onSelect={() => handleSelectSession(s.id)}
-                  onDelete={(e) => handleDeleteSession(s.id, e as unknown as React.MouseEvent)}
-                />
-              ))}
+                  onClick={() => handleSelectSession(s.id)}
+                  className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-colors group ${
+                    s.id === currentSessionId ? "bg-blue-500/10 text-blue-500" : "hover:bg-iv-surface text-iv-text"
+                  }`}
+                >
+                  <div className="truncate">
+                    <p className="text-sm font-medium">
+                      {new Date(s.last_message_at || s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p className="text-xs opacity-60">{s.message_count} messages</p>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, s.id)}
+                    className="p-1.5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-red-500/10 hover:text-red-500 text-iv-muted"
+                    aria-label="Delete session"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          {sessions.length > 0 && (
+            <div className="p-2 border-t border-iv-border bg-iv-charcoal/50 dark:bg-iv-black/20 shrink-0">
+              <button
+                onClick={handleDeleteAllSessions}
+                className="w-full py-2.5 text-xs font-semibold text-red-500 hover:bg-red-500/10 rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" /> Clear All History
+              </button>
             </div>
           )}
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar">
         {messages.map((msg, i) => (
           <div
             key={i}
             className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
           >
             <div
-              className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+              className={`max-w-[85%] px-4 py-2.5 text-[15px] leading-relaxed shadow-sm ${
                 msg.role === "user"
-                  ? "bg-iv-green text-iv-black rounded-br-md"
-                  : "bg-iv-surface text-iv-text border border-iv-border rounded-bl-md"
+                  ? "bg-[#007AFF] text-white rounded-2xl rounded-br-sm"
+                  : "bg-iv-surface text-iv-text border border-iv-border rounded-2xl rounded-bl-sm"
               }`}
             >
-              {msg.content}
+              {parseMessageContent(msg.content).map((part, idx) => (
+                <div key={idx}>
+                  {part.type === "text" && <span className="whitespace-pre-wrap">{part.content}</span>}
+                  {part.type === "chart" && <ChartRenderer chartJson={part.content} />}
+                </div>
+              ))}
             </div>
             {msg.sources && msg.sources.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1 px-1">
+              <div className="flex flex-wrap gap-1.5 mt-2 px-1">
                 {msg.sources.map((src) => (
                   <SourceBadge key={src.id} type={src.type} score={src.score} />
                 ))}
@@ -349,44 +356,34 @@ export function IVDriveAIWidget() {
         ))}
 
         {isLoading && <TypingIndicator />}
-
-        {error && (
-          <div className="flex items-center gap-2 text-xs text-iv-danger px-2">
-            <span>{error}</span>
-          </div>
-        )}
-
+        {error && <div className="text-xs text-red-500 px-2">{error}</div>}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-iv-border bg-iv-surface/50">
-        <form onSubmit={handleSubmit} className="flex gap-2">
+      <div className="p-4 bg-iv-charcoal/50 dark:bg-iv-black/20 backdrop-blur-md border-t border-iv-border shrink-0">
+        <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-iv-surface rounded-3xl p-1 shadow-inner border border-iv-border">
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Ask about your vehicle..."
-            className="flex-1 bg-iv-surface border border-iv-border rounded-xl px-3 py-2 text-sm text-iv-text placeholder-iv-muted resize-none focus:outline-none focus:border-iv-green/50 transition-colors"
+            className="flex-1 bg-transparent border-none px-4 py-2.5 text-[15px] text-iv-text placeholder:text-iv-muted resize-none focus:outline-none focus:ring-0 max-h-32 min-h-[44px]"
             rows={1}
-            style={{ minHeight: "38px", maxHeight: "80px" }}
+            style={{ height: "44px" }}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="w-9 h-9 rounded-xl bg-iv-green hover:bg-iv-green/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0"
+            className="w-9 h-9 mb-1 mr-1 rounded-full bg-[#007AFF] hover:bg-blue-600 disabled:bg-black/10 dark:disabled:bg-white/10 disabled:text-black/30 dark:disabled:text-white/30 flex items-center justify-center transition-all shrink-0 text-white"
           >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 text-iv-black animate-spin" />
-            ) : (
-              <Send className="w-4 h-4 text-iv-black" />
-            )}
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 ml-0.5" />}
           </button>
         </form>
-        <p className="text-xs text-iv-muted/50 mt-1 text-center">
-          {sessions.length}/{MAX_SESSIONS} sessions stored
-        </p>
+        <div className="text-center mt-2">
+          <span className="text-[10px] font-medium text-black/40 dark:text-white/40 tracking-wide uppercase">iVDrive AI Engine</span>
+        </div>
       </div>
     </div>
   );

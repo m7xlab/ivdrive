@@ -90,4 +90,59 @@ export const adminApi = {
   async adminDeleteAnnouncement(id: string) {
     await apiFetch(`/api/v1/admin/announcements/${id}`, { method: "DELETE" });
   },
+
+  // ── AI Assistant premium feature ─────────────────────────────────────────
+  async adminListAITiers() {
+    const res = await apiFetch("/api/v1/admin/ai/tier-configs");
+    return res.json();
+  },
+  async adminUpdateAITier(tier: string, updates: {
+    max_questions_per_day?: number;
+    max_questions_per_month?: number;
+    model_provider?: string;
+    model_name?: string;
+    daily_cost_limit_usd?: number;
+    description?: string;
+  }) {
+    const res = await apiFetch(`/api/v1/admin/ai/tier-configs/${tier}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+    return res.json();
+  },
+  async adminListAIUsers(filters: { tier?: string; enabled?: boolean } = {}) {
+    const qs = new URLSearchParams();
+    if (filters.tier) qs.set("tier", filters.tier);
+    if (filters.enabled !== undefined) qs.set("enabled", String(filters.enabled));
+    const res = await apiFetch(`/api/v1/admin/ai/users${qs.toString() ? `?${qs}` : ""}`);
+    return res.json();
+  },
+  async adminUpdateUserAI(userId: string, updates: {
+    ai_enabled?: boolean;
+    ai_tier?: "free" | "pro" | "team";
+    max_questions_per_day?: number | null;
+    max_questions_per_month?: number | null;
+    model_provider?: string | null;
+    model_name?: string | null;
+    note?: string | null;
+  }) {
+    const res = await apiFetch(`/api/v1/admin/ai/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+    return res.json();
+  },
+  async adminGetAIUsageSummary() {
+    const res = await apiFetch("/api/v1/admin/ai/usage/summary");
+    return res.json();
+  },
+  async adminGetAIUsage(filters: {
+    user_id?: string; user_email?: string; blocked_only?: boolean;
+    from_date?: string; to_date?: string; limit?: number;
+  } = {}) {
+    const qs = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") qs.set(k, String(v)); });
+    const res = await apiFetch(`/api/v1/admin/ai/usage${qs.toString() ? `?${qs}` : ""}`);
+    return res.json();
+  },
 };

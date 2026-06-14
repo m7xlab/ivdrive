@@ -1,5 +1,10 @@
 """
 AI Embeddings service — generate + store vector embeddings for RAG search.
+
+Provider dispatch:
+  - gemini-embedding-001  (default) — Matryoshka-truncated to 768 dims
+  - deterministic         (fallback) — hash-based, 384 dims, free
+  - bge-m3                (stub)     — local, for future deployment
 """
 import asyncio
 import hashlib
@@ -18,20 +23,111 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 # ─── Config ────────────────────────────────────────────────────────────────────
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_EMBEDDING_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001"
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
 MINIMAX_EMBEDDING_URL = "https://api.minimax.chat/v1/embeddings"
 OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
-EMBEDDING_MODEL = "embo-01"
-EMBEDDING_DIM = 384
+
+# Provider selection. Falls back to deterministic if Gemini fails.
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "gemini-embedding-001").lower()
+EMBEDDING_FALLBACK = os.getenv("EMBEDDING_FALLBACK", "deterministic").lower()
+EMBEDDING_DIM = 768  # gemini-embedding-001 @ 768 (Matryoshka)
 BATCH_SIZE = 20
 MAX_CHUNK_CHARS = 800
 
 
-# ─── Deterministic local embeddings ─────────────────────────────────────────
+# ─── Gemini embeddings (semantic, Matryoshka 768-dim) ─────────────────────
+async def text_to_gemini_embedding(
+    text: str, dim: int = 768, task_type: str = "RETRIEVAL_DOCUMENT"
+) -> Optional[list[float]]:
+    """
+    Call gemini-embedding-001 with Matryoshka truncation to `dim`.
+    gemini-embedding-001 is asymmetric: stored docs use RETRIEVAL_DOCUMENT,
+    queries use RETRIEVAL_QUERY. Returns None on any failure (caller falls back).
+    """
+    if not text or not GEMINI_API_KEY:
+        return None
+    try:
+        url = f"{GEMINI_EMBEDDING_URL}:batchEmbedContents?key={GEMINI_API_KEY}"
+        payload = {
+            "requests": [
+                {
+                    "model": "models/gemini-embedding-001",
+                    "content": {"parts": [{"text": text[:2000]}]},
+                    "outputDimensionality": dim,
+                    "taskType": task_type,
+                }
+            ]
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(url, json=payload)
+        if r.status_code != 200:
+            logger.warning(f"gemini-embedding-001 HTTP {r.status_code}: {r.text[:200]}")
+            return None
+        data = r.json()
+        return data["embeddings"][0]["values"]
+    except Exception as e:
+        logger.warning(f"gemini-embedding-001 failed: {e}")
+        return None
+
+
+async def batch_gemini_embeddings(texts: list[str], dim: int = 768) -> list[Optional[list[float]]]:
+    """
+    Batch call — up to 100 requests per call. Returns list aligned to `texts`.
+    None on individual failures.
+    """
+    if not texts or not GEMINI_API_KEY:
+        return [None] * len(texts)
+    if len(texts) > 100:
+        # chunk the batch to stay under API limit
+        out = []
+        for i in range(0, len(texts), 100):
+            out.extend(await batch_gemini_embeddings(texts[i:i+100], dim))
+        return out
+    try:
+        url = f"{GEMINI_EMBEDDING_URL}:batchEmbedContents?key={GEMINI_API_KEY}"
+        payload = {
+            "requests": [
+                {
+                    "model": "models/gemini-embedding-001",
+                    "content": {"parts": [{"text": t[:2000]}]},
+                    "outputDimensionality": dim,
+                    "taskType": "RETRIEVAL_DOCUMENT",
+                }
+                for t in texts
+            ]
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(url, json=payload)
+        if r.status_code != 200:
+            logger.warning(f"gemini batch HTTP {r.status_code}")
+            return [None] * len(texts)
+        data = r.json()
+        return [e["values"] for e in data["embeddings"]]
+    except Exception as e:
+        logger.warning(f"gemini batch failed: {e}")
+        return [None] * len(texts)
+
+
+# ─── BGE-m3 local embeddings (stub for future) ─────────────────────────────
+async def text_to_bge_m3_embedding(text: str) -> Optional[list[float]]:
+    """
+    Stub. To enable: install sentence-transformers and download BAAI/bge-m3
+    into the collector image. Will return 1024-dim vectors.
+    Currently not implemented — falls back silently.
+    """
+    # Future: from sentence_transformers import SentenceTransformer
+    #         model = SentenceTransformer("BAAI/bge-m3")
+    #         return model.encode(text, normalize_embeddings=True).tolist()
+    return None
+
+
+# ─── Deterministic local embeddings (FALLBACK ONLY) ─────────────────────────
 def text_to_deterministic_embedding(text: str, seed: int = 42) -> list[float]:
     """
-    Hash-based pseudo-embeddings using word + char-ngram hashing with seed.
-    Each word gets multiple hash slots for robust similarity matching.
+    Hash-based pseudo-embeddings. ONLY used as fallback when primary provider
+    (Gemini) fails. NOT recommended for production RAG.
     """
     def _hash_val(val: str, salt: int) -> int:
         return int(hashlib.md5(f"{val}:{salt}".encode()).hexdigest(), 16)
@@ -73,8 +169,11 @@ def text_to_deterministic_embedding(text: str, seed: int = 42) -> list[float]:
 
 
 # ─── Keyword scoring ──────────────────────────────────────────────────────────
-TRIP_KEYWORDS = {"trip", "trips", "drive", "driving", "distance", "km", "odometer", "route", "journey", "road", "travel"}
-CHARGE_KEYWORDS = {"charge", "charging", "charger", "kwh", "battery", "soc", "percent", "ac", "dc", "charged", "session", "sessions"}
+TRIP_KEYWORDS = {"trip", "trips", "drive", "driving", "distance", "km", "odometer", "route", "journey", "road", "travel", "consumption", "kwh per 100"}
+CHARGE_KEYWORDS = {"charge", "charging", "charger", "kwh", "battery", "soc", "percent", "ac", "dc", "charged", "session", "sessions", "charging_curve", "charge_curve"}
+VEHICLE_KEYWORDS = {"vehicle", "car", "make", "model", "year", "spec", "specs", "specifications", "battery", "power", "range", "wltp", "body", "trim", "colour", "color", "options", "about", "what is"}
+BATTERY_KEYWORDS = {"soh", "battery health", "degradation", "cell voltage", "cell temp", "hv battery", "12v battery", "battery temperature", "battery voltage", "health"}
+STATE_KEYWORDS = {"doors", "windows", "lights", "trunk", "bonnet", "locked", "open", "state", "status", "climate", "climatization", "climate state"}
 MONTH_KEYWORDS = {"january": "2026-01", "february": "2026-02", "march": "2026-03", "april": "2026-04",
                   "may": "2026-05", "june": "2026-06",
                   "jan": "2026-01", "feb": "2026-02", "mar": "2026-03", "apr": "2026-04",
@@ -98,6 +197,9 @@ def keyword_score(query: str, chunk: str, content_type: str) -> float:
     # Intent-type boosting
     query_has_trip_intent = bool(q_words & TRIP_KEYWORDS)
     query_has_charge_intent = bool(q_words & CHARGE_KEYWORDS)
+    query_has_vehicle_intent = bool(q_words & VEHICLE_KEYWORDS)
+    query_has_battery_intent = bool(q_words & BATTERY_KEYWORDS)
+    query_has_state_intent = bool(q_words & STATE_KEYWORDS)
     
     # Check for month mentions in query
     month_word_to_value = {
@@ -116,14 +218,35 @@ def keyword_score(query: str, chunk: str, content_type: str) -> float:
             query_months.add(w)
 
     type_boost = 0.0
+    # Trip queries
     if query_has_trip_intent and content_type == "trip_summary":
         type_boost = 0.5
     elif query_has_trip_intent and content_type == "charging_event":
         type_boost = -0.4
-    elif query_has_charge_intent and content_type == "charging_event":
+    elif query_has_trip_intent and content_type == "drive_consumption_summary":
+        type_boost = 0.4
+    # Charge queries
+    if query_has_charge_intent and content_type == "charging_event":
         type_boost = 0.5
     elif query_has_charge_intent and content_type == "trip_summary":
         type_boost = -0.3
+    elif query_has_charge_intent and content_type == "charging_session_summary":
+        type_boost = 0.5
+    elif query_has_charge_intent and content_type == "charging_curve_summary":
+        type_boost = 0.4
+    # Vehicle info queries
+    if query_has_vehicle_intent and content_type == "vehicle_summary":
+        type_boost = 1.0
+    elif query_has_vehicle_intent and content_type in ("trip_summary", "charging_event"):
+        type_boost = -0.5
+    # Battery health queries
+    if query_has_battery_intent and content_type == "battery_health_summary":
+        type_boost = 1.0
+    elif query_has_battery_intent and content_type in ("trip_summary", "charging_event"):
+        type_boost = -0.5
+    # State queries
+    if query_has_state_intent and content_type == "vehicle_state_summary":
+        type_boost = 1.0
 
     # Month boosting: if query mentions a month, strongly boost matching chunks
     if query_months:
@@ -145,16 +268,63 @@ def keyword_score(query: str, chunk: str, content_type: str) -> float:
     return jaccard + type_boost
 
 
-# ─── Embedding generation ─────────────────────────────────────────────────────
-async def generate_embedding(text: str, provider: str = "minimax") -> Optional[list[float]]:
+# ─── Embedding generation (with provider dispatch + fallback) ─────────────
+async def generate_embedding(
+    text: str, provider: str = None, task_type: str = "RETRIEVAL_DOCUMENT"
+) -> Optional[tuple[list[float], str]]:
+    """
+    Dispatch to the configured embedding provider. On failure, fall back to
+    the configured fallback (deterministic by default).
+
+    Returns a tuple (vector, model_used) so the caller can persist the model
+    that actually produced the vector (e.g. when Gemini fails and we fall back
+    to the deterministic embedder, the row is NOT mislabeled as Gemini).
+    Returns None only when there is no text to embed.
+
+    `task_type` is forwarded to Gemini (RETRIEVAL_DOCUMENT for stored docs,
+    RETRIEVAL_QUERY for query-side embedding).
+    """
     if not text:
         return None
-    return text_to_deterministic_embedding(text)
+    provider = (provider or EMBEDDING_PROVIDER).lower()
+
+    # Primary
+    if provider in ("gemini", "gemini-embedding-001", "gemini-embedding"):
+        result = await text_to_gemini_embedding(text, dim=EMBEDDING_DIM, task_type=task_type)
+        if result is not None:
+            return result, f"gemini-embedding-001@{EMBEDDING_DIM}"
+        if EMBEDDING_FALLBACK != "gemini":
+            logger.warning("gemini-embedding failed, falling back")
+            return text_to_deterministic_embedding(text), "deterministic@768"
+
+    elif provider in ("bge-m3", "bge_m3", "local-bge-m3", "local_bge_m3"):
+        result = await text_to_bge_m3_embedding(text)
+        if result is not None:
+            return result, "bge-m3"
+        return text_to_deterministic_embedding(text), "deterministic@768"
+
+    # Fallback path
+    return text_to_deterministic_embedding(text), "deterministic@768"
 
 
-async def generate_batch_embeddings(texts: list[str], provider: str = "minimax") -> list[Optional[list[float]]]:
+async def generate_batch_embeddings(texts: list[str], provider: str = None) -> list[Optional[list[float]]]:
+    """
+    Batch dispatch. Uses Gemini batch endpoint when available (up to 100/call).
+    """
     if not texts:
         return []
+    provider = (provider or EMBEDDING_PROVIDER).lower()
+
+    if provider in ("gemini", "gemini-embedding-001", "gemini-embedding"):
+        result = await batch_gemini_embeddings(texts, dim=EMBEDDING_DIM)
+        if any(r is not None for r in result):
+            # backfill None entries with deterministic so caller never sees gaps
+            return [
+                r if r is not None else text_to_deterministic_embedding(t)
+                for r, t in zip(result, texts)
+            ]
+
+    # Fallback / non-gemini
     return [text_to_deterministic_embedding(t) for t in texts]
 
 
@@ -187,6 +357,7 @@ async def store_embedding(
     embedding: list[float],
     vehicle_id: uuid.UUID | None = None,
     metadata: dict | None = None,
+    model: str | None = None,
 ) -> bool:
     try:
         ch = content_hash(chunk)
@@ -197,16 +368,22 @@ async def store_embedding(
             text("""
                 INSERT INTO ai_embeddings
                   (id, user_id, vehicle_id, content_type, content_id, content_hash,
-                   chunk_index, content_chunk, embedding, extra_metadata, created_at, updated_at)
+                   chunk_index, content_chunk, embedding, extra_metadata,
+                   embedding_provider, embedding_model,
+                   created_at, updated_at)
                 VALUES
                   (gen_random_uuid(), :user_id, :vehicle_id, :content_type, :content_id,
-                   :content_hash, 0, :chunk, CAST(:embedding AS vector(384)), :metadata, NOW(), NOW())
+                   :content_hash, 0, :chunk, CAST(:embedding AS vector(768)), :metadata,
+                   :provider, :model,
+                   NOW(), NOW())
                 ON CONFLICT (content_type, content_id, chunk_index)
                 DO UPDATE SET
                   content_chunk = EXCLUDED.content_chunk,
                   embedding = EXCLUDED.embedding,
                   content_hash = EXCLUDED.content_hash,
                   extra_metadata = EXCLUDED.extra_metadata,
+                  embedding_provider = EXCLUDED.embedding_provider,
+                  embedding_model = EXCLUDED.embedding_model,
                   updated_at = NOW()
             """),
             {
@@ -218,6 +395,11 @@ async def store_embedding(
                 "chunk": chunk,
                 "embedding": emb_str,
                 "metadata": meta_json,
+                "provider": EMBEDDING_PROVIDER,
+                # Persist the model that actually produced this vector. Caller
+                # passes the model_used returned by generate_embedding so the
+                # row is not mislabeled as Gemini on deterministic fallback.
+                "model": model or f"gemini-embedding-001@{EMBEDDING_DIM}",
             },
         )
         return True
@@ -242,19 +424,31 @@ async def search_similar(
     issue where ORDER BY embedding <=> CAST(:emb) + content_type filter = 0 rows.
     Then merge results and apply keyword + type boosting.
     """
-    query_emb = text_to_deterministic_embedding(query)
+    # Generate query embedding using the same provider as the stored vectors.
+    # gemini-embedding-001 is asymmetric, so embed the query with RETRIEVAL_QUERY.
+    # Falls back gracefully if primary provider fails.
+    emb_result = await generate_embedding(query, task_type="RETRIEVAL_QUERY")
+    query_emb = emb_result[0] if emb_result is not None else text_to_deterministic_embedding(query)
     emb_str = "[" + ",".join(str(x) for x in query_emb) + "]"
 
-    # Build base WHERE clause
+    # Build base WHERE clause. vehicle_ids are bound as a parameter (Postgres
+    # ANY()) rather than f-string interpolated to avoid SQL-injection shape.
     where_parts = ["user_id = :user_id"]
+    bind_vehicle_ids = None
     if vehicle_ids:
-        vid_list = ",".join(f"'{v}'" for v in vehicle_ids)
-        where_parts.append(f"vehicle_id IN ({vid_list})")
+        where_parts.append("vehicle_id = ANY(:vehicle_ids)")
+        bind_vehicle_ids = [str(v) for v in vehicle_ids]
     base_where = " AND ".join(where_parts)
 
-    # Determine which content types to search
-    search_types = content_types or ["trip_summary", "charging_event", "vehicle_stats", "location"]
-    fetch_per_type = max(limit, 8)
+    # Determine which content types to search. Default to ONLY the content
+    # types that have a registered builder (embedding_builders.CONTENT_TYPES);
+    # unregistered types are never populated and waste a query each.
+    search_types = content_types or [
+        "vehicle_summary", "battery_health_summary", "charging_curve_summary",
+        "vehicle_state_summary", "drive_consumption_summary",
+        "charging_session_summary", "climate_penalty_summary",
+    ]
+    fetch_per_type = max(limit * 3, 24)  # summary types need more candidates to overcome low vector similarity
 
     # Query intent detection
     q_lower = query.lower()
@@ -262,6 +456,9 @@ async def search_similar(
     is_trip_query = bool(q_words & TRIP_KEYWORDS)
     is_charge_query = bool(q_words & CHARGE_KEYWORDS)
     is_last_query = bool(q_words & {"last", "latest", "most_recent", "previous", "prior"})
+    query_has_vehicle_intent = bool(q_words & VEHICLE_KEYWORDS)
+    query_has_battery_intent = bool(q_words & BATTERY_KEYWORDS)
+    query_has_state_intent = bool(q_words & STATE_KEYWORDS)
 
     all_rows = []
 
@@ -270,7 +467,7 @@ async def search_similar(
     for ct in search_types:
         inner_sql = text(f"""
             SELECT id, content_type, content_id, content_chunk,
-                   1 - (embedding <=> CAST(:embedding AS vector(384))) AS similarity,
+                   1 - (embedding <=> CAST(:embedding AS vector(768))) AS similarity,
                    extra_metadata
             FROM ai_embeddings
             WHERE {base_where} AND content_type = :ct
@@ -281,11 +478,16 @@ async def search_similar(
             ORDER BY similarity DESC
             LIMIT :fetch_limit
         """)
+        params = {
+            "user_id": str(user_id),
+            "embedding": emb_str,
+            "ct": ct,
+            "fetch_limit": fetch_per_type,
+        }
+        if bind_vehicle_ids is not None:
+            params["vehicle_ids"] = bind_vehicle_ids
         try:
-            result = await db.execute(
-                outer_sql,
-                {"user_id": str(user_id), "embedding": emb_str, "ct": ct, "fetch_limit": fetch_per_type}
-            )
+            result = await db.execute(outer_sql, params)
             rows = result.fetchall()
             all_rows.extend(rows)
         except Exception as e:
@@ -321,14 +523,30 @@ async def search_similar(
             type_boost = 1.0
         elif is_trip_query and chunk_type == "charging_event":
             type_boost = -1.0
-        elif is_trip_query and chunk_type == "vehicle_stats":
-            type_boost = -0.7
+        elif is_trip_query and chunk_type == "drive_consumption_summary":
+            type_boost = 0.8
+        elif is_trip_query and chunk_type in ("vehicle_summary", "battery_health_summary",
+                                                  "charging_curve_summary", "vehicle_state_summary"):
+            type_boost = -0.5
         elif is_charge_query and chunk_type == "charging_event":
             type_boost = 1.0
         elif is_charge_query and chunk_type == "trip_summary":
             type_boost = -0.7
-        elif is_charge_query and chunk_type == "vehicle_stats":
-            type_boost = -0.6
+        elif is_charge_query and chunk_type == "charging_session_summary":
+            type_boost = 0.9
+        elif is_charge_query and chunk_type == "charging_curve_summary":
+            type_boost = 0.7
+        elif is_charge_query and chunk_type in ("battery_health_summary", "vehicle_state_summary"):
+            type_boost = -0.5
+        # Vehicle info queries
+        if query_has_vehicle_intent and chunk_type == "vehicle_summary":
+            type_boost += 1.5
+        # Battery health queries
+        if query_has_battery_intent and chunk_type == "battery_health_summary":
+            type_boost += 1.5
+        # State queries
+        if query_has_state_intent and chunk_type == "vehicle_state_summary":
+            type_boost += 1.5
 
         # Recency boost: for "last/most recent" queries, parse date from chunk
         # and boost more recent dates. Chunk format:
@@ -343,6 +561,13 @@ async def search_similar(
                 month_score = max(0, m - 1)  # May=4, Apr=3, Mar=2, Jan=0
                 day_score = d / 31.0
                 recency_boost = (month_score * 0.08) + (day_score * 0.04)
+
+        # Clamp the hand-tuned type_boost so it stays commensurate with
+        # `combined` (which caps ~1.0). The raw boosts above can reach ±1.5 and
+        # stack, which would let them dominate and reduce the vector/keyword
+        # search to a tiebreaker. Capping to ±0.3 keeps boosts a minority
+        # influence while preserving the relative ranking they encode.
+        type_boost = max(-0.3, min(0.3, type_boost))
 
         final_score = combined + type_boost + recency_boost
 
