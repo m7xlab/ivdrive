@@ -10,8 +10,9 @@ const MAX_SESSIONS = 15;
 const MAX_MESSAGES = 50;
 
 function parseMessageContent(content: string) {
-  // Regex to match ```json_chart ... ```
-  const regex = /```json_chart\n([\s\S]*?)```/g;
+  // Regex to match ```json_chart ... ``` — tolerate any/no whitespace after the
+  // language tag, since the LLM doesn't always emit a leading newline.
+  const regex = /```json_chart\s*([\s\S]*?)```/g;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -156,6 +157,19 @@ export function IVDriveAIWidget() {
     }
   };
 
+  // Grow the input up to max-h-32 (128px) as the user types, then collapse back.
+  const adjustInputHeight = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "44px";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    adjustInputHeight();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
@@ -164,6 +178,7 @@ export function IVDriveAIWidget() {
     const userMsg: ChatMessage = { role: "user", content: trimmed };
     setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), userMsg]);
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "44px";
     setIsLoading(true);
     setError(null);
 
@@ -351,7 +366,7 @@ export function IVDriveAIWidget() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Ask about your vehicle..."
             className="flex-1 bg-transparent border-none px-4 py-2.5 text-[15px] text-iv-text placeholder:text-iv-muted resize-none focus:outline-none focus:ring-0 max-h-32 min-h-[44px]"

@@ -147,11 +147,14 @@ async def update_user_ai_access(
                   :uid, :max_d, :max_m, :prov, :model, :note, :admin_id, NOW()
                 )
                 ON CONFLICT (user_id) DO UPDATE SET
-                  max_questions_per_day = EXCLUDED.max_questions_per_day,
-                  max_questions_per_month = EXCLUDED.max_questions_per_month,
-                  model_provider = EXCLUDED.model_provider,
-                  model_name = EXCLUDED.model_name,
-                  note = EXCLUDED.note,
+                  -- Preserve existing values when a field is omitted from the
+                  -- request (passed as NULL). A bare EXCLUDED.x here would wipe
+                  -- every other override when an admin edits just one field.
+                  max_questions_per_day = COALESCE(EXCLUDED.max_questions_per_day, ai_user_overrides.max_questions_per_day),
+                  max_questions_per_month = COALESCE(EXCLUDED.max_questions_per_month, ai_user_overrides.max_questions_per_month),
+                  model_provider = COALESCE(EXCLUDED.model_provider, ai_user_overrides.model_provider),
+                  model_name = COALESCE(EXCLUDED.model_name, ai_user_overrides.model_name),
+                  note = COALESCE(EXCLUDED.note, ai_user_overrides.note),
                   updated_by_user_id = EXCLUDED.updated_by_user_id,
                   updated_at = NOW()
             """),

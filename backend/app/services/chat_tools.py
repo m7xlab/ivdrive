@@ -7,6 +7,7 @@ import uuid
 import json
 import httpx
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,11 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
                             row[k] = v.isoformat()
                         elif isinstance(v, uuid.UUID):
                             row[k] = str(v)
+                        elif isinstance(v, Decimal):
+                            # NUMERIC columns (distance_km, energy_kwh, costs, and
+                            # SUM/AVG aggregates) come back as Decimal, which json.dumps
+                            # cannot serialize — coerce to float for the LLM payload.
+                            row[k] = float(v)
                             
                 json_res = json.dumps(dict_rows[:50])
                 return f"SQL SUCCESS! Rows returned:\n{json_res}"
