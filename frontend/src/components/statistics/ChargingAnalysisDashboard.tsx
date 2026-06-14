@@ -211,7 +211,7 @@ export function ChargingAnalysisDashboard({
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "var(--iv-bg)",
+                  backgroundColor: "var(--iv-charcoal)",
                   border: "1px solid var(--iv-border)",
                   borderRadius: "8px",
                 }}
@@ -293,7 +293,7 @@ export function ChargingAnalysisDashboard({
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "var(--iv-bg)",
+                    backgroundColor: "var(--iv-charcoal)",
                     border: "1px solid var(--iv-border)",
                     borderRadius: "8px",
                   }}

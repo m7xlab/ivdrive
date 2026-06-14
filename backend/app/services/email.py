@@ -167,16 +167,15 @@ def _build_password_reset_plain(reset_link: str, email: str) -> str:
 def send_password_reset_email(to_email: str, reset_link: str) -> bool:
     """Send a password reset email. Returns True on success, False on failure.
 
-    If SMTP is not configured, logs the reset link and returns True
+    If SMTP is not configured, logs a generic warning and returns True
     (graceful degradation for dev/testing).
     """
     if not all([settings.smtp_host, settings.smtp_user, settings.smtp_pass]):
         logger.warning(
-            "SMTP not configured — password reset link for %s: %s",
+            "SMTP not configured — password reset email not sent to %s",
             to_email,
-            reset_link,
         )
-        return True  # non-blocking: the token will appear in logs for dev use
+        return True  # non-blocking in dev/testing; do not log reset tokens/links
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Reset your iVDrive password"

@@ -58,6 +58,20 @@ interface SettingsVehicle {
   temp_optimal_max_celsius: number | null;
 }
 
+
+/** Mirrors backend app/constants/calibration.py — used if GET /vehicles/calibration-defaults fails. */
+const CALIBRATION_FALLBACK_DEFAULTS: Record<string, number> = {
+  charger_power_kw: 22.0,
+  ice_l_per_100km: 8.0,
+  uphill_kwh_per_100km_per_100m: 0.20,
+  downhill_kwh_per_100km_per_100m: 0.15,
+  speed_city_threshold_kmh: 50.0,
+  speed_highway_threshold_kmh: 90.0,
+  temp_cold_max_celsius: 5.0,
+  temp_optimal_min_celsius: 15.0,
+  temp_optimal_max_celsius: 25.0,
+};
+
 interface Geofence {
   id: string;
   name: string;
@@ -168,6 +182,7 @@ export default function SettingsPage() {
 
   const [showCommands, setShowCommands] = useState(false);
   const [calibrationExpanded, setCalibrationExpanded] = useState<string | null>(null);
+  const [calibrationDefaults, setCalibrationDefaults] = useState<Record<string, number> | null>(null);
 
   useEffect(() => { if (user) setDisplayName(user.display_name || ""); }, [user]);
 
@@ -215,12 +230,18 @@ export default function SettingsPage() {
   }, [loadVehicles, loadGeofences, loadExportJobs]);
 
   useEffect(() => {
+    api.getCalibrationDefaults().then(setCalibrationDefaults).catch(() => setCalibrationDefaults(null));
+  }, []);
+
+  useEffect(() => {
     const hasPending = exportJobs.some(j => j.status === "PENDING" || j.status === "PROCESSING");
     if (hasPending) {
       const timer = setInterval(loadExportJobs, 3000);
       return () => clearInterval(timer);
     }
   }, [exportJobs, loadExportJobs]);
+
+  const effectiveCalibDefaults = calibrationDefaults ?? CALIBRATION_FALLBACK_DEFAULTS;
 
   const showToast = (status: "success" | "error", message: string) => setToast({ status, message });
 
@@ -629,19 +650,18 @@ export default function SettingsPage() {
                         { key: "temp_optimal_min_celsius", label: "Optimal Min (°C)", step: "1", min: "-10", max: "40" },
                         { key: "temp_optimal_max_celsius", label: "Optimal Max (°C)", step: "1", min: "-10", max: "50" },
                       ].map(({ key, label, step, min, max }) => {
-                        const f = (editForms[v.id] ?? {}) as unknown as Record<string, number | null>;
-                        const defaults: Record<string, number> = {
-                          charger_power_kw: 22.0, ice_l_per_100km: 8.0,
-                          uphill_kwh_per_100km_per_100m: 0.20, downhill_kwh_per_100km_per_100m: 0.15,
-                          speed_city_threshold_kmh: 50.0, speed_highway_threshold_kmh: 90.0,
-                          temp_cold_max_celsius: 5.0, temp_optimal_min_celsius: 15.0, temp_optimal_max_celsius: 25.0,
-                        };
-                        const displayVal = (k: string, d = 2) => {
-                          const fromForm = f[k];
-                          const fromVehicle = (v as unknown as Record<string, unknown>)[k] as number;
-                          const raw = fromForm !== undefined ? fromForm : fromVehicle !== undefined ? fromVehicle : defaults[k];
-                          const val = raw == null ? "" : String(raw);
-                          return val;
+                        const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null | undefined>;
+                        const displayVal = (fieldKey: string) => {
+                          const fromForm = f[fieldKey];
+                          if (fromForm !== undefined && fromForm !== null) {
+                            return String(fromForm);
+                          }
+                          const fromVehicle = v[fieldKey as keyof SettingsVehicle];
+                          if (typeof fromVehicle === "number" && Number.isFinite(fromVehicle)) {
+                            return String(fromVehicle);
+                          }
+                          const d = effectiveCalibDefaults[fieldKey];
+                          return d !== undefined ? String(d) : "";
                         };
                         return (
                           <div key={key} className="flex flex-col gap-1">
@@ -662,14 +682,8 @@ export default function SettingsPage() {
                       <button
                         onClick={async () => {
                           const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null>;
-                          const defaults: Record<string, number> = {
-                            charger_power_kw: 22.0, ice_l_per_100km: 8.0,
-                            uphill_kwh_per_100km_per_100m: 0.20, downhill_kwh_per_100km_per_100m: 0.15,
-                            speed_city_threshold_kmh: 50.0, speed_highway_threshold_kmh: 90.0,
-                            temp_cold_max_celsius: 5.0, temp_optimal_min_celsius: 15.0, temp_optimal_max_celsius: 25.0,
-                          };
                           const calData: Record<string, number | null> = {};
-                          Object.keys(defaults).forEach(k => {
+                          Object.keys(CALIBRATION_FALLBACK_DEFAULTS).forEach(k => {
                             const raw = f[k];
                             if (raw === undefined) return;
                             if (raw === "" || raw === null) { calData[k] = null; return; }

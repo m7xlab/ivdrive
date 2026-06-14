@@ -728,7 +728,7 @@ export function CarOverviewDashboard({
                     tickFormatter={(v) => `${v}°C`}
                   />
                 )}
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -882,7 +882,7 @@ export function CarOverviewDashboard({
                   axisLine={false}
                   tickFormatter={(v) => `${v} kWh`}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -1000,7 +1000,7 @@ export function CarOverviewDashboard({
                   tickFormatter={(v) => `${v}%`}
                   domain={['auto', 'auto']}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
@@ -1118,7 +1118,7 @@ export function CarOverviewDashboard({
                     tickFormatter={(v) => `${v}°C`}
                   />
                 )}
-                <Tooltip
+                <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (

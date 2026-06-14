@@ -6,6 +6,12 @@ export const vehiclesApi = {
     return res.json();
   },
 
+  /** Same numeric defaults the backend uses when calibration columns are null (efficiency analytics). */
+  async getCalibrationDefaults(): Promise<Record<string, number>> {
+    const res = await apiFetch("/api/v1/vehicles/calibration-defaults");
+    return res.json();
+  },
+
   async getVehicle(id: string) {
     const res = await apiFetch(`/api/v1/vehicles/${id}`);
     return res.json();

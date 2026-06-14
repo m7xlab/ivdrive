@@ -56,10 +56,10 @@ export function EfficiencyDashboard({ vehicleId }: { vehicleId: string }) {
                 domain={['auto', 'auto']}
               />
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" opacity={0.2} />
-              <Tooltip 
+              <Tooltip itemStyle={{ color: "var(--iv-text)" }} 
                 formatter={(value: number) => [`${value} kWh / 100km`, 'Consumption']}
                 labelFormatter={(label) => `Temp: ${label}°C`}
-                contentStyle={{ backgroundColor: '#1C1C2E', borderColor: '#2a2d42', borderRadius: '12px', color: '#fff' }}
+                contentStyle={{ backgroundColor: "var(--iv-charcoal)", borderColor: "var(--iv-border)", borderRadius: "12px", color: "var(--iv-text)" }}
                 itemStyle={{ color: '#00D4FF', fontWeight: 'bold' }}
               />
               <Area 

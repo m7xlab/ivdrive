@@ -162,7 +162,7 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
                 <XAxis dataKey="name" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} height={70} />
                 <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
                   formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
                 />

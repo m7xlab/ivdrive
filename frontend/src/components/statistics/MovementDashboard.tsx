@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { MapPin, Loader2, Zap, Car, Clock, Home, Briefcase, ParkingSquare, WifiOff, KeyRound } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
+import { useTheme } from "next-themes";
 import { formatSmartDuration } from "@/lib/format";
 import type { TimelineRange } from "./StatisticsShell";
 
@@ -81,8 +82,10 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
   const sorted = [...locations].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const STAY_RADIUS_M = 80;
   const MIN_STAY_MS = 5 * 60 * 1000;
+  const MAX_GAP_MS = 30 * 60 * 1000; // 30 min — break cluster on longer gaps
   const events: ActivityEvent[] = [];
   let i = 0;
+
 
   while (i < sorted.length) {
     const anchor = sorted[i];
@@ -93,8 +96,11 @@ function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence
 
     while (j < sorted.length) {
       const pt = sorted[j];
+      const prevPt = sorted[j - 1];
       const dist = haversineMeters(pt.latitude, pt.longitude, latSum / count, lonSum / count);
-      if (dist > STAY_RADIUS_M) break;
+      const gapMs = new Date(pt.timestamp).getTime() - new Date(prevPt.timestamp).getTime();
+      // Break cluster if: moved too far away OR time gap is too large (was driving elsewhere)
+      if (dist > STAY_RADIUS_M || gapMs > MAX_GAP_MS) break;
       latSum += pt.latitude; lonSum += pt.longitude; count++;
       if (pt.source === "charging") hasCharging = true;
       j++;
@@ -162,17 +168,22 @@ function StayIcon({ label, isCharging }: { label: string; isCharging: boolean })
   return <MapPin size={15} className="text-iv-muted" />;
 }
 
+/** Shared fixed height for Top Places + Activity Timeline cards (scroll inside body). */
+const MOVEMENT_PANEL_CLASS =
+  "glass rounded-xl p-5 flex flex-col min-h-0 h-[570px] max-h-[70vh] overflow-hidden";
+
 export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardProps) {
   const [locations, setLocations] = useState<VisitedLocation[]>([]);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [timeBudget, setTimeBudget] = useState<TimeBudget | null>(null);
+  const [topPlacesApi, setTopPlacesApi] = useState<Array<{ place_name: string; latitude: number; longitude: number; total_seconds: number; stay_count: number; geofence_id: string | null }>>([]);
   const [loadingBudget, setLoadingBudget] = useState(true);
   const [loadingPeriod, setLoadingPeriod] = useState(true);
 
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
 
-  // All-time time budget — fetched once, not date-dependent
+  // Period-based time budget — refetches when date range changes
   useEffect(() => {
     setLoadingBudget(true);
     api.getTimeBudget(vehicleId)
@@ -180,48 +191,40 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
       .finally(() => setLoadingBudget(false));
   }, [vehicleId]);
 
-  // Period-based location data — refetches when date range changes
+  // Period-based location data + Top Places — refetches when date range changes
   const fetchPeriodData = useCallback(async () => {
     setLoadingPeriod(true);
     try {
-      const [locs, gfs] = await Promise.all([
+      const [locs, gfs, places] = await Promise.all([
         api.getVisitedLocations(vehicleId, 5000, fromISO, toISO),
         api.getGeofences().catch(() => []),
+        api.getTopPlaces(vehicleId, 20, fromISO, toISO).catch(() => []),
       ]);
       setLocations(locs ?? []);
       setGeofences(gfs ?? []);
+      setTopPlacesApi(places ?? []);
     } catch {
       setLocations([]);
     } finally {
       setLoadingPeriod(false);
     }
-  }, [vehicleId, fromISO, toISO]);
+  }, [vehicleId]);
 
   useEffect(() => { fetchPeriodData(); }, [fetchPeriodData]);
 
   const timeline = buildActivityTimeline(locations, geofences);
   const stayEvents = timeline.filter((e) => e.type === "stay").map((e) => e.data as StayEvent);
 
-  // Top places by time spent
-  // Use geofence label as key so same-named places (e.g. "Work") merge even if
-  // their cluster centroids fall in different toFixed(3) grid cells (~111m apart).
-  // When no geofence matched, use a coarse haversine-based grid (toFixed(4) ≈ 11m)
-  // as key to avoid splitting genuinely separate stays.
-  const placeMap = new Map<string, { label: string; lat: number; lon: number; ms: number; charging: boolean }>();
-  for (const s of stayEvents) {
-    // Key by geofenceId for geofence-matched stays — stable, no string matching.
-    // For non-geofence stays, use coordinates as fallback key.
-    const key = s.geofenceId ?? `${s.latitude.toFixed(4)},${s.longitude.toFixed(4)}`;
-    const existing = placeMap.get(key);
-    if (existing) {
-      existing.ms += s.durationMs;
-      // Merge charging flag: if any merged stay involved charging, keep it
-      existing.charging = existing.charging || s.isCharging;
-    } else {
-      placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
-    }
-  }
-  const topPlaces = [...placeMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+  // Top Places: now from /overview/top-places (SQL view: geofence-matched, period-filtered)
+  // Top Places from /overview/top-places API (geofence-matched, period-filtered, SQL-driven)
+  const topPlaceStats = topPlacesApi.map((p) => ({
+    label: p.place_name,
+    lat: p.latitude,
+    lon: p.longitude,
+    ms: p.total_seconds * 1000,
+    charging: false,
+    stayCount: p.stay_count,
+  }));
 
   const tb = timeBudget;
   const totalS = Math.max(
@@ -240,11 +243,11 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   return (
     <div className="space-y-6">
 
-      {/* ── All-time Time Budget ── */}
+      {/* ── Period Time Budget ── */}
       <div className="glass rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-iv-text">Time Budget</h3>
-          <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">All-time</span>
+          <span className="text-xs bg-iv-surface border border-iv-border text-iv-muted px-2 py-0.5 rounded-full">Period</span>
         </div>
 
         {loadingBudget ? (
@@ -303,16 +306,18 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
         <div className="h-px flex-1 bg-iv-border/40" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-        {/* Top Places */}
-        <div className="glass rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-iv-text">Top Places</h3>
-          {topPlaces.length === 0 ? (
-            <p className="text-sm text-iv-muted py-6 text-center">No distinct places detected</p>
+        {/* Top Places — fixed 570px card height; list scrolls */}
+        <div className={MOVEMENT_PANEL_CLASS}>
+          <h3 className="text-sm font-semibold text-iv-text shrink-0">Top Places</h3>
+          {topPlaceStats.length === 0 ? (
+            <div className="flex-1 min-h-0 flex items-center justify-center mt-3">
+              <p className="text-sm text-iv-muted text-center px-2">No distinct places detected</p>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {topPlaces.map((place) => (
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar space-y-2 mt-3 pr-1">
+              {topPlaceStats.map((place) => (
                 <div key={place.label} className="flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border border-iv-border/50">
                   <div className={`p-2 rounded-full shrink-0 ${place.charging ? "bg-iv-green/10" : "bg-iv-cyan/10"}`}>
                     {place.charging ? <Zap size={14} className="text-iv-green" /> : <MapPin size={14} className="text-iv-cyan" />}
@@ -321,19 +326,24 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
                     <p className="text-sm font-medium text-iv-text truncate">{place.label}</p>
                     <p className="text-xs text-iv-muted">{place.lat.toFixed(5)}, {place.lon.toFixed(5)}</p>
                   </div>
-                  <span className="text-sm font-bold text-iv-text shrink-0">{formatDurationMs(place.ms)}</span>
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    <span className="text-sm font-bold text-iv-text">{formatDurationMs(place.ms)}</span>
+                    <span className="text-xs text-iv-muted">{place.stayCount ?? 0} stays</span>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Activity Timeline */}
-        <div className="glass rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-iv-text">Activity Timeline</h3>
-          <div className="space-y-0.5 max-h-72 overflow-y-auto no-scrollbar">
+        {/* Activity Timeline — same fixed height as Top Places */}
+        <div className={MOVEMENT_PANEL_CLASS}>
+          <h3 className="text-sm font-semibold text-iv-text shrink-0">Activity Timeline</h3>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar space-y-0.5 mt-3 pr-1">
             {timeline.length === 0 ? (
-              <p className="text-sm text-iv-muted py-6 text-center">No activity detected</p>
+              <div className="flex items-center justify-center min-h-[120px]">
+                <p className="text-sm text-iv-muted text-center px-2">No activity detected</p>
+              </div>
             ) : timeline.map((event) => {
               if (event.type === "stay") {
                 const s = event.data as StayEvent;
@@ -373,28 +383,16 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
 function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; stayEvents: StayEvent[] }) {
   const [MapComponents, setMapComponents] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
-  const [isDark, setIsDark] = useState(true);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    // Detect current theme
-    const dark = document.documentElement.classList.contains("dark") ||
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setIsDark(dark);
-
-    // Watch for theme changes
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-
     import("react-leaflet").then((L) => {
       setMapComponents({ MapContainer: L.MapContainer, TileLayer: L.TileLayer, CircleMarker: L.CircleMarker, Popup: L.Popup, ZoomControl: L.ZoomControl });
     });
-
-    return () => observer.disconnect();
   }, [mounted]);
 
   if (!MapComponents || locations.length === 0) {

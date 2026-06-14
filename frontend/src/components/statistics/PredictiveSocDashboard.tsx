@@ -34,7 +34,9 @@ interface PredictiveSocResponse {
   };
 }
 
-export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
+import { TimelineRange } from "./StatisticsShell";
+
+export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
   const [data, setData] = useState<PredictiveSocResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -42,7 +44,9 @@ export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await api.getPredictiveSoc(vehicleId);
+        const fromStr = dateRange?.from?.toISOString();
+        const toStr = dateRange?.to?.toISOString();
+        const res = await api.getPredictiveSoc(vehicleId, fromStr, toStr);
         setData(res);
       } catch (err) {
         console.error("Failed to fetch predictive SOC", err);
@@ -51,7 +55,7 @@ export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
       }
     };
     fetchData();
-  }, [vehicleId]);
+  }, [vehicleId, dateRange]);
 
   if (loading) {
     return (
@@ -162,7 +166,7 @@ export function PredictiveSocDashboard({ vehicleId }: { vehicleId: string }) {
                 <XAxis dataKey="temp" className="text-iv-muted text-xs" />
                 <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-bg)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
                   formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
                 />

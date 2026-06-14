@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.v1.dependencies import get_current_active_user
 from app.config import settings
+from app.constants.calibration import VEHICLE_CALIBRATION_DEFAULTS
 from app.database import get_db
 from app.models.geofence import Geofence  # noqa: F401
 from app.models.telemetry import (
@@ -56,9 +57,10 @@ from app.schemas.telemetry import (
     VehicleStateItem,
     WLTPResponse,
 )
-from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate, VehicleReauth
+from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate, VehicleReauth, TopPlaceItem
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
+from app.services.external_apis import reverse_geocode_address
 from app.services.skoda_auth import SkodaAuthClient
 
 logger = logging.getLogger(__name__)
@@ -271,6 +273,12 @@ async def create_vehicle(
     )
 
     return _vehicle_to_response(vehicle)
+
+
+@router.get("/calibration-defaults")
+async def get_vehicle_calibration_defaults(_user: User = Depends(get_current_active_user)):
+    """Public tuning defaults used when per-vehicle calibration columns are null (efficiency analytics)."""
+    return dict(VEHICLE_CALIBRATION_DEFAULTS)
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)
@@ -1311,7 +1319,9 @@ async def get_statistics(
     # near local midnight are bucketed into the correct calendar day, not UTC day.
     # Falls back to 'Europe/Vilnius' if home_tz not set or not in whitelist.
     tz = _tz_for_vehicle(vehicle)
-    local_start = text(f"(start_date AT TIME ZONE '{tz}')")
+    # Use SQLAlchemy .op() for idiomatic AT TIME ZONE — tz is already validated
+    # by _tz_for_vehicle() against the IANA whitelist before reaching SQL.
+    local_start = Trip.start_date.op("AT TIME ZONE")(tz)
     stmt_trip = (
         select(
             func.date_trunc(trunc, local_start).label("period"),
@@ -1341,7 +1351,7 @@ async def get_statistics(
         charge_where.append(ChargingSession.session_start <= to_date)
     time_charging_expr = func.sum(func.extract("epoch", func.coalesce(ChargingSession.session_end, func.now()) - ChargingSession.session_start,))
     # Use vehicle's home timezone for charging session day truncation
-    local_charge_start = text(f"(session_start AT TIME ZONE '{tz}')")
+    local_charge_start = ChargingSession.session_start.op("AT TIME ZONE")(tz)
     stmt_charge = (
         select(
             func.date_trunc(trunc, local_charge_start).label("period"),
@@ -1545,3 +1555,127 @@ async def get_visited_locations(
         limit=limit, result_count=len(results),
     )
     return results
+
+
+@router.get("/{vehicle_id}/overview/top-places", response_model=list[TopPlaceItem])
+async def get_top_places(
+    vehicle_id: uuid.UUID,
+    from_date: datetime | None = Query(default=None),
+    to_date: datetime | None = Query(default=None),
+    limit: int = Query(default=5, ge=1, le=20),
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Top places by parked duration, using geofence-matched GPS coordinates.
+    - Known geofences: group by geofence_id → single row per geofence, use geofence center coords
+    - Unknown locations: group by actual GPS coords → multiple rows, each with real lat/lon
+    """
+    vehicle = await _get_user_vehicle(vehicle_id, user, db)
+
+    sql = text("""
+        WITH place_durations AS (
+            SELECT
+                p.user_vehicle_id,
+                p.first_date,
+                p.last_date,
+                p.duration_seconds,
+                p.geofence_id,
+                p.geofence_name,
+                p.geofence_address,
+                p.is_unknown_location,
+                p.parked_lat,
+                p.parked_lon,
+                -- For geofence matches use geofence center; for unknown use actual GPS
+                COALESCE(g.latitude, p.parked_lat) as location_lat,
+                COALESCE(g.longitude, p.parked_lon) as location_lon
+            FROM v_place_stay_durations p
+            LEFT JOIN geofences g ON g.id = p.geofence_id
+            WHERE p.user_vehicle_id = :vid
+              AND p.parked_lat IS NOT NULL
+              AND p.parked_lon IS NOT NULL
+        ),
+        filtered AS (
+            SELECT *
+            FROM place_durations
+            WHERE location_lat IS NOT NULL AND location_lon IS NOT NULL
+              AND first_date >= COALESCE(:from_dt, '1970-01-01'::timestamptz)
+              AND last_date <= COALESCE(:to_dt, '2100-01-01'::timestamptz)
+        ),
+        aggregated AS (
+            SELECT
+                user_vehicle_id,
+                geofence_id,
+                COALESCE(geofence_name, 'Unknown Location') as place_name,
+                geofence_address,
+                -- Known geofences: use exact geofence center coords; unknown: round to 4dp (≈11m grid)
+                CASE WHEN geofence_id IS NOT NULL THEN location_lat
+                     ELSE ROUND(location_lat::numeric, 4)::double precision END as latitude,
+                CASE WHEN geofence_id IS NOT NULL THEN location_lon
+                     ELSE ROUND(location_lon::numeric, 4)::double precision END as longitude,
+                SUM(duration_seconds) as total_seconds,
+                COUNT(*) as stay_count,
+                is_unknown_location
+            FROM filtered
+            GROUP BY
+                user_vehicle_id,
+                geofence_id,
+                geofence_name,
+                geofence_address,
+                CASE WHEN geofence_id IS NOT NULL THEN location_lat
+                     ELSE ROUND(location_lat::numeric, 4)::double precision END,
+                CASE WHEN geofence_id IS NOT NULL THEN location_lon
+                     ELSE ROUND(location_lon::numeric, 4)::double precision END,
+                is_unknown_location
+        )
+        SELECT
+            user_vehicle_id,
+            geofence_id,
+            place_name,
+            geofence_address,
+            latitude,
+            longitude,
+            total_seconds,
+            stay_count,
+            is_unknown_location
+        FROM aggregated
+        ORDER BY total_seconds DESC
+        LIMIT :lim
+    """)
+
+    result = await db.execute(sql, {
+        "vid": str(vehicle.id),
+        "from_dt": from_date,
+        "to_dt": to_date,
+        "lim": limit,
+    })
+    rows = result.fetchall()
+
+    places = []
+    for r in rows:
+        geofence_id = r.geofence_id
+        place_name = r.place_name
+        
+        # Unknown locations: reverse geocode the coordinates to get an address
+        if r.is_unknown_location:
+            address = await reverse_geocode_address(float(r.latitude), float(r.longitude))
+            if address:
+                place_name = address
+            elif r.geofence_address:
+                place_name = r.geofence_address  # fallback to stored address
+
+        places.append(TopPlaceItem(
+            geofence_id=geofence_id,
+            place_name=place_name,
+            latitude=float(r.latitude),
+            longitude=float(r.longitude),
+            total_seconds=int(r.total_seconds),
+            stay_count=r.stay_count,
+        ))
+
+    _log_statistics_query(
+        "overview/top-places", vehicle_id,
+        from_date=from_date, to_date=to_date,
+        result_count=len(places),
+    )
+    return places

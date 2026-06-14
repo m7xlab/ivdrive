@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { MapPin, Loader2, Zap } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
+import { useTheme } from "next-themes";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface VisitedDashboardProps {
@@ -105,6 +106,8 @@ function VisitedMap({ locations }: VisitedMapProps) {
     ZoomControl: any;
   } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   useEffect(() => {
     setMounted(true);
@@ -140,7 +143,7 @@ function VisitedMap({ locations }: VisitedMapProps) {
   ];
 
   const tileUrl =
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+    isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
 
   return (
     <div className="absolute inset-0 z-0">
@@ -149,7 +152,7 @@ function VisitedMap({ locations }: VisitedMapProps) {
         zoom={10}
         scrollWheelZoom={true}
         zoomControl={false}
-        style={{ width: "100%", height: "100%", background: "#1C1C2E" }}
+        style={{ width: "100%", height: "100%" }}
       >
         <TileLayer
           url={tileUrl}
