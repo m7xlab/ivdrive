@@ -1,8 +1,16 @@
 """add place stay durations view
 
-Revision ID: a1b2c3d4e5f6
-Revises: f2da1da148a9
+Revision ID: b7e4f1a9c2d8
+Revises: b2c3d4e5f6a8
 Create Date: 2026-05-10 12:30:00.000000
+
+NOTE: This migration originally reused revision id 'a1b2c3d4e5f6', which
+already belonged to 'add_smart_polling_intervals' (a merge/copy-paste
+collision). That duplicate produced "Revision a1b2c3d4e5f6 is present more than
+once" + multiple-heads and broke `alembic upgrade head` on production.
+Re-issued with a unique id ('b7e4f1a9c2d8') and re-pointed onto the real head
+('b2c3d4e5f6a8') so it is a clean linear tip. The view body is CREATE OR
+REPLACE, so applying it (fresh on production) is idempotent.
 
 """
 from typing import Sequence, Union
@@ -12,8 +20,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = 'f2da1da148a9'
+revision: str = 'b7e4f1a9c2d8'
+down_revision: Union[str, None] = 'b2c3d4e5f6a8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
