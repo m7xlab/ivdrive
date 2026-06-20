@@ -58,6 +58,7 @@ from app.schemas.telemetry import (
     WLTPResponse,
 )
 from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate, VehicleReauth, TopPlaceItem
+from app.services.cache import invalidate_vehicle_cache
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
 from app.services.external_apis import reverse_geocode_address
@@ -182,6 +183,9 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         warning_lights=v.warning_lights,
         connector_status=cs.status if cs else None,
         last_fetch_at=cs.last_fetch_at if cs else None,
+        last_success_at=cs.last_success_at if cs else None,
+        consecutive_failures=cs.consecutive_failures if cs else 0,
+        last_error_text=cs.last_error_text if cs else None,
         created_at=v.created_at,
     )
 
@@ -302,8 +306,27 @@ async def update_vehicle(
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(vehicle, field, value)
+
+    # Reflect a sync on/off toggle on the connector status so the UI doesn't keep
+    # showing "Active" after the user pauses collection. The collector unregisters
+    # the polling job on disable (publish_vehicle_updated below), so nothing would
+    # otherwise reset the sticky status. On re-enable we mark it "pending" until the
+    # next successful poll flips it back to "active".
+    cs = vehicle.connector_session
+    if cs and "collection_enabled" in update_data:
+        if update_data["collection_enabled"] is False:
+            cs.status = "paused"
+            cs.consecutive_failures = 0
+            cs.last_error_text = None
+        elif cs.status == "paused":
+            cs.status = "pending"
+
     await db.commit()
     await db.refresh(vehicle)
+
+    # Bust the server-side Valkey cache so edited vehicle details show up
+    # immediately instead of after CacheMiddleware's 60s TTL.
+    await invalidate_vehicle_cache(str(vehicle.id))
 
     await publish_vehicle_updated(
         str(vehicle.id),
@@ -323,6 +346,7 @@ async def delete_vehicle(
     vid = str(vehicle.id)
     await db.delete(vehicle)
     await db.commit()
+    await invalidate_vehicle_cache(vid)
     await publish_vehicle_deleted(vid)
 
 

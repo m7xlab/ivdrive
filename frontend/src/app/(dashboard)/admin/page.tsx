@@ -440,7 +440,7 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-iv-surface/50 rounded-lg p-1 w-fit">
+      <div className="flex gap-1 bg-iv-surface/50 rounded-lg p-1 w-fit max-w-full overflow-x-auto no-scrollbar">
         {(
           [
             { id: "statistics" as Tab, label: "Statistics", icon: Activity, badge: 0 },
@@ -453,7 +453,7 @@ export default function AdminPage() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+            className={`flex shrink-0 items-center gap-2 px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${
               tab === t.id
                 ? "bg-iv-charcoal text-iv-text shadow-sm"
                 : "text-iv-muted hover:text-iv-text"

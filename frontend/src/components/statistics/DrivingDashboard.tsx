@@ -319,7 +319,7 @@ export function DrivingDashboard({ vehicleId, dateRange }: DrivingDashboardProps
   const totalSessions = periodTotals ? String(periodTotals.charging_sessions_count) : "—";
 
 
-Mileage trend chart data (last 60 odometer readings, reversed → chronological)
+  // Mileage trend chart data (last 60 odometer readings, reversed → chronological)
   // Uses timestamp ms as x-axis value so Recharts can compute proper domain/spacing
   // regardless of how many unique date labels exist
   const mileageChartData = useMemo(() => {

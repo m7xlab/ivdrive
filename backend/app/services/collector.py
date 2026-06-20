@@ -463,6 +463,7 @@ class DataCollector:
             vin = decrypt_field(vehicle.vin_encrypted)
             api = SkodaAPIClient(access_token)
             now = datetime.now(UTC)
+            cycle_errors: list = []  # collected by _safe; drives connection-health bookkeeping
 
             try:
                 # ══════════════════════════════════════════════════════════════
@@ -480,7 +481,7 @@ class DataCollector:
                 # ══════════════════════════════════════════════════════════════
 
                 # ── Step 1: Connection status (always, 1 API call) ──────────
-                conn_resp = await _safe(api.get_connection_status(vin), "connection_status", user_vehicle_id)
+                conn_resp = await _safe(api.get_connection_status(vin), "connection_status", user_vehicle_id, cycle_errors)
 
                 is_online = conn_resp and not conn_resp.unreachable
                 is_moving = conn_resp and (conn_resp.in_motion or conn_resp.ignition_on)
@@ -503,7 +504,7 @@ class DataCollector:
                 if is_online:
                     if not is_moving:
                         # Not moving — check charging (2nd API call)
-                        charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id)
+                        charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
                         is_charging = (
                             charging and charging.status
                             and charging.status.state == "CHARGING"
@@ -511,7 +512,7 @@ class DataCollector:
 
                         if not is_charging:
                             # Not moving, not charging — check AC (3rd API call)
-                            ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id)
+                            ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
                             is_ac_on = (
                                 ac_resp is not None
                                 and ac_resp.state is not None
@@ -566,7 +567,10 @@ class DataCollector:
                     last_known = self._last_connection_state.get(user_vehicle_id)
                     state_changed = (last_known is None) or (last_known != is_online)
 
-                    if state_changed:
+                    # Only record a ConnectionState row on a real, observed status change.
+                    # Skip when conn_resp is None: we couldn't reach Škoda this cycle, so we
+                    # don't actually know the car went offline (avoids false "offline" rows).
+                    if state_changed and conn_resp is not None:
                         session.add(ConnectionState(
                             user_vehicle_id=user_vehicle_id,
                             captured_at=now,
@@ -575,20 +579,20 @@ class DataCollector:
                             ignition_on=conn_resp.ignition_on if conn_resp else None,
                         ))
                         self._last_connection_state[user_vehicle_id] = is_online
-                        cs.status = "active"
-                        await session.commit()
                         logger.info(
                             "Smart poll: vehicle %s PARKED — state changed (was=%s → now online=%s). "
                             "ConnectionState saved.",
                             user_vehicle_id, last_known, is_online,
                         )
                     else:
-                        # No state change → nothing to persist; skip DB round-trip entirely.
                         logger.debug(
-                            "Smart poll: vehicle %s PARKED (online=%s, unchanged). "
-                            "Skipping DB write.",
+                            "Smart poll: vehicle %s PARKED (online=%s, unchanged or unreachable).",
                             user_vehicle_id, is_online,
                         )
+                    # Refresh connection-health every cycle (one cheap UPDATE) so the UI can
+                    # detect when we stop being able to reach the vehicle.
+                    _apply_health(cs, conn_resp is not None, cycle_errors, now)
+                    await session.commit()
                     return
 
                 # ══════════════════════════════════════════════════════════════
@@ -601,23 +605,23 @@ class DataCollector:
 
                 # Fetch charging if we didn't already (car was detected moving in step 2)
                 if charging is None:
-                    charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id)
+                    charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
 
-                driving = await _safe(api.get_driving_range(vin), "driving_range", user_vehicle_id)
-                
+                driving = await _safe(api.get_driving_range(vin), "driving_range", user_vehicle_id, cycle_errors)
+
                 position = None
                 if not vehicle.incognito_mode:
-                    position = await _safe(api.get_position(vin), "position", user_vehicle_id)
-                
-                status_resp = await _safe(api.get_vehicle_status(vin), "vehicle_status", user_vehicle_id)
+                    position = await _safe(api.get_position(vin), "position", user_vehicle_id, cycle_errors)
+
+                status_resp = await _safe(api.get_vehicle_status(vin), "vehicle_status", user_vehicle_id, cycle_errors)
                 if not ac_resp:
-                    ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id)
-                maint_resp = await _safe(api.get_maintenance(vin), "maintenance", user_vehicle_id)
-                warning_lights_resp = await _safe(api.get_warning_lights(vin), "warning_lights", user_vehicle_id)
-                
+                    ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
+                maint_resp = await _safe(api.get_maintenance(vin), "maintenance", user_vehicle_id, cycle_errors)
+                warning_lights_resp = await _safe(api.get_warning_lights(vin), "warning_lights", user_vehicle_id, cycle_errors)
+
                 # Fetch additional metadata endpoints for complete raw data coverage
-                garage_vehicle_resp = await _safe(api.get_garage_vehicle(vin), "garage_vehicle", user_vehicle_id)
-                vehicle_renders_resp = await _safe(api.get_vehicle_renders(vin), "vehicle_renders", user_vehicle_id)
+                garage_vehicle_resp = await _safe(api.get_garage_vehicle(vin), "garage_vehicle", user_vehicle_id, cycle_errors)
+                vehicle_renders_resp = await _safe(api.get_vehicle_renders(vin), "vehicle_renders", user_vehicle_id, cycle_errors)
 
                 # Weather & elevation for position enrichment
                 temp_c = None
@@ -1072,7 +1076,10 @@ class DataCollector:
 
                 # ── Commit & update timestamp ───────────────────────────────
                 cs.last_fetch_at = now
-                cs.status = "active"
+                # Connection-health: in the ACTIVE path we reached Škoda (the step-1
+                # connection probe returned), so this records success / clears any prior
+                # failure — unless a data call returned 401/403, which flags auth_failed.
+                _apply_health(cs, conn_resp is not None, cycle_errors, now)
                 await session.commit()
                 logger.info("Collection complete for vehicle %s (ACTIVE full fetch)", user_vehicle_id)
 
@@ -1225,12 +1232,46 @@ async def _update_or_insert_duration_state(
     session.add(model_cls(**insert_data))
 
 
-async def _safe(coro, label: str, vehicle_id: UUID):
+async def _safe(coro, label: str, vehicle_id: UUID, errors: list | None = None):
     try:
         return await coro
-    except Exception:
+    except Exception as e:
+        status_code = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
         logger.warning("Failed to fetch %s for vehicle %s", label, vehicle_id, exc_info=True)
+        if errors is not None:
+            errors.append({"label": label, "status": status_code})
         return None
+
+
+def _apply_health(cs, reached: bool, cycle_errors: list, now) -> None:
+    """Update ConnectorSession health bookkeeping after a collection cycle.
+
+    `reached` = we successfully contacted Škoda this cycle (the connection_status
+    probe returned). A 401/403 anywhere means the saved login was rejected and the
+    user must reconnect. Anything else that prevented contact is a transient/server
+    issue surfaced via consecutive_failures + last_error_text without forcing reauth.
+    """
+    auth_rejected = any(e.get("status") in (401, 403) for e in cycle_errors)
+    if auth_rejected:
+        cs.status = "auth_failed"
+        cs.consecutive_failures = (cs.consecutive_failures or 0) + 1
+        cs.last_error_text = "Škoda rejected the saved login (authentication failed) — please reconnect."
+        return
+    if reached:
+        cs.last_success_at = now
+        cs.consecutive_failures = 0
+        cs.status = "active"
+        cs.last_error_text = None
+    else:
+        cs.consecutive_failures = (cs.consecutive_failures or 0) + 1
+        first = next((e for e in cycle_errors if e.get("status")), None)
+        if first:
+            cs.last_error_text = f"Couldn't reach Škoda ({first['label']}: HTTP {first['status']})"[:255]
+        elif cycle_errors:
+            cs.last_error_text = f"Couldn't reach Škoda ({cycle_errors[0]['label']})"[:255]
+        else:
+            cs.last_error_text = "Couldn't reach the Škoda service."
+        # Leave cs.status untouched — don't claim "active" when we never made contact.
 
 
 def _debug_summary(charging, driving, conn_resp) -> dict:

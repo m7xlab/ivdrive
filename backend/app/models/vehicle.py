@@ -117,5 +117,11 @@ class ConnectorSession(TimestampMixin, Base):
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    # Connection health: last_success_at = last cycle that actually reached Škoda
+    # (parked or active), consecutive_failures counts cycles that couldn't reach it,
+    # last_error_text is a short human-readable reason for the most recent failure.
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error_text: Mapped[str | None] = mapped_column(String(255))
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="connector_session")

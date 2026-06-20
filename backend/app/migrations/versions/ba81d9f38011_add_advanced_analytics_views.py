@@ -18,6 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # View for Trip Type and Weather Impact Analytics
+    # ⚠️ SUPERSEDED: the avg_eff_* AVG-of-ratios math below was replaced by
+    # distance-weighted SUM(kwh)/SUM(dist)*100 in migration 93b2a201b1a4
+    # (fix_advanced_trip_stats_math). This historical version is kept as-is for
+    # the migration chain — do NOT copy its efficiency formula.
     op.execute("""
     CREATE OR REPLACE VIEW v_advanced_trip_stats AS
     SELECT 
