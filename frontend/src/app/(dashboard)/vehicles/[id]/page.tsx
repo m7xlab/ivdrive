@@ -948,6 +948,9 @@ export default function VehicleDetailPage() {
         const totalKm = recentTrips.reduce((acc, t) => acc + ((t as any).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0)), 0);
         const totalChargedKwh = recentSessions.reduce((acc, s) => acc + (s.energy_kwh || 0), 0);
         
+        // Charging Mix: AC vs DC split of the last 30 days' charging sessions (by count, not energy).
+        // acPercent = sessions explicitly tagged "AC"; dcPercent is the remainder, so any session
+        // with a null/unknown charging_type is counted as DC.
         const acCount = recentSessions.filter(s => s.charging_type === "AC").length;
         const totalSessionsCount = recentSessions.length;
         const acPercent = totalSessionsCount > 0 ? Math.round((acCount / totalSessionsCount) * 100) : 0;
@@ -1025,6 +1028,9 @@ export default function VehicleDetailPage() {
                       <span className="font-semibold text-iv-text">{dcPercent}% DC</span>
                     </div>
                   </div>
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-xs font-medium text-iv-muted">
+                  <span>AC vs DC · last 30 days ({totalSessionsCount} sessions)</span>
                 </div>
               </div>
 

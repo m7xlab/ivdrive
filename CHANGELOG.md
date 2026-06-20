@@ -1,5 +1,25 @@
 # Changelog
 
+## [v1.1.1] - 2026-06-20
+Maintenance & reliability release: fixes the charging-receipt edit lag (stale server cache), surfaces Škoda connection/auth failures in the UI so users know when to reconnect, makes the vehicle "sync off" state honest, and adds mobile-responsive fixes. Includes a statistics-correctness verification pass and a build-breaking syntax fix.
+
+### Added
+- **Connection-health surfacing**: the vehicle Settings card now shows a clear banner + badge when data collection is failing. Two states — **red "Reconnect required"** when Škoda rejects the saved login (auth/token expired), and **amber "Connection Issues"** when the vehicle is repeatedly unreachable (transient Škoda/network errors, ≥3 consecutive failed cycles). Both offer a one-click Reconnect. Backed by new `ConnectorSession` health fields populated every collection cycle and exposed on `GET /api/v1/vehicles`.
+- **Charging Mix caption** (vehicle Statistics): the AC/DC split card gained a descriptive caption ("AC vs DC · last 30 days (N sessions)") consistent with the other stat cards.
+
+### Fixed
+- **Charging-receipt edit lag (stale server cache)**: editing a charging session (provider/kWh/price) appeared to do nothing for up to 60s, then updated. Root cause: the server-side Valkey `CacheMiddleware` caches analytics GETs for 60s and the mutation never invalidated it (the `invalidate_vehicle_cache` helper existed but was dead code). `PATCH .../analytics/charging-sessions`, `PUT /vehicles/{id}`, and `DELETE /vehicles/{id}` now bust the vehicle's cache on write, so edits are reflected immediately. Verified end-to-end (GET after PATCH returns the new value with `X-Cache: MISS`).
+- **"Sync off" still showed "Active"**: disabling a vehicle's sync stopped collection (the poll job is unregistered) but left `connector_status` stuck at "active", so the badge kept reading Active. Toggling sync off now sets status **"paused"** (badge "Sync Off") and clears failure counters; re-enabling sets "pending" until the next successful poll. The Settings badge shows "Sync Off" whenever collection is disabled (covers pre-existing rows), and health banners are suppressed while paused.
+- **Silent collection failures**: the collector's `_safe()` swallowed every Škoda error and still marked the cycle "active"/fresh, so persistent failures were invisible to the user. Cycles now record success/failure honestly (`last_success_at`, `consecutive_failures`, `last_error_text`); a 401/403 flags `auth_failed`; transient errors accrue failures without forcing a reconnect prompt. Parked cycles no longer write a misleading "offline" `ConnectionState` row when Škoda was merely unreachable.
+- **Build-breaking syntax error** — `DrivingDashboard.tsx` had a comment line missing its `//` prefix (committed in `ff14ce3`), which fails the production transpile regardless of `ignoreBuildErrors`.
+- **Mobile layout** — Admin tabs now scroll horizontally instead of overflowing on small screens; the AI chat widget/launcher is repositioned (above the mobile nav bar, full-width sheet on phones, unchanged on desktop).
+
+### Changed
+- **Efficiency metric documentation** (`analytics.py`, migration `ba81d9f38011`): clarified in code that `v_advanced_trip_stats.avg_eff_*` and the overview `avg_kwh_100km` are **distance-weighted** consumption (`SUM(kwh)/SUM(distance)*100`), not an average of per-trip ratios, and marked the superseded `AVG`-of-ratios migration obsolete (the fix landed in `93b2a201b1a4`). Documentation only — no value change. Confirmed the live overview numbers (battery, range, odometer, trip mix, efficiency, €/kWh) match the raw database.
+
+### Database
+- `c7d8e9f0a1b2_add_connector_health_fields.py` — adds `last_success_at` (timestamptz), `consecutive_failures` (int, default 0), and `last_error_text` (varchar 255) to `connector_sessions`. New migration head; no data backfill required.
+
 ## [v1.1.0] - 2026-06-14
 Minor release: AI assistant goes production-grade — streamed chat answers,
 admin-controlled RAG embedding backfill, and a safe production-restore migration

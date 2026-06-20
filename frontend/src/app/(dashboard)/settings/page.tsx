@@ -25,6 +25,7 @@ import {
   RefreshCcw,
   Eye,
   EyeOff,
+  AlertTriangle,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
@@ -45,6 +46,9 @@ interface SettingsVehicle {
   country_code: string | null;
   connector_status: string | null;
   last_fetch_at: string | null;
+  last_success_at: string | null;
+  consecutive_failures: number;
+  last_error_text: string | null;
   created_at: string;
   // Efficiency calibration
   charger_power_kw: number | null;
@@ -115,9 +119,63 @@ function ConnectorStatusBadge({ status }: { status: string | null }) {
     pending: { color: "bg-iv-warning/15 text-iv-warning border-iv-warning/20", label: "Pending" },
     auth_failed: { color: "bg-iv-danger/15 text-iv-danger border-iv-danger/20", label: "Auth Failed" },
     token_error: { color: "bg-iv-danger/15 text-iv-danger border-iv-danger/20", label: "Token Error" },
+    degraded: { color: "bg-iv-warning/15 text-iv-warning border-iv-warning/20", label: "Connection Issues" },
+    paused: { color: "bg-iv-surface text-iv-muted border-iv-border", label: "Sync Off" },
   };
   const cfg = map[status] || { color: "bg-iv-surface text-iv-muted border-iv-border", label: status };
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.color}`}>{cfg.label}</span>;
+}
+
+/** Derives a user-facing connection-health alert from the vehicle's connector health fields. */
+function vehicleConnectionAlert(v: SettingsVehicle): { level: "auth" | "degraded"; title: string; detail: string } | null {
+  // Sync intentionally paused — no reconnect/degraded prompts apply.
+  if (!v.collection_enabled) return null;
+  if (v.connector_status === "token_error" || v.connector_status === "auth_failed") {
+    return {
+      level: "auth",
+      title: "Reconnect required",
+      detail: v.last_error_text
+        || "Your Škoda login has expired or was rejected. Please reconnect your account to resume data collection.",
+    };
+  }
+  // Persistent inability to reach the vehicle (transient Škoda outage / network).
+  if (v.collection_enabled && (v.consecutive_failures ?? 0) >= 3) {
+    const since = v.last_success_at ? new Date(v.last_success_at).toLocaleString() : "a while ago";
+    return {
+      level: "degraded",
+      title: "Can't reach your vehicle",
+      detail: `${v.last_error_text || "We're having trouble reaching the Škoda service."} Last successful sync: ${since}. This often resolves on its own; if it keeps happening, try reconnecting.`,
+    };
+  }
+  return null;
+}
+
+function ConnectionAlert({ v, onReconnect }: { v: SettingsVehicle; onReconnect: () => void }) {
+  const alert = vehicleConnectionAlert(v);
+  if (!alert) return null;
+  const isAuth = alert.level === "auth";
+  const box = isAuth
+    ? "border-iv-danger/30 bg-iv-danger/10 text-iv-danger"
+    : "border-iv-warning/30 bg-iv-warning/10 text-iv-warning";
+  const btn = isAuth
+    ? "border-iv-danger/40 hover:bg-iv-danger/15"
+    : "border-iv-warning/40 hover:bg-iv-warning/15";
+  return (
+    <div className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 ${box}`}>
+      <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold">{alert.title}</p>
+        <p className="mt-0.5 text-xs opacity-90 break-words">{alert.detail}</p>
+      </div>
+      <button
+        onClick={onReconnect}
+        className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${btn}`}
+      >
+        <RefreshCcw size={13} />
+        Reconnect
+      </button>
+    </div>
+  );
 }
 
 export default function SettingsPage() {
@@ -472,7 +530,13 @@ export default function SettingsPage() {
                       <p className="text-sm font-medium text-iv-text break-words">
                         {v.display_name || `${v.manufacturer || ""} ${v.model || ""}`.trim() || "Vehicle"}
                       </p>
-                      <ConnectorStatusBadge status={v.connector_status} />
+                      <ConnectorStatusBadge status={
+                        !v.collection_enabled
+                          ? "paused"
+                          : v.connector_status === "active" && (v.consecutive_failures ?? 0) >= 3
+                            ? "degraded"
+                            : v.connector_status
+                      } />
                     </div>
                     {/* Dates – stacked on mobile, inline on sm+ */}
                     <div className="mt-1 grid grid-cols-1 gap-0.5 sm:block">
@@ -488,7 +552,7 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Remove button – icon-only on mobile, icon+label on sm+ */}
-                  {v.connector_status === "token_error" && (
+                  {(v.connector_status === "token_error" || v.connector_status === "auth_failed") && (
                     <button
                       onClick={() => {
                         setReauthUsername("");
@@ -521,6 +585,17 @@ export default function SettingsPage() {
                     <span className="hidden sm:inline">Calibrate</span>
                   </button>
                 </div>
+
+                {/* ── Connection-health alert (auth expired / can't reach vehicle) ── */}
+                <ConnectionAlert
+                  v={v}
+                  onReconnect={() => {
+                    setReauthUsername("");
+                    setReauthPassword("");
+                    setReauthSpin("");
+                    setReauthModalId(v.id);
+                  }}
+                />
 
                 {/* ── Intervals row ── */}
                 <div className="flex items-start gap-2 pl-0 sm:pl-11">

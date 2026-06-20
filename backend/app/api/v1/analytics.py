@@ -16,6 +16,7 @@ from app.models.telemetry import Trip, ChargingSession, VehiclePosition, Chargin
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import PulseResponse
+from app.services.cache import invalidate_vehicle_cache
 
 from pydantic import BaseModel
 
@@ -150,6 +151,10 @@ async def update_charging_session(
         session_obj.provider_name = payload.provider_name
         
     await db.commit()
+    # Bust the server-side Valkey cache so the edit is reflected immediately.
+    # Without this, CacheMiddleware keeps serving the stale pre-edit response
+    # (X-Cache: HIT) for up to its 60s TTL.
+    await invalidate_vehicle_cache(str(vehicle_id))
     return {"status": "success", "message": "Charging session updated"}
 
 
@@ -795,6 +800,13 @@ async def get_advanced_analytics_overview(
     await get_user_vehicle(user.id, vehicle_id, db)
 
     # 1. Trip Stats
+    # NOTE: the avg_eff_* columns are DISTANCE-WEIGHTED consumption, i.e.
+    # SUM(kwh_consumed) / SUM(distance_km) * 100 — NOT an average of per-trip
+    # ratios. This is the physically correct "average kWh/100km". The naive
+    # AVG(kwh/dist*100) over-weights short low-SoC-delta trips and inflates the
+    # figure (~29 vs the correct ~24 here). See migration 93b2a201b1a4
+    # (fix_advanced_trip_stats_math), which superseded the original AVG-of-ratios
+    # view from ba81d9f38011. Do not "simplify" this back to AVG().
     trip_sql = text("""
         SELECT short_trips_count, medium_trips_count, long_trips_count, total_trips,
                avg_eff_cold, avg_eff_warm, avg_eff_overall
@@ -865,6 +877,7 @@ async def get_advanced_analytics_overview(
     # Build response with dynamic data and safe fallbacks
     return {
         "efficiency": {
+            # Distance-weighted consumption (total kWh / total km * 100); see trip_sql note above.
             "avg_kwh_100km": round(overall_eff, 1),
             "cold_penalty_pct": round(cold_penalty, 1),
             "cold_eff_kwh_100km": round(cold_eff, 1),

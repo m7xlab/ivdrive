@@ -238,7 +238,7 @@ export function IVDriveAIWidget() {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#007AFF] shadow-xl shadow-blue-500/30 hover:scale-105 hover:shadow-2xl transition-all duration-300 flex items-center justify-center group border border-white/10 backdrop-blur-md"
+        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#007AFF] shadow-xl shadow-blue-500/30 hover:scale-105 hover:shadow-2xl transition-all duration-300 flex items-center justify-center group border border-white/10 backdrop-blur-md"
         aria-label="Open iVDrive AI Assistant"
       >
         {unread && (
@@ -250,7 +250,7 @@ export function IVDriveAIWidget() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[600px] flex flex-col bg-iv-charcoal/80 dark:bg-iv-black/80 backdrop-blur-2xl border border-iv-border rounded-[2rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 ease-out">
+    <div className="fixed inset-x-3 bottom-20 top-16 md:inset-auto md:top-auto md:bottom-6 md:right-6 z-50 w-auto md:w-[400px] h-auto md:h-[600px] flex flex-col bg-iv-charcoal/80 dark:bg-iv-black/80 backdrop-blur-2xl border border-iv-border rounded-[2rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 ease-out">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-iv-border bg-iv-charcoal/40 dark:bg-iv-black/20 shrink-0">
         <div className="flex items-center gap-3">
