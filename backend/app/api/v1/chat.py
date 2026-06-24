@@ -352,8 +352,11 @@ async def call_llm(
             if prov == "minimax":
                 if not MINIMAX_API_KEY:
                     continue
+                # Use the gate's model only if it looks like a minimax model.
+                # Otherwise (e.g. gemini model fell back here) use the minimax default.
+                eff_model = model if (model and (model.startswith("MiniMax-") or model.startswith("abab"))) else LLM_MODELS[prov]
                 req_json = {
-                    "model": model or LLM_MODELS.get(prov, "MiniMax-M3"),
+                    "model": eff_model,
                     "messages": messages,
                     "temperature": 0.3,
                 }
@@ -381,6 +384,9 @@ async def call_llm(
             elif prov == "gemini":
                 if not GEMINI_API_KEY:
                     continue
+                # Use gate's model only if it looks like a gemini model. If a minimax
+                # model name was passed in, use the gemini default instead.
+                gemini_eff_model = model if (model and model.startswith("gemini-")) else LLM_MODELS[prov]
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         f"{LLM_URLS[prov]}?key={GEMINI_API_KEY}",
@@ -404,6 +410,8 @@ async def call_llm(
             elif prov == "openai":
                 if not OPENAI_API_KEY:
                     continue
+                # Use gate's model only if it looks like an openai model.
+                openai_eff_model = model if (model and (model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"))) else LLM_MODELS[prov]
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         LLM_URLS[prov],
@@ -412,7 +420,7 @@ async def call_llm(
                             "Content-Type": "application/json",
                         },
                         json={
-                            "model": model or LLM_MODELS.get(prov, "gpt-4o-mini"),
+                            "model": openai_eff_model,
                             "messages": messages,
                             "temperature": 0.3,
                         },

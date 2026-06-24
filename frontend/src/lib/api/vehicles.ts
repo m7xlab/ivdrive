@@ -16,6 +16,11 @@ export const vehiclesApi = {
     return res.json();
   },
 
+  async getVehicleDataHealth(id: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/data-health`);
+    return res.json();
+  },
+
   async addVehicle(data: {
     vin: string;
     display_name?: string;

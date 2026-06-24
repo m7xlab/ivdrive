@@ -18,6 +18,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+import { DataHealthBadge } from "@/components/vehicle/data-health-badge";
+
 interface VehicleStatus {
   vin_last4?: string;
   display_name?: string;
@@ -48,6 +50,7 @@ interface VehicleCardProps {
   status: VehicleStatus | null;
   loading?: boolean;
   onDelete?: (id: string) => void | Promise<void>;
+  onAfterRefresh?: () => void;
 }
 
 function BatteryIndicator({ percentage }: { percentage: number }) {
@@ -141,6 +144,7 @@ export function VehicleCard({
   status,
   loading,
   onDelete,
+  onAfterRefresh,
 }: VehicleCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -285,6 +289,9 @@ export function VehicleCard({
             {formatTimeAgo(status?.last_updated ?? null)}
           </span>
         </div>
+
+        {/* Data health badge */}
+        <DataHealthBadge vehicleId={vehicleId} onRefreshTriggered={onAfterRefresh} />
 
         {/* Stats */}
         <div className="space-y-2.5 mt-auto">

@@ -179,6 +179,7 @@ export default function DashboardPage() {
               status={statuses[v.id] ?? null}
               loading={loadingStatuses[v.id]}
               onDelete={handleDeleteRequest}
+              onAfterRefresh={() => vehicles.length > 0 && fetchStatuses(vehicles)}
             />
           ))}
         </div>
