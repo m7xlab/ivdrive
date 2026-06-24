@@ -59,17 +59,35 @@ from app.models.telemetry import BatteryHealth
 SOC_DELTA_MIN = 15.0
 SOC_DELTA_MAX = 60.0
 
-# Outlier bounds as fraction of factory capacity
+# Outlier bounds as fraction of factory capacity.
+# A healthy EV battery in service is almost never at 100% SoH — even brand-new
+# units ship with 98-99% due to manufacturing tolerance and initial cycling.
+# Anything > 100% is measurement noise (charging losses, SoC calibration drift,
+# preconditioning energy bled into the recorded kWh) and must be rejected.
 CAPACITY_FLOOR_FRAC = 0.85
-CAPACITY_CEIL_FRAC = 1.02
+CAPACITY_CEIL_FRAC = 1.00
 
 # SoC calibration offset (Skoda BMS display rounds at top)
 SOC_CALIBRATION_OFFSET_PCT = 2.0
 SOC_CALIBRATION_TRIGGER_PCT = 95.0
 
-# Temperature correction reference (°C) and coefficient (per °C deviation)
+# Temperature correction reference (°C) and coefficient (per °C deviation).
+# 0.3%/°C is conservative for NMC cells in the 0-25°C range. Higher coefficients
+# (0.5%/°C) over-correct in winter and push estimates above 100%, which is
+# physically impossible and looks wrong to users. Lower = closer to user
+# intuition that "cold costs a little range, not 12%".
 TEMP_REFERENCE_C = 25.0
-TEMP_COEFF_PER_C = 0.005  # ~0.5% per °C (lithium NMC, conservative)
+TEMP_COEFF_PER_C = 0.003  # ~0.3%/°C (lithium NMC, conservative)
+
+# Charging losses: energy_kwh from Skoda is GRID energy, not battery gain.
+# AC slow charging: ~5% losses (heat in on-board charger + cable).
+# DC fast charging: ~8-12% losses (heat in charging station, contact resistance).
+# Without this correction, every estimate is inflated by 5-12%.
+CHARGING_LOSS_PCT = {
+    "AC": 0.05,
+    "DC": 0.10,
+}
+CHARGING_LOSS_DEFAULT_PCT = 0.07  # used when charging_type is NULL
 
 # Throughput model
 CYCLE_LOSS_AT_25C = 0.025  # % SoH loss per full cycle at 25°C
@@ -214,7 +232,8 @@ async def estimate_capacity_based(
             start_level,
             end_level,
             energy_kwh,
-            avg_temp_celsius
+            avg_temp_celsius,
+            charging_type
         FROM charging_sessions
         WHERE user_vehicle_id = :vehicle_id
           AND session_start >= :cutoff
@@ -243,7 +262,12 @@ async def estimate_capacity_based(
         if delta_soc <= 0:
             continue
 
-        raw_est_kwh = float(row.energy_kwh) / (delta_soc / 100.0)
+        # Strip charging losses to get battery energy, not grid energy.
+        loss_pct = CHARGING_LOSS_PCT.get(row.charging_type, CHARGING_LOSS_DEFAULT_PCT) \
+            if row.charging_type else CHARGING_LOSS_DEFAULT_PCT
+        battery_kwh = float(row.energy_kwh) * (1.0 - loss_pct)
+
+        raw_est_kwh = battery_kwh / (delta_soc / 100.0)
         corrected_kwh, temp_correction_pct = _apply_temperature_correction(
             raw_est_kwh, row.avg_temp_celsius
         )

@@ -55,7 +55,7 @@ def _svg_chart(monthly: list[dict[str, Any]], current_soh: float, width: int = 5
         # Single data point — can't draw a line, just show the current value
         m = monthly[0]
         return f'''<div style="height:{height - 40}px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:{_BRAND["muted"]};font-size:13px;">
-            <div style="font-size:32px;font-weight:700;background:linear-gradient(135deg,{_BRAND["grad_start"]},{_BRAND["grad_end"]});-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{min(current_soh, 100.0):.1f}%</div>
+            <div style="font-size:32px;font-weight:700;background:linear-gradient(135deg,{_BRAND["grad_start"]},{_BRAND["grad_end"]});-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{current_soh:.1f}%</div>
             <div style="margin-top:4px;">First measurement: {html.escape(m["month"])}</div>
             <div style="margin-top:12px;font-style:italic;">Trends will appear after 2+ months of data.</div>
         </div>'''
@@ -251,16 +251,10 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
         delta_12mo = 0.0
         delta_12mo_label = "—"
 
-    # SoH cannot physically exceed 100% for a battery in service.
-    # Treat anything above 100% as measurement noise — show the raw value but
-    # flag it. For the hero display, clamp at 100% to avoid user confusion.
-    soh_capped = min(soh, 100.0)
-
     # Range estimates
     wltp = float(meta["wltp_range_km"]) if meta["wltp_range_km"] else None
     range_new = int(wltp) if wltp else None
-    # Use clamped SoH for range — never show "more range than new" to user
-    range_now = int(wltp * soh_capped / 100.0) if wltp else None
+    range_now = int(wltp * soh / 100.0) if wltp else None
     if range_now is not None and range_new is not None:
         range_diff_km = range_now - range_new  # negative = lost range
     else:
@@ -339,9 +333,9 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
 
   <!-- Hero metric -->
   <tr><td style="padding:24px 32px 8px;text-align:center;">
-    <div style="font-size:64px;font-weight:700;line-height:1;background:linear-gradient(135deg,{_BRAND["grad_start"]},{_BRAND["grad_end"]});-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{soh_capped:.1f}%</div>
+    <div style="font-size:64px;font-weight:700;line-height:1;background:linear-gradient(135deg,{_BRAND["grad_start"]},{_BRAND["grad_end"]});-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{soh:.1f}%</div>
     <div style="font-size:13px;color:{_BRAND["muted"]};margin-top:6px;text-transform:uppercase;letter-spacing:1px;">State of Health</div>
-    <div style="font-size:12px;color:{_BRAND["muted"]};margin-top:4px;">Confidence: {confidence} · Estimated capacity: {est_kwh:.1f} kWh (factory {factory_kwh:.1f} kWh){' · <span style="color:' + _BRAND['warn'] + ';">raw ' + f'{soh:.1f}%' + ' (capped)</span>' if soh > 100 else ''}</div>
+    <div style="font-size:12px;color:{_BRAND["muted"]};margin-top:4px;">Confidence: {confidence} · Estimated capacity: {est_kwh:.1f} kWh (factory {factory_kwh:.1f} kWh)</div>
   </td></tr>
 
   <!-- Chart -->

@@ -61,19 +61,19 @@ class TestTemperatureCorrection:
         assert pct == 0.0
 
     def test_cold_inflates_corrected_capacity(self):
-        # 0°C: -25°C delta → +12.5% correction (we add back the cold loss)
-        # corrected = raw / (1 - 0.125) = raw / 0.875 → BIGGER than measured
+        # 0°C: -25°C delta → +7.5% correction at 0.3%/°C (we add back the cold loss)
+        # corrected = raw / (1 - 0.075) = raw / 0.925 → BIGGER than measured
         corrected, pct = _apply_temperature_correction(50.0, 0.0)
-        assert pct == pytest.approx(-12.5)  # signed: negative = added back
-        assert corrected == pytest.approx(50.0 / 0.875, rel=1e-6)
+        assert pct == pytest.approx(-7.5)  # signed: negative = added back
+        assert corrected == pytest.approx(50.0 / 0.925, rel=1e-6)
         assert corrected > 50.0  # CRITICAL: cold should INFLATE, not deflate
 
     def test_hot_deflates_corrected_capacity(self):
-        # 40°C: +15°C delta → +7.5% correction
-        # corrected = raw / (1 + 0.075) = raw / 1.075 → SMALLER than measured
+        # 40°C: +15°C delta → +4.5% correction at 0.3%/°C
+        # corrected = raw / (1 + 0.045) = raw / 1.045 → SMALLER than measured
         corrected, pct = _apply_temperature_correction(60.0, 40.0)
-        assert pct == pytest.approx(7.5)  # signed: positive = we subtracted
-        assert corrected == pytest.approx(60.0 / 1.075, rel=1e-6)
+        assert pct == pytest.approx(4.5)  # signed: positive = we subtracted
+        assert corrected == pytest.approx(60.0 / 1.045, rel=1e-6)
         assert corrected < 60.0  # CRITICAL: hot should DEFLATE
 
     def test_zero_correction_factor_protected(self):
@@ -176,8 +176,11 @@ class TestConstants:
         assert SOC_DELTA_MIN < SOC_DELTA_MAX
 
     def test_outlier_bounds_sensible(self):
+        # Floor must allow even heavily-degraded batteries through.
+        # Ceiling MUST be ≤ 1.0 — anything above 100% SoH is measurement noise,
+        # not reality, and would display impossible values to users.
         assert 0.7 <= CAPACITY_FLOOR_FRAC <= 0.9
-        assert 1.0 <= CAPACITY_CEIL_FRAC <= 1.1
+        assert 0.95 <= CAPACITY_CEIL_FRAC <= 1.0
 
     def test_soc_calibration_values_sensible(self):
         assert 0 < SOC_CALIBRATION_OFFSET_PCT <= 5
