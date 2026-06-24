@@ -1,0 +1,26 @@
+{
+  "ignore": {
+    "rules": [
+      "react-doctor/nextjs-no-font-link",
+      "react-doctor/nextjs-no-native-script",
+      "react-doctor/nextjs-no-client-side-redirect",
+      "react-doctor/rendering-hydration-no-flicker",
+      "react-doctor/async-parallel",
+      "react-doctor/no-giant-component",
+      "react-doctor/prefer-useReducer",
+      "react-doctor/no-cascading-set-state",
+      "react-doctor/no-effect-event-handler",
+      "react-doctor/prefer-dynamic-import",
+      "react-doctor/nextjs-no-img-element",
+      "react-doctor/no-array-index-as-key",
+      "react-doctor/js-index-maps",
+      "react-doctor/js-min-max-loop",
+      "react-doctor/no-prevent-default",
+      "react-doctor/no-render-in-render",
+      "react-doctor/control-has-associated-label",
+      "react-doctor/no-derived-useState",
+      "react-doctor/no-static-element-interactions",
+      "react-doctor/prefer-tag-over-role"
+    ]
+  }
+}

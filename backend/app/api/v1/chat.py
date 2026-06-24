@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -263,6 +264,23 @@ async def _upload_session_to_s3(session_id: str, user_id: str, messages: list[di
 
 
 # ─── LLM calls ─────────────────────────────────────────────────────────────────
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Strip ``<think>...</think>`` blocks from LLM output.
+
+    Reasoning-capable models (e.g. minimax M3, o1) emit their chain-of-thought
+    inside ``<think>`` tags. We don't want to leak that to end users — it reads
+    as raw scratchpad and looks broken. The tags themselves plus any whitespace
+    immediately after are removed.
+    """
+    if not text:
+        return text
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    return cleaned.strip()
+
+
 async def call_llm(
     prompt: str,
     context_chunks: list[dict],
@@ -378,7 +396,7 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
                         usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cached_tokens", 0)
-                    answer = data["choices"][0]["message"]["content"]
+                    answer = _strip_thinking(data["choices"][0]["message"]["content"])
                     return answer
 
             elif prov == "gemini":
@@ -405,7 +423,7 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("promptTokenCount", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("candidatesTokenCount", 0)
                         usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cachedContentTokenCount", 0)
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                    return _strip_thinking(data["candidates"][0]["content"]["parts"][0]["text"])
 
             elif prov == "openai":
                 if not OPENAI_API_KEY:
@@ -434,7 +452,7 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
                         # openai might have prompt_tokens_details
-                    return data["choices"][0]["message"]["content"]
+                    return _strip_thinking(data["choices"][0]["message"]["content"])
 
         except Exception as e:
             last_error = f"{prov} exception: {str(e)[:80]}"
