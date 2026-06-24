@@ -66,6 +66,34 @@ class StorageProvider:
         else:
             raise Exception("No storage provider configured (USE_GCS_STORAGE and USE_S3_STORAGE are both false)")
 
+    async def upload_bytes(self, data: bytes, destination_blob_name: str, content_type: str = "application/octet-stream", bucket_name: str | None = None) -> bool:
+        """Upload raw bytes to S3/GCS — preserves binary fidelity (no UTF-8 re-encode).
+
+        Use this for PDFs, images, and any binary blob. Use upload_content() only
+        for plain text/JSON where UTF-8 encoding is desired.
+        """
+        if self.use_gcs:
+            target_bucket_name = bucket_name or self.bucket_name
+            blob = self.client.bucket(target_bucket_name).blob(destination_blob_name)
+            await asyncio.to_thread(blob.upload_from_string, data, content_type=content_type)
+            return True
+        elif getattr(self, "use_s3", False):
+            target_bucket = bucket_name or self.bucket_name
+            s3_client = self.s3_session_client if target_bucket == self._conv_bucket_name else self.client
+
+            def _upload():
+                s3_client.put_object(
+                    Bucket=target_bucket,
+                    Key=destination_blob_name,
+                    Body=data,
+                    ContentType=content_type,
+                )
+
+            await asyncio.to_thread(_upload)
+            return True
+        else:
+            return False
+
     async def upload_content(self, content: str, destination_blob_name: str, bucket_name: str | None = None) -> bool:
         """Upload in-memory string content to S3. Used for chat session JSON logs."""
         if self.use_gcs:

@@ -787,10 +787,13 @@ async def upload_passport_pdf(vehicle_id: str, pdf_bytes: bytes) -> str | None:
         )
 
     try:
-        # upload_content expects str; PDFs are 8-bit-clean so latin-1 preserves bytes
-        ok = await storage.upload_content(
-            pdf_bytes.decode("latin-1"),
+        # PDFs are 8-bit binary — use upload_bytes() to preserve every byte.
+        # Going through upload_content() with latin-1→utf-8 corrupts any byte >127
+        # (latin-1 maps 1:1 to U+0000..U+00FF, but utf-8 expands 0x80..0xFF to 2 bytes).
+        ok = await storage.upload_bytes(
+            pdf_bytes,
             key,
+            content_type="application/pdf",
             bucket_name=bucket_name,
         )
         if ok:
