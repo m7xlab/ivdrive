@@ -20,6 +20,7 @@ from __future__ import annotations
 import html
 import io
 import logging
+import os
 import smtplib
 import uuid
 from datetime import datetime, timezone
@@ -764,23 +765,44 @@ def _get_storage() -> StorageProvider | None:
 
 
 async def upload_passport_pdf(vehicle_id: str, pdf_bytes: bytes) -> str | None:
-    """Upload the PDF to S3/GCS. Returns the storage key (or None if no storage configured)."""
+    """Upload the PDF to S3/GCS. Returns the storage key (or None if no storage configured).
+
+    Uses the dedicated BATTERY_PASSPORTS_BUCKET — same pattern as chat-sessions
+    uses CONVERSATION_SESSIONS_BUCKET. Falls back to the default S3_BUCKET
+    (data-extract) only if the env var is not set, which is the legacy path.
+    """
     storage = _get_storage()
     if storage is None:
         return None
     ts = datetime.now(timezone.utc)
     key = f"battery-passports/{ts.strftime('%Y-%m')}/{vehicle_id}/{ts.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.pdf"
+
+    # Dedicated bucket mirrors chat-sessions pattern. If env var not set, fall
+    # back to legacy S3_BUCKET so we don't silently mix PDFs into data-extract.
+    bucket_name = os.environ.get("BATTERY_PASSPORTS_BUCKET") or os.environ.get("S3_BUCKET")
+    if not os.environ.get("BATTERY_PASSPORTS_BUCKET"):
+        log.warning(
+            f"[storage] BATTERY_PASSPORTS_BUCKET not set — falling back to "
+            f"{bucket_name} (should be a dedicated bucket, not data-extract)"
+        )
+
     try:
-        ok = await storage.upload_content(pdf_bytes.decode("latin-1"), key)
-        # NOTE: upload_content expects str; we use latin-1 to preserve binary data
-        # without re-encoding overhead. PDFs are 8-bit-clean.
+        # upload_content expects str; PDFs are 8-bit-clean so latin-1 preserves bytes
+        ok = await storage.upload_content(
+            pdf_bytes.decode("latin-1"),
+            key,
+            bucket_name=bucket_name,
+        )
         if ok:
-            log.info(f"[storage] uploaded Passport PDF: {key} ({len(pdf_bytes)} bytes)")
+            log.info(
+                f"[storage] uploaded Passport PDF: s3://{bucket_name}/{key} "
+                f"({len(pdf_bytes)} bytes)"
+            )
             return key
-        log.warning(f"[storage] upload returned False for {key}")
+        log.warning(f"[storage] upload returned False for s3://{bucket_name}/{key}")
         return None
     except Exception as e:
-        log.exception(f"[storage] upload failed for {key}: {e}")
+        log.exception(f"[storage] upload failed for s3://{bucket_name}/{key}: {e}")
         return None
 
 
