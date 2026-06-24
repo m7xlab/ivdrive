@@ -170,13 +170,33 @@ async def job_monthly_passport() -> dict[str, Any]:
             if confidence_rank.get(actual, 0) >= confidence_rank.get(required, 1):
                 eligible_vehicles.append((r.vehicle_id, r.tier))
 
-    # Generate PDF outside the open session (PDF generation is CPU-bound)
-    from app.services.battery_passport import generate_passport_html, send_passport_email
+    # Generate PDF + upload to object storage + email with link + attachment
+    from app.services.battery_passport import (
+        generate_passport_html,
+        generate_passport_pdf,
+        upload_passport_pdf,
+        generate_passport_download_url,
+        send_passport_email,
+    )
 
     for vehicle_id, tier in eligible_vehicles:
         try:
             subject, html_body = await generate_passport_html(vehicle_id)
-            sent_ok = await send_passport_email(vehicle_id, subject, html_body)
+
+            # Generate real PDF in parallel with the HTML (independent work)
+            pdf_bytes = await generate_passport_pdf(vehicle_id)
+
+            # Upload PDF to S3/GCS (async, non-blocking) and get download URL
+            storage_key = await upload_passport_pdf(vehicle_id, pdf_bytes)
+            download_url = None
+            if storage_key:
+                download_url = await generate_passport_download_url(storage_key, expiration_days=7)
+
+            sent_ok = await send_passport_email(
+                vehicle_id, subject, html_body,
+                pdf_bytes=pdf_bytes,
+                download_url=download_url,
+            )
             if not sent_ok:
                 log.warning(f"passport email send failed for {vehicle_id}")
                 continue
@@ -188,9 +208,9 @@ async def job_monthly_passport() -> dict[str, Any]:
                     FROM user_vehicles WHERE id = :vid
                 """), {
                     "vid": vehicle_id,
-                    "soh": None,  # would need to re-fetch; left null for now
+                    "soh": None,
                     "conf": None,
-                    "meta": f'{{"tier": "{tier}", "html_size_chars": {len(html_body)}}}',
+                    "meta": f'{{"tier": "{tier}", "html_size_chars": {len(html_body)}, "pdf_size_bytes": {len(pdf_bytes)}, "storage_key": "{storage_key or "none"}", "download_url_provided": {bool(download_url)}}}',
                 })
                 await db.commit()
             pdfs_queued += 1
