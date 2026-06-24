@@ -61,18 +61,20 @@ class TestTemperatureCorrection:
         assert pct == 0.0
 
     def test_cold_inflates_corrected_capacity(self):
-        # 0°C: -25°C delta → -12.5% correction
-        # corrected = raw / (1 - (-0.125)) = raw / 1.125
+        # 0°C: -25°C delta → +12.5% correction (we add back the cold loss)
+        # corrected = raw / (1 - 0.125) = raw / 0.875 → BIGGER than measured
         corrected, pct = _apply_temperature_correction(50.0, 0.0)
-        assert pct == pytest.approx(-12.5)
-        assert corrected == pytest.approx(50.0 / 1.125, rel=1e-6)
+        assert pct == pytest.approx(-12.5)  # signed: negative = added back
+        assert corrected == pytest.approx(50.0 / 0.875, rel=1e-6)
+        assert corrected > 50.0  # CRITICAL: cold should INFLATE, not deflate
 
     def test_hot_deflates_corrected_capacity(self):
         # 40°C: +15°C delta → +7.5% correction
-        # corrected = raw / (1 - 0.075) = raw / 0.925
+        # corrected = raw / (1 + 0.075) = raw / 1.075 → SMALLER than measured
         corrected, pct = _apply_temperature_correction(60.0, 40.0)
-        assert pct == pytest.approx(7.5)
-        assert corrected == pytest.approx(60.0 / 0.925, rel=1e-6)
+        assert pct == pytest.approx(7.5)  # signed: positive = we subtracted
+        assert corrected == pytest.approx(60.0 / 1.075, rel=1e-6)
+        assert corrected < 60.0  # CRITICAL: hot should DEFLATE
 
     def test_zero_correction_factor_protected(self):
         # Extreme cold where correction factor goes ≤ 0
@@ -141,11 +143,14 @@ class TestAggregate:
         agg = aggregate_methods([thr, cap, res])
         assert agg.soh_pct == 95.0
 
-    def test_confidence_picks_highest_sample_method(self):
+    def test_confidence_uses_min_of_methods(self):
+        # Aggregate is conservative — MIN confidence wins.
+        # (Previously used max-by-sample-count, which let high-sample
+        # throughput mask low-sample capacity. That was misleading.)
         high = _make("capacity", 95.0, samples=20)
         low = _make("throughput", 99.0, samples=2)
         agg = aggregate_methods([high, low])
-        assert agg.confidence == "high"
+        assert agg.confidence == "low"
 
     def test_capacity_kwh_propagated_to_aggregate(self):
         cap = _make("capacity", 95.0)

@@ -141,17 +141,30 @@ def _apply_temperature_correction(
     """Scale est_kwh to a 25°C reference temperature.
 
     Lithium NMC cells show ~0.5% capacity deviation per °C from 25°C
-    (less capacity when cold, more when warm). Returns (corrected_kwh,
-    correction_pct_applied).
+    (less capacity when cold, more when warm). We measure the penalty as
+    always-positive magnitude and adjust direction based on whether we
+    measured cold (scale up to undo cold loss) or hot (scale down to undo
+    hot inflation).
+
+    Returns (corrected_kwh, signed_correction_pct_applied).
     """
     if avg_temp_c is None:
         return estimated_kwh, 0.0
     delta_t = avg_temp_c - TEMP_REFERENCE_C
-    correction_pct = delta_t * TEMP_COEFF_PER_C * 100  # sign matters
-    # Cold battery → measured less than actual → scale UP to reference
-    correction_factor = 1 - (correction_pct / 100)
-    corrected = estimated_kwh / correction_factor if correction_factor > 0 else estimated_kwh
-    return corrected, correction_pct
+    penalty_magnitude = abs(delta_t) * TEMP_COEFF_PER_C  # always positive
+    if delta_t < 0:
+        # Cold: measured was LOWER than true capacity → divide by < 1 → scale UP
+        correction_factor = 1.0 - penalty_magnitude
+        signed_correction_pct = -penalty_magnitude * 100  # negative = we added back
+    else:
+        # Hot: measured was HIGHER than true capacity → divide by > 1 → scale DOWN
+        correction_factor = 1.0 + penalty_magnitude
+        signed_correction_pct = penalty_magnitude * 100  # positive = we subtracted
+    if correction_factor <= 0:
+        # Pathological delta — fall back to passthrough
+        return estimated_kwh, signed_correction_pct
+    corrected = estimated_kwh / correction_factor
+    return corrected, signed_correction_pct
 
 
 def _confidence_from_samples(n: int) -> str:
@@ -396,7 +409,15 @@ def aggregate_methods(results: list[MethodResult]) -> MethodResult | None:
             break
 
     total_samples = sum(r.sample_count for r in results)
-    confidence = max(results, key=lambda r: r.sample_count).confidence
+    # Confidence is conservative — take the MIN of all contributing methods
+    # (max would let a high-sample method mask a low-sample one whose SoH
+    # we're actually using). This prevents reporting "high" confidence when
+    # the dominant signal came from 1 sample.
+    confidence_rank = {"low": 0, "medium": 1, "high": 2}
+    confidence = min(
+        (r.confidence for r in results),
+        key=lambda c: confidence_rank.get(c, 0),
+    )
 
     # Most precise estimated_kwh from the capacity method if available
     capacity_result = next((r for r in results if r.method == "capacity"), None)
