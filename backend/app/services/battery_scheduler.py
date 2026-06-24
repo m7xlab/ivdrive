@@ -190,7 +190,7 @@ async def job_monthly_passport() -> dict[str, Any]:
                     "vid": vehicle_id,
                     "soh": None,  # would need to re-fetch; left null for now
                     "conf": None,
-                    "meta": f'{{"tier": "{tier}", "size_bytes": {len(pdf_bytes)}}}',
+                    "meta": f'{{"tier": "{tier}", "html_size_chars": {len(html_body)}}}',
                 })
                 await db.commit()
             pdfs_queued += 1
