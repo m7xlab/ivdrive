@@ -179,14 +179,14 @@ TABLES & COLUMNS:
 - vehicle_positions (id, user_vehicle_id, recorded_at, latitude, longitude, speed_kmh, heading, altitude)
 
 IMPORTANT RULES:
-1. Your query runs under a restricted, read-only role that can ONLY access the analytical tables listed above; row-level security scopes those tables to the current user automatically. Auth, embeddings, and internal tables are NOT accessible — querying anything outside the tables above will be rejected.
+1. Your query runs under a restricted, read-only role that can ONLY access the analytical tables listed above; row-level security scopes those tables to the current user automatically. Auth, embeddings, and internal tables are NOT accessible - querying anything outside the tables above will be rejected.
 2. You DO NOT need to filter by `user_id`. You DO NOT need to `JOIN user_vehicles` just to verify ownership.
 3. If the user mentions a vehicle by name (e.g., 'BlackMagic'), use exact matching: `JOIN user_vehicles v ON t.user_vehicle_id = v.id WHERE v.display_name = 'BlackMagic'`. Do not use ILIKE '%...%' because it will accidentally mix data from similar vehicle names (e.g. 'BlackMagic' vs 'BlackMagic80').
 4. Always use aggregate functions (SUM, AVG, COUNT) or LIMIT your queries to 50 rows max.
 """
 
 async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query: str) -> str:
-    # Tolerate a single trailing semicolon — LLMs almost always terminate a query
+    # Tolerate a single trailing semicolon - LLMs almost always terminate a query
     # with one, and rejecting it broke every well-formed SELECT. Any ";" that
     # survives this strip is a genuine second statement and is still rejected below.
     sql_query = sql_query.strip().rstrip(";").strip()
@@ -196,7 +196,7 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
         return "SQL_ERROR: Only SELECT/WITH queries are allowed."
     if any(forbidden in lower_sql for forbidden in ["insert ", "update ", "delete ", "drop ", "create ", "alter ", "truncate ", "grant ", "revoke ", "commit", "rollback", ";"]):
         return "SQL_ERROR: Only single read-only SELECT queries are allowed."
-    # C2: hard table allow-list — reject any relation outside the curated analytical set.
+    # C2: hard table allow-list - reject any relation outside the curated analytical set.
     ok, disallowed = _ai_sql_tables_allowed(sql_query)
     if not ok:
         return f"SQL_ERROR: Access to table(s) not permitted: {disallowed}. Only the analytical tables in the schema may be queried."
@@ -213,7 +213,7 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
                 result = await conn.execute(text(sql_query))
                 rows = result.fetchall()
                 keys = list(result.keys())
-                
+
                 dict_rows = [dict(zip(keys, row)) for row in rows]
                 for row in dict_rows:
                     for k, v in row.items():
@@ -224,9 +224,9 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
                         elif isinstance(v, Decimal):
                             # NUMERIC columns (distance_km, energy_kwh, costs, and
                             # SUM/AVG aggregates) come back as Decimal, which json.dumps
-                            # cannot serialize — coerce to float for the LLM payload.
+                            # cannot serialize - coerce to float for the LLM payload.
                             row[k] = float(v)
-                            
+
                 json_res = json.dumps(dict_rows[:50])
                 return f"SQL SUCCESS! Rows returned:\n{json_res}"
     except Exception as e:
@@ -248,10 +248,10 @@ async def get_fleet_overview(db: AsyncSession, user_id: uuid.UUID) -> str:
     rows = await run_query(db, sql, {"uid": str(user_id)})
     if not rows:
         return "No vehicles found for this user."
-    
+
     parts = [f"### FLEET OVERVIEW ({len(rows)} Vehicles Total)"]
     sorted_rows = sorted(rows, key=lambda x: x[3].timestamp() if x[3] else 0, reverse=True)
-    
+
     for r in sorted_rows:
         name = r[1] or "?"
         batt = r[2] or 0
@@ -260,7 +260,7 @@ async def get_fleet_overview(db: AsyncSession, user_id: uuid.UUID) -> str:
         tc = r[5] or 0
         cost = r[6] or 0.0
         parts.append(f"- **{name}**: {batt:.0f}kWh | {tc} trips (last {last_t}) | Charge spend: €{cost:.2f} (last {last_c})")
-    
+
     return "\n".join(parts)
 
 
@@ -283,20 +283,20 @@ async def get_current_battery_state(db: AsyncSession, user_id: uuid.UUID, vehicl
     rows = await run_query(db, sql, {"uid": str(user_id), "vname": f"%{vehicle_name}%"})
     if not rows:
         return f"No current battery state found for '{vehicle_name}'."
-    
+
     r = rows[0]
     date_str = r[0].strftime("%Y-%m-%d %H:%M") if r[0] else "?"
     soc = r[1]
     range_km = (r[2] / 1000) if r[2] is not None else 0
     state = r[3] or "Unknown"
     power = r[4] or 0.0
-    
+
     parts = [f"Current battery state for {r[5]} (as of {date_str}):"]
     if soc is not None: parts.append(f"- State of Charge (SOC): {soc}%")
     if range_km > 0: parts.append(f"- Estimated remaining range: {range_km:.1f} km")
     parts.append(f"- Charging state: {state}")
     if state.lower() == "charging": parts.append(f"- Charging power: {power:.1f} kW")
-    
+
     return "\n".join(parts)
 
 async def get_battery_health(db: AsyncSession, user_id: uuid.UUID, vehicle_name: str) -> str:
@@ -329,11 +329,11 @@ async def get_battery_health(db: AsyncSession, user_id: uuid.UUID, vehicle_name:
     rows = await run_query(db, sql, {"uid": str(user_id), "vname": f"%{vehicle_name}%"})
     if not rows:
         return f"No battery health data found for vehicle matching '{vehicle_name}'."
-    
+
     r = rows[0]
     captured_str = r[0].strftime("%Y-%m-%d %H:%M") if r[0] else "?"
     parts = [f"Battery health for {r[16]} (as of {captured_str})"]
-    if r[1] is not None: 
+    if r[1] is not None:
         parts.append(f"HV SOH {r[1]:.1f}%")
         # Anomaly detection for SOH
         if abs(r[1] - 95.0) < 0.01:
@@ -350,14 +350,14 @@ async def get_battery_health(db: AsyncSession, user_id: uuid.UUID, vehicle_name:
         parts.append(f"cell voltage {r[8]:.3f}-{r[9]:.3f}V (avg {r[10]:.3f}V)")
     if r[11] is not None and r[12] is not None:
         parts.append(f"cell temp {r[11]:.1f}-{r[12]:.1f}C (avg {r[13]:.1f}C)")
-    
+
     return ". ".join(parts)
 
 async def get_trip_and_charging_stats(
-    db: AsyncSession, 
-    user_id: uuid.UUID, 
-    vehicle_name: str, 
-    start_date: Optional[str] = None, 
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    vehicle_name: str,
+    start_date: Optional[str] = None,
     end_date: Optional[str] = None
 ) -> str:
     """Get aggregated trip distance, efficiency, and charging costs for a vehicle over an optional date range."""
@@ -365,14 +365,14 @@ async def get_trip_and_charging_stats(
     v_rows = await run_query(db, v_sql, {"uid": str(user_id), "vname": f"%{vehicle_name}%"})
     if not v_rows:
         return f"No vehicle found matching '{vehicle_name}'."
-    
+
     vid = v_rows[0][0]
     actual_vname = v_rows[0][1]
 
     date_filter_t = ""
     date_filter_c = ""
     params = {"vid": vid}
-    
+
     if start_date:
         date_filter_t += " AND t.start_date >= :start_dt"
         date_filter_c += " AND c.session_start >= :start_dt"
@@ -395,7 +395,7 @@ async def get_trip_and_charging_stats(
         WHERE t.user_vehicle_id = :vid {date_filter_t}
     """)
     t_rows = await run_query(db, trip_sql, params)
-    
+
     charge_sql = text(f"""
         SELECT
             COUNT(*)::int AS charge_count,
@@ -417,7 +417,7 @@ async def get_trip_and_charging_stats(
             res.append(f"  [ANOMALY: Detected {r[5]} zero-km phantom trips which may inflate trip counts.]")
     else:
         res.append(f"- Trips: No trips found in this period.")
-        
+
     if c_rows and c_rows[0] and c_rows[0][0] > 0:
         r = c_rows[0]
         last_c = r[3].strftime("%Y-%m-%d") if r[3] else "N/A"
@@ -433,7 +433,7 @@ async def get_longest_trip(db: AsyncSession, user_id: uuid.UUID, vehicle_name: s
     v_rows = await run_query(db, v_sql, {"uid": str(user_id), "vname": f"%{vehicle_name}%"})
     if not v_rows:
         return f"No vehicle found matching '{vehicle_name}'."
-    
+
     vid = v_rows[0][0]
     actual_vname = v_rows[0][1]
 
@@ -446,10 +446,37 @@ async def get_longest_trip(db: AsyncSession, user_id: uuid.UUID, vehicle_name: s
     rows = await run_query(db, sql, {"vid": vid})
     if not rows:
         return f"No trips found for {actual_vname}."
-    
+
     r = rows[0]
     date_str = r[1].strftime("%Y-%m-%d") if r[1] else "?"
     return f"The longest trip for {actual_vname} was {r[0]:.1f} km on {date_str} (avg temp {r[2]:.1f}°C)."
+
+
+async def get_vehicle_data_health(db: AsyncSession, user_id: uuid.UUID, vehicle_name: str) -> str:
+    """Get the data-freshness snapshot for a vehicle — use this whenever a user
+    asks where their data is, why something is missing, or reports the app shows
+    nothing recent. Returns a plain-text status report the assistant can quote
+    directly, including a recommendation on whether a manual refresh is needed.
+    """
+    from app.models.vehicle import UserVehicle
+    from app.services.data_health import (
+        compute_vehicle_data_health,
+        format_data_health_for_llm,
+    )
+
+    v_sql = text("SELECT id FROM user_vehicles WHERE user_id = :uid AND display_name ILIKE :vname LIMIT 1")
+    v_rows = await run_query(db, v_sql, {"uid": str(user_id), "vname": f"%{vehicle_name}%"})
+    if not v_rows:
+        return f"No vehicle found matching '{vehicle_name}'."
+
+    vid = v_rows[0][0]
+    vehicle = await db.get(UserVehicle, vid)
+    if vehicle is None:
+        return f"Vehicle '{vehicle_name}' not found."
+
+    health = await compute_vehicle_data_health(db, vehicle)
+    return format_data_health_for_llm(health)
+
 
 async def dispatch_tool_call_extended(db: AsyncSession, user_id: uuid.UUID, tool_call: dict) -> dict:
     tool_name = tool_call.get("tool") or tool_call.get("tool_code") or tool_call.get("name")
@@ -466,10 +493,10 @@ async def dispatch_tool_call_extended(db: AsyncSession, user_id: uuid.UUID, tool
             return {"type": "battery_health_summary", "id": "aggregate", "chunk": chunk}
         elif tool_name == "get_trip_and_charging_stats":
             chunk = await get_trip_and_charging_stats(
-                db, 
-                user_id, 
-                args.get("vehicle_name", ""), 
-                args.get("start_date"), 
+                db,
+                user_id,
+                args.get("vehicle_name", ""),
+                args.get("start_date"),
                 args.get("end_date")
             )
             return {"type": "trip_summary", "id": "aggregate", "chunk": chunk}
@@ -485,6 +512,9 @@ async def dispatch_tool_call_extended(db: AsyncSession, user_id: uuid.UUID, tool
         elif tool_name == "get_longest_trip":
             chunk = await get_longest_trip(db, user_id, args.get("vehicle_name", ""))
             return {"type": "trip_summary", "id": "aggregate", "chunk": chunk}
+        elif tool_name == "get_vehicle_data_health":
+            chunk = await get_vehicle_data_health(db, user_id, args.get("vehicle_name", ""))
+            return {"type": "data_health", "id": "aggregate", "chunk": chunk}
         else:
             return None
     except Exception as e:
@@ -548,14 +578,15 @@ async def route_intent_via_llm(
     5. get_trip_and_charging_stats(vehicle_name, start_date, end_date): returns aggregated trips and charges.
     6. get_longest_trip(vehicle_name): returns longest trip.
     7. get_current_battery_state(vehicle_name): returns current SOC and remaining range (use this if user asks how many kilometers they can drive).
-    8. log_missing_capability(unanswered_query): use this ONLY if the tables in the schema do not contain the data needed.
+    8. get_vehicle_data_health(vehicle_name): returns a per-vehicle data-freshness snapshot (last seen per stream + status roll-up + refresh recommendation). USE THIS WHENEVER the user asks why data is missing, why something is "not up to date", when their last trip/charge was, whether their car is syncing, or anything that smells like a "where is my data?" support question. Always prefer this over guessing or saying "I don't have that info".
+    9. log_missing_capability(unanswered_query): use this ONLY if the tables in the schema do not contain the data needed.
 
     User query: "{query}"
 
     CRITICAL RULES:
     - If the user asks an analytical question that manual tools (3-7) cannot answer, you MUST use `get_database_schema` to check if the data exists, and then write a SQL query using `execute_read_only_sql`. Only use `log_missing_capability` if the schema confirms we do not have the data.
     - If a previous conversation turn already established which vehicle the user is discussing, ALWAYS pass that exact `vehicle_name` to vehicle-specific tools. NEVER pass an empty string or omit the vehicle when context makes it clear.
-    - For follow-up questions ("how much did that cost?", "what was the last trip?", "is that recent?"), prefer tools 5, 6, or 7 with the previously discussed vehicle — DO NOT call `log_missing_capability` just because the current question is short.
+    - For follow-up questions ("how much did that cost?", "what was the last trip?", "is that recent?"), prefer tools 5, 6, or 7 with the previously discussed vehicle - DO NOT call `log_missing_capability` just because the current question is short.
 
     Return ONLY a JSON array of tools to call. E.g.:
     [
@@ -571,14 +602,14 @@ async def route_intent_via_llm(
             system_override="You are a JSON-only router. Return only valid JSON array.",
             usage_stats=usage_stats,
         )
-        
+
         # Extract the JSON array using regex just in case LLM added conversational text
         import re
         match = re.search(r'\[.*\]', response_text, re.DOTALL)
         if match:
             cleaned = match.group(0)
             return json.loads(cleaned)
-            
+
         return []
     except Exception as e:
         import traceback
