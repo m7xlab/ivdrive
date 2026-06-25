@@ -172,9 +172,17 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
 
-  // All-time time budget — fetched once, not date-dependent
-  useEffect(() => {
+  // All-time time budget — fetched once per vehicleId. Use prev-prop
+  // comparison so the user never sees the old budget flash for one
+  // frame when switching vehicles (no-adjust-state-on-prop-change).
+  const [prevVehicleId, setPrevVehicleId] = useState(vehicleId);
+  if (vehicleId !== prevVehicleId) {
+    setPrevVehicleId(vehicleId);
+    setTimeBudget(null);
     setLoadingBudget(true);
+  }
+
+  useEffect(() => {
     api.getTimeBudget(vehicleId)
       .then(setTimeBudget)
       .finally(() => setLoadingBudget(false));
