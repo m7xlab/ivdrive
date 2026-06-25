@@ -1066,7 +1066,7 @@ function InvitesTable({
 
   const [sortAsc, setSortAsc] = useState(false);
 
-  const sorted = [...invites].sort((a, b) => {
+  const sorted = invites.toSorted((a, b) => {
 
     const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 

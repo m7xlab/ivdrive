@@ -78,7 +78,7 @@ function matchGeofence(lat: number, lon: number, geofences: Geofence[]): Geofenc
 
 function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence[]): ActivityEvent[] {
   if (locations.length === 0) return [];
-  const sorted = [...locations].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const sorted = locations.toSorted((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const STAY_RADIUS_M = 80;
   const MIN_STAY_MS = 5 * 60 * 1000;
   const events: ActivityEvent[] = [];
@@ -229,7 +229,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
       placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
     }
   }
-  const topPlaces = [...placeMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+  const topPlaces = [...placeMap.values()].toSorted((a, b) => b.ms - a.ms).slice(0, 5);
 
   const tb = timeBudget;
   const totalS = Math.max(

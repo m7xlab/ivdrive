@@ -51,8 +51,8 @@ export function LocationsDashboard({ vehicleId, dateRange }: LocationsDashboardP
   }, [fetchData, toISO]);
 
   const distinctPlaces = new Set(positions.map((p) => placeKey(p.latitude, p.longitude))).size;
-  const lastPositions = [...positions]
-    .sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime())
+  const lastPositions = positions.toSorted(
+    (a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime())
     .slice(0, 10);
 
   if (loading) {
