@@ -770,6 +770,11 @@ export default function VehicleDetailPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Single client-side "now" used by the statistics tab IIFE so it never
+  // calls `new Date()` inside JSX. Initialised in useEffect to keep SSR safe.
+  const [statsNow, setStatsNow] = useState<Date | null>(null);
+  useEffect(() => { setStatsNow(new Date()); }, []);
+
   const [loading, setLoading] = useState(true);
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
@@ -1914,9 +1919,9 @@ export default function VehicleDetailPage() {
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
 
-      {tab === "statistics" && mounted && (() => {
+      {tab === "statistics" && mounted && statsNow && (() => {
 
-        const now = new Date();
+        const now = statsNow;
 
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -2554,9 +2559,9 @@ export default function VehicleDetailPage() {
 
                     
 
-                    if (maintenance.length > 0 && maintenance[0].inspection_due_in_days != null && maintenance[0].inspection_due_in_days < 0) {
+                    if (statsNow && maintenance.length > 0 && maintenance[0].inspection_due_in_days != null && maintenance[0].inspection_due_in_days < 0) {
 
-                       const dueDate = new Date();
+                       const dueDate = new Date(statsNow.getTime());
 
                        dueDate.setDate(dueDate.getDate() + maintenance[0].inspection_due_in_days);
 
@@ -2584,7 +2589,7 @@ export default function VehicleDetailPage() {
 
                         {(() => {
 
-                           if (!maintenance.length || maintenance[0].inspection_due_in_days == null) return <stop offset="100%" stopColor="#4BA82E" />;
+                           if (!statsNow || !maintenance.length || maintenance[0].inspection_due_in_days == null) return <stop offset="100%" stopColor="#4BA82E" />;
 
                            const data = odometer.slice().reverse();
 
@@ -2596,7 +2601,7 @@ export default function VehicleDetailPage() {
 
                            const endTime = new Date(data[data.length - 1].captured_at).getTime();
 
-                           const dueDate = new Date();
+                           const dueDate = new Date(statsNow.getTime());
 
                            dueDate.setDate(dueDate.getDate() + maintenance[0].inspection_due_in_days);
 
@@ -2658,7 +2663,7 @@ export default function VehicleDetailPage() {
 
                         {(() => {
 
-                           if (!maintenance.length || maintenance[0].inspection_due_in_days == null) return <stop offset="100%" stopColor="#4BA82E" stopOpacity={0.2} />;
+                           if (!statsNow || !maintenance.length || maintenance[0].inspection_due_in_days == null) return <stop offset="100%" stopColor="#4BA82E" stopOpacity={0.2} />;
 
                            const data = odometer.slice().reverse();
 
@@ -2670,7 +2675,7 @@ export default function VehicleDetailPage() {
 
                            const endTime = new Date(data[data.length - 1].captured_at).getTime();
 
-                           const dueDate = new Date();
+                           const dueDate = new Date(statsNow.getTime());
 
                            dueDate.setDate(dueDate.getDate() + maintenance[0].inspection_due_in_days);
 
