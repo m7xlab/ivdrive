@@ -714,6 +714,45 @@ function WarningLightPill({ category, defects }: { category: string; defects: an
 
 
 
+function TripsTabContent({ vehicleId }: { vehicleId: string }) {
+  // Default 30-day range computed in useEffect so SSR doesn't create a Date
+  // (would drift between server and client, causing hydration mismatch).
+  const [range, setRange] = useState<{ from: Date; to: Date } | null>(null);
+  useEffect(() => {
+    const to = new Date();
+    const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    setRange({ from, to });
+  }, []);
+  if (!range) return <div className="glass rounded-xl h-64" />;
+  return <TripsDashboard vehicleId={vehicleId} dateRange={range} summarySubtitle="Last 30 Days" />;
+}
+
+function InspectionDueLine({ daysUntil }: { daysUntil: number }) {
+  // daysUntil is negative (overdue). Compute the target timestamp client-side
+  // so SSR never produces a Date.
+  const [x, setX] = useState<number | null>(null);
+  useEffect(() => {
+    setX(Date.now() + daysUntil * 24 * 60 * 60 * 1000);
+  }, [daysUntil]);
+  if (x === null) return null;
+  return (
+    <ReferenceLine
+      x={x}
+      stroke="#ef4444"
+      strokeDasharray="4 4"
+      isFront={true}
+      label={{
+        value: "INSPECTION DUE",
+        position: "insideTopLeft",
+        fill: "#ef4444",
+        fontSize: 10,
+        fontWeight: "bold",
+        offset: 10,
+      }}
+    />
+  );
+}
+
 export default function VehicleDetailPage() {
 
   const params = useParams();
@@ -725,6 +764,11 @@ export default function VehicleDetailPage() {
 
 
   const [tab, setTab] = useState<Tab>("overview");
+  // Gate for `new Date()` inside tab IIFEs — dates must not be computed
+  // during SSR or they drift between server and client render (#418).
+  // Mirrors the same pattern used in DashboardLayout.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const [loading, setLoading] = useState(true);
 
@@ -1862,15 +1906,7 @@ export default function VehicleDetailPage() {
 
 
 
-      {tab === "trips" && (() => {
-
-        const to = new Date();
-
-        const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-        return <TripsDashboard vehicleId={vehicleId} dateRange={{ from, to }} summarySubtitle="Last 30 Days" />;
-
-      })()}
+      {tab === "trips" && <TripsTabContent vehicleId={vehicleId} />}
 
 
 
@@ -1878,7 +1914,7 @@ export default function VehicleDetailPage() {
 
       {/* ===== STATISTICS (Helicopter View) ===== */}
 
-      {tab === "statistics" && (() => {
+      {tab === "statistics" && mounted && (() => {
 
         const now = new Date();
 
@@ -2774,36 +2810,8 @@ export default function VehicleDetailPage() {
 
                     />
 
-                    {maintenance.length > 0 && maintenance[0].inspection_due_in_days != null && maintenance[0].inspection_due_in_days < 0 && (
-
-                      <ReferenceLine 
-
-                        x={new Date().getTime() + (maintenance[0].inspection_due_in_days * 24 * 60 * 60 * 1000)} 
-
-                        stroke="#ef4444" 
-
-                        strokeDasharray="4 4"
-
-                        isFront={true}
-
-                        label={{ 
-
-                          value: "INSPECTION DUE", 
-
-                          position: "insideTopLeft", 
-
-                          fill: "#ef4444", 
-
-                          fontSize: 10,
-
-                          fontWeight: "bold",
-
-                          offset: 10
-
-                        }} 
-
-                      />
-
+                    {mounted && maintenance.length > 0 && maintenance[0].inspection_due_in_days != null && maintenance[0].inspection_due_in_days < 0 && (
+                      <InspectionDueLine daysUntil={maintenance[0].inspection_due_in_days} />
                     )}
 
                   </AreaChart>

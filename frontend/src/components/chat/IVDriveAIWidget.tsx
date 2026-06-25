@@ -2,7 +2,7 @@
 
 
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 
 import { X, Send, Bot, Loader2, MessageSquare, Trash2, Plus, Sparkles } from "lucide-react";
 
@@ -66,29 +66,28 @@ function parseMessageContent(content: string) {
 
 
 
+const SOURCE_LABELS: Record<string, string> = {
+  trip_summary: "Trip",
+  charging_event: "Charge",
+  vehicle_stats: "Stats",
+  location: "Place",
+  all_vehicles_summary: "Fleet",
+  battery_health_summary: "Battery",
+};
+
+const GREETING_MESSAGE: ChatMessage = {
+  role: "assistant",
+  content:
+    "Hello! I'm iVDrive AI. Ask me anything about your vehicles — trips, charging, consumption, range, and more. All answers are based only on your real vehicle data.",
+};
+
 function SourceBadge({ type, score }: { type: string; score: number }) {
-
-  const labels: Record<string, string> = {
-
-    trip_summary: "Trip",
-
-    charging_event: "Charge",
-
-    vehicle_stats: "Stats",
-
-    location: "Place",
-
-    all_vehicles_summary: "Fleet",
-
-    battery_health_summary: "Battery",
-
-  };
 
   return (
 
     <span className="text-[10px] uppercase font-medium px-2 py-0.5 rounded-full bg-iv-surface text-iv-muted">
 
-      {labels[type] || type} {score > 0.9 ? "✓" : ""}
+      {SOURCE_LABELS[type] || type} {score > 0.9 ? "✓" : ""}
 
     </span>
 
@@ -104,11 +103,11 @@ function TypingIndicator() {
 
     <div className="flex gap-1.5 px-4 py-3 bg-iv-surface rounded-2xl rounded-bl-sm w-fit">
 
-      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-pulse" style={{ animationDelay: "0ms", animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }} />
 
-      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "150ms" }} />
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-pulse" style={{ animationDelay: "150ms", animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }} />
 
-      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-bounce" style={{ animationDelay: "300ms" }} />
+      <span className="w-1.5 h-1.5 rounded-full bg-iv-muted animate-pulse" style={{ animationDelay: "300ms", animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }} />
 
     </div>
 
@@ -146,59 +145,25 @@ export function IVDriveAIWidget() {
 
 
 
-  useEffect(() => {
 
-    if (isOpen) {
 
-      chatApi.listSessions().then(setSessions).catch(() => {});
 
+  const openWidget = () => {
+    setIsOpen(true);
+    setUnread(false);
+    if (messages.length === 0 && !currentSessionId) {
+      setMessages([GREETING_MESSAGE]);
     }
-
-  }, [isOpen]);
-
-
-
-  useEffect(() => {
-
-    if (isOpen && messages.length === 0 && !currentSessionId) {
-
-      setMessages([
-
-        {
-
-          role: "assistant",
-
-          content: "Hello! I'm iVDrive AI. Ask me anything about your vehicles — trips, charging, consumption, range, and more. All answers are based only on your real vehicle data.",
-
-        },
-
-      ]);
-
-    }
-
-  }, [isOpen, messages.length, currentSessionId]);
+    chatApi.listSessions().then(setSessions).catch(() => {});
+  };
 
 
 
-  const scrollToBottom = useCallback(() => {
-
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
-  }, []);
-
-
-
-  useEffect(() => {
-
-    if (isOpen) {
-
-      scrollToBottom();
-
-      setUnread(false);
-
-    }
-
-  }, [messages, isOpen, scrollToBottom]);
+  // useLayoutEffect (not useEffect) so scroll happens after DOM update
+  // but before paint — prevents visible jump on new message.
+  useLayoutEffect(() => {
+    if (isOpen) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, isOpen]);
 
 
 
@@ -476,7 +441,7 @@ export function IVDriveAIWidget() {
 
       <button type="button"
 
-        onClick={() => setIsOpen(true)}
+        onClick={openWidget}
 
         className="fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#007AFF] shadow-xl shadow-blue-500/30 hover:scale-105 hover:shadow-2xl transition-all duration-300 flex items-center justify-center group border border-white/10 backdrop-blur-md"
 
@@ -608,7 +573,10 @@ export function IVDriveAIWidget() {
 
                   key={s.id}
 
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleSelectSession(s.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSelectSession(s.id); } }}
 
                   className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-colors group ${
 
