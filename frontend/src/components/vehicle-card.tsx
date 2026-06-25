@@ -380,7 +380,15 @@ export function VehicleCard({
 
     <div
 
+      role="button"
+
+      tabIndex={0}
+
+      aria-label={`Open vehicle`}
+
       onClick={() => router.push(`/vehicles/${vehicleId}`)}
+
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/vehicles/${vehicleId}`); } }}
 
       className="glass rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:glow-green hover:border-iv-green/30 group relative flex flex-col"
 

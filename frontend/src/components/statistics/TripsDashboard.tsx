@@ -712,6 +712,10 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
                     <div
 
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Trip ${trip.trip_id}`}
+
                       className={`flex items-center gap-3 p-3 rounded-xl bg-iv-surface/60 border transition-all cursor-pointer ${isActive ? 'border-iv-cyan/50 bg-iv-cyan/5' : 'border-iv-border/40 hover:border-iv-border'}`}
 
                       onClick={() => {
@@ -721,6 +725,8 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                         setExpandedTripId(prev => prev === trip.trip_id ? null : trip.trip_id);
 
                       }}
+
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveTripId(trip.trip_id); setExpandedTripId(prev => prev === trip.trip_id ? null : trip.trip_id); } }}
 
                     >
 

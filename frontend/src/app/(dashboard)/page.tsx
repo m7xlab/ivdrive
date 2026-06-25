@@ -452,7 +452,14 @@ function ConfirmDeleteModal({
 
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
 
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label="Close dialog"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onCancel}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCancel(); } }}
+      />
 
       <div className="glass relative w-full max-w-sm rounded-2xl p-6">
 
@@ -610,9 +617,24 @@ function AddVehicleModal({
 
       <div
 
+
+        role="button"
+
+
+        tabIndex={0}
+
+
+        aria-label="Close dialog"
+
+
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
 
+
         onClick={onClose}
+
+
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClose(); } }}
+
 
       />
 

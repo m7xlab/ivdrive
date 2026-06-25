@@ -1384,9 +1384,11 @@ function AnnouncementsPanel({
 
           <div>
 
-            <label className="block text-xs text-iv-muted mb-1.5 font-medium">Title</label>
+            <label htmlFor="announcement-title" className="block text-xs text-iv-muted mb-1.5 font-medium">Title</label>
 
             <input
+
+              id="announcement-title"
 
               type="text"
 
@@ -1406,9 +1408,9 @@ function AnnouncementsPanel({
 
             <div>
 
-              <label className="block text-xs text-iv-muted mb-1.5 font-medium">Type</label>
+              <label className="block text-xs text-iv-muted mb-1.5 font-medium" htmlFor="announcement-type">Type</label>
 
-              <select
+              <select id="announcement-type"
 
                 value={form.type}
 
@@ -1432,9 +1434,9 @@ function AnnouncementsPanel({
 
             <div>
 
-              <label className="block text-xs text-iv-muted mb-1.5 font-medium">Expires at (optional)</label>
+              <label className="block text-xs text-iv-muted mb-1.5 font-medium" htmlFor="announcement-expires">Expires at (optional)</label>
 
-              <input
+              <input id="announcement-expires"
 
                 type="datetime-local"
 
@@ -1454,9 +1456,11 @@ function AnnouncementsPanel({
 
         <div>
 
-          <label className="block text-xs text-iv-muted mb-1.5 font-medium">Message</label>
+          <label htmlFor="announcement-message" className="block text-xs text-iv-muted mb-1.5 font-medium">Message</label>
 
           <textarea
+
+            id="announcement-message"
 
             value={form.message}
 
