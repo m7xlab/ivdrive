@@ -12,6 +12,7 @@ Uses AsyncIOScheduler, same pattern as services/collector.py.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -210,7 +211,13 @@ async def job_monthly_passport() -> dict[str, Any]:
                     "vid": vehicle_id,
                     "soh": None,
                     "conf": None,
-                    "meta": f'{{"tier": "{tier}", "html_size_chars": {len(html_body)}, "pdf_size_bytes": {len(pdf_bytes)}, "storage_key": "{storage_key or "none"}", "download_url_provided": {bool(download_url)}}}',
+                    "meta": json.dumps({
+                        "tier": tier,
+                        "html_size_chars": len(html_body),
+                        "pdf_size_bytes": len(pdf_bytes),
+                        "storage_key": storage_key or "none",
+                        "download_url_provided": bool(download_url),
+                    }),
                 })
                 await db.commit()
             pdfs_queued += 1
