@@ -347,14 +347,6 @@ async def get_battery_health(
         ORDER BY session_start DESC
         LIMIT 50
     """)
-    soh_result = await db.execute(soh_stmt, {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh})
-    soh_estimates = soh_result.fetchall()
-
-    curve_data = []
-    valid = []
-    latest_derived = None
-    latest_derived_kwh = None
-
     if not factory_kwh or factory_kwh <= 0:
         return {
             "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
@@ -363,9 +355,17 @@ async def get_battery_health(
             "derived_soh_pct": None,
             "derived_capacity_kwh": None,
             "derived_source": "fallback_no_capacity",
-            "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
+            "total_soh_estimates": 0,
             "curve": [],
         }
+
+    soh_result = await db.execute(soh_stmt, {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh})
+    soh_estimates = soh_result.fetchall()
+
+    curve_data = []
+    valid = []
+    latest_derived = None
+    latest_derived_kwh = None
 
     if soh_estimates:
         limit_kwh = float(factory_kwh) * 1.03
