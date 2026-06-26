@@ -799,13 +799,13 @@ export default function VehicleDetailPage() {
 
   const [statPeriod, setStatPeriod] = useState<"day" | "week" | "month" | "year">("day");
 
-  const [maintenanceDateRange, setMaintenanceDateRange] = useState<DateRangeValue>({
-
-    from: startOfDay(subDays(new Date(), 90)),
-
-    to: endOfDay(new Date()),
-
-  });
+  const [maintenanceDateRange, setMaintenanceDateRange] = useState<DateRangeValue | null>(null);
+  useEffect(() => {
+    setMaintenanceDateRange({
+      from: startOfDay(subDays(new Date(), 90)),
+      to: endOfDay(new Date()),
+    });
+  }, []);
 
   
 
