@@ -44,6 +44,15 @@ compose template.
   - **Pass 5**: `toSorted` over `sort()`, dropped unused exports
   - **Pass 6A**: accessibility sweep — 5 click handlers on divs got `role="button" + tabIndex={0} + onKeyDown(Enter/Space)` (AddVehicleModal + 2nd modal backdrops, DeleteVehicleModal backdrop, Trip row selector, VehicleCard outer click); 4 labels paired with `htmlFor`/`id` (admin announcements form)
   - **Pass 6B**: hoisted `new Date()` out of statistics + maintenance IIFEs into a single `statsNow` state in `VehicleDetailPage`, threaded through both chart IIFEs (eliminates per-render clock reads)
+- **PR Agent feedback fixes (1 High, 4 Medium, 3 Low)** — all on the same branch, will consolidate into PR #153 (see PR-153 conversation):
+  - **High**: `battery_passport.py` `_svg_chart` — `points = []` then injected into f-string rendered as Python `repr()` (broken SVG `<circle>` list). Fixed: joined via generator expression.
+  - **Medium**: `battery_scheduler.py` — manual f-string JSON for `metadata_json` with `bool(...)` → `True`/`False` (invalid JSONB). Fixed: `json.dumps({...})`.
+  - **Medium**: `analytics.py` SoH derivation — `if not factory_kwh or factory_kwh <= 0` ran AFTER `db.execute(soh_stmt, ...)` (which divides by `:factory_kwh`). Fixed: moved guard before query.
+  - **Medium**: `battery_passport.py` `send_passport_email` + `send_passport_email_legacy` — synchronous `smtplib.SMTP` inside `async def` blocks the FastAPI event loop under scheduler load. Fixed: wrap in `_send_sync()` closure + `await asyncio.to_thread(...)`.
+  - **Medium**: `vehicles/[id]/page.tsx` `maintenanceDateRange` — initialised with `new Date()` causing hydration mismatch (same pattern as `statsNow` from Pass 6B but missed on the maintenance tab). Fixed: `useState<... | null>(null)` + populate in `useEffect`.
+  - **Low**: `battery_passport.py` — `badge_y = y_for(current_soh) - 28` can be negative for healthy batteries (clipping badge). Fixed: `max(0, ...)`.
+  - **Low**: `vehicles/[id]/page.tsx` tab-switching `useEffect` — no cleanup, in-flight requests could `setState` on stale instance (race conditions). Fixed: `let isMounted = true` + guard every setter + return cleanup.
+  - **Low**: `vehicles/[id]/page.tsx` `handleDelete` — swallowed errors and closed the modal on failure (no user feedback). Fixed: keep modal open, route error through existing `setCmdResult` toast.
 
 ## [Unreleased] - 2026-05-08
 ### Fixed
