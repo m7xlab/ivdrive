@@ -1035,13 +1035,19 @@ export default function VehicleDetailPage() {
 
 
   const handleDelete = async () => {
-
     setDeleteLoading(true);
-
-    try { await api.deleteVehicle(vehicleId); router.replace("/"); }
-
-    catch { setDeleteLoading(false); setShowDeleteModal(false); }
-
+    try {
+      await api.deleteVehicle(vehicleId);
+      router.replace("/");
+    } catch (err) {
+      setDeleteLoading(false);
+      // Don't close the modal on error — surface the failure via the existing
+      // command-result toast so the user knows why and can retry.
+      setCmdResult({
+        status: "error",
+        message: err instanceof Error ? err.message : "Failed to delete vehicle",
+      });
+    }
   };
 
 
