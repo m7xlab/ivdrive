@@ -454,13 +454,15 @@ async def send_passport_email_legacy(vehicle_id: str, subject: str, html_body: s
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            server.ehlo()
-            if settings.smtp_port != 25:
-                server.starttls()
+        def _send_sync():
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
                 server.ehlo()
-            server.login(settings.smtp_user, settings.smtp_pass)
-            server.sendmail(msg["From"], [to_email], msg.as_string())
+                if settings.smtp_port != 25:
+                    server.starttls()
+                    server.ehlo()
+                server.login(settings.smtp_user, settings.smtp_pass)
+                server.sendmail(msg["From"], [to_email], msg.as_string())
+        await asyncio.to_thread(_send_sync)
         log.info(f"Passport email sent to {to_email} for {vehicle_name}")
         return True
     except Exception:
@@ -890,13 +892,15 @@ async def send_passport_email(
         msg.attach(attachment)
 
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            server.ehlo()
-            if settings.smtp_port != 25:
-                server.starttls()
+        def _send_sync():
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
                 server.ehlo()
-            server.login(settings.smtp_user, settings.smtp_pass)
-            server.sendmail(msg["From"], [to_email], msg.as_string())
+                if settings.smtp_port != 25:
+                    server.starttls()
+                    server.ehlo()
+                server.login(settings.smtp_user, settings.smtp_pass)
+                server.sendmail(msg["From"], [to_email], msg.as_string())
+        await asyncio.to_thread(_send_sync)
         log.info(
             f"Passport email sent to {to_email} for {vehicle_name} "
             f"(pdf={'attached' if pdf_bytes else 'no'}, download_link={'yes' if download_url else 'no'})"
