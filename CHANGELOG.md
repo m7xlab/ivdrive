@@ -34,6 +34,17 @@ compose template.
 - **chat_tools.py (missing table)**: `log_missing_capability` referenced `ai_missed_intents` table that was never created — caused `Internal Server Error` whenever the router fell back to "I don't have that capability". Added migration `8b3c4d5e6f70_add_ai_missed_intents.py` to create the table + index; applied to production DB.
 - chat.py (agentic router): tighten prompt to forbid `log_missing_capability` for short follow-ups ("how much did that cost?") when prior turn established a vehicle — prefer tools 5/6/7 with the resolved vehicle name.
 
+## [Unreleased] - 2026-06-26
+### Changed
+- **Frontend react-doctor cleanup — Passes 1, 2, 3, 5, 6A, 6B** (branch `fix/react-doctor-cleanup-passes-1-2-3-5`)
+  - Issues: 264 → 92 (−172), errors: 1 → 0, files: 48 → 28, score: 45 → 48
+  - **Pass 1**: deleted 11 dead files, swept 38 `type="button"` omissions on buttons, fixed MovementDashboard flicker (date-range dependency tracking), upgraded `next@16.2.6`
+  - **Pass 2**: fixed `new Date()` hydration (IVDriveAIWidget + DashboardLayout), cleaned unused imports
+  - **Pass 3**: audit + cleanup of mounted gates (consistent pattern)
+  - **Pass 5**: `toSorted` over `sort()`, dropped unused exports
+  - **Pass 6A**: accessibility sweep — 5 click handlers on divs got `role="button" + tabIndex={0} + onKeyDown(Enter/Space)` (AddVehicleModal + 2nd modal backdrops, DeleteVehicleModal backdrop, Trip row selector, VehicleCard outer click); 4 labels paired with `htmlFor`/`id` (admin announcements form)
+  - **Pass 6B**: hoisted `new Date()` out of statistics + maintenance IIFEs into a single `statsNow` state in `VehicleDetailPage`, threaded through both chart IIFEs (eliminates per-render clock reads)
+
 ## [Unreleased] - 2026-05-08
 ### Fixed
 - vehicles.py (`/statistics` endpoint): Use `AT TIME ZONE 'Europe/Vilnius'` for `date_trunc` on both trips and charging sessions — trips near local midnight were bucketed into wrong UTC day, causing Driving Stats historical data to show only 2 days instead of full May 1-8 period.
