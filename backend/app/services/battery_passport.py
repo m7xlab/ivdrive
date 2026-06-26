@@ -89,9 +89,10 @@ def _svg_chart(monthly: list[dict[str, Any]], current_soh: float, width: int = 5
         clamped = max(y_min, min(y_max, v))
         return padding_t + chart_h - ((clamped - y_min) / (y_max - y_min)) * chart_h
 
-    points = []
-    for i, m in enumerate(monthly):
-        points.append(f'<circle cx="{x_for(i):.1f}" cy="{y_for(m["soh_pct"]):.1f}" r="4" fill="{_BRAND["grad_end"]}" />')
+    points = "".join(
+        f'<circle cx="{x_for(i):.1f}" cy="{y_for(m["soh_pct"]):.1f}" r="4" fill="{_BRAND["grad_end"]}" />'
+        for i, m in enumerate(monthly)
+    )
 
     path_d = " ".join(
         f"{'M' if i == 0 else 'L'} {x_for(i):.1f} {y_for(m['soh_pct']):.1f}"
