@@ -901,19 +901,20 @@ export default function VehicleDetailPage() {
 
   useEffect(() => {
 
+    let isMounted = true;
     if (tab === "overview") {
 
       Promise.all([api.getBatteryHistory(vehicleId, 200), api.getRangeHistory(vehicleId, 200)])
 
-        .then(([b, r]) => { setBatteryHistory(b); setRangeHistory(r); });
+        .then(([b, r]) => { if (isMounted) { setBatteryHistory(b); setRangeHistory(r); } });
 
     } else if (tab === "charging") {
 
-      api.getChargingSessions(vehicleId, 50).then(setSessions);
+      api.getChargingSessions(vehicleId, 50).then(s => { if (isMounted) setSessions(s); });
 
     } else if (tab === "trips") {
 
-      api.getTrips(vehicleId, 50).then(setTrips);
+      api.getTrips(vehicleId, 50).then(t => { if (isMounted) setTrips(t); });
 
     } else if (tab === "statistics") {
 
@@ -925,13 +926,7 @@ export default function VehicleDetailPage() {
 
         api.getChargingSessions(vehicleId, 100)
 
-      ]).then(([t, s]) => {
-
-        setTrips(t);
-
-        setSessions(s);
-
-      });
+      ]).then(([t, s]) => { if (isMounted) { setTrips(t); setSessions(s); } });
 
     } else if (tab === "maintenance") {
 
@@ -955,58 +950,38 @@ export default function VehicleDetailPage() {
 
       ])
 
-        .then(([m, o]) => { 
-
+        .then(([m, o]) => {
+          if (!isMounted) return;
           // Deduplicate to latest record per day
-
           const filterByDay = <T extends { captured_at: string }>(items: T[]) => {
-
             const latestByDay = new Map<string, T>();
 
-            
-
             items.forEach(item => {
-
               const date = new Date(item.captured_at);
-
               // Use local date string to group by day correctly
-
               const dayKey = date.toLocaleDateString();
 
-              
-
               // If we haven't seen this day, or this item is newer than what we have
-
               if (!latestByDay.has(dayKey) || new Date(item.captured_at) > new Date(latestByDay.get(dayKey)!.captured_at)) {
-
                 latestByDay.set(dayKey, item);
-
               }
-
             });
 
-
-
             // Return values sorted by date descending (newest first)
-
-            return Array.from(latestByDay.values()).sort((a, b) => 
-
+            return Array.from(latestByDay.values()).sort((a, b) =>
               new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime()
-
             );
-
           };
 
-
-
-          setMaintenance(filterByDay(m)); 
-
-          setOdometer(filterByDay(o)); 
-
+          setMaintenance(filterByDay(m));
+          setOdometer(filterByDay(o));
         });
 
-    }
 
+
+
+    }
+    return () => { isMounted = false; };
   }, [tab, vehicleId, statPeriod]);
 
 
