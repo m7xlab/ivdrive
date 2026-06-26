@@ -120,7 +120,7 @@ def _svg_chart(monthly: list[dict[str, Any]], current_soh: float, width: int = 5
 
     # Current value badge
     badge_x = x_for(n - 1) - 60
-    badge_y = y_for(current_soh) - 28
+    badge_y = max(0, y_for(current_soh) - 28)
 
     return f'''
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="100%" style="display:block;">
