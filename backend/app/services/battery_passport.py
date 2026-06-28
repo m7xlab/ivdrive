@@ -76,8 +76,13 @@ def _svg_chart(monthly: list[dict[str, Any]], current_soh: float, width: int = 5
     chart_w = width - padding_l - padding_r
     chart_h = height - padding_t - padding_b
 
-    # Y-axis: 80-105% range to keep changes visible
-    y_min, y_max = 80.0, 105.0
+    # Y-axis: dynamic floor (80% default) so degraded batteries don't get clamped,
+    # padded 5% below the worst data point for visual headroom. Y-max stays 105%.
+    data_floor = 80.0
+    if monthly:
+        data_floor = min(m["soh_pct"] for m in monthly) - 5.0
+    y_min = min(80.0, data_floor)
+    y_max = 105.0
     n = len(monthly)
 
     def x_for(i: int) -> float:
@@ -99,8 +104,8 @@ def _svg_chart(monthly: list[dict[str, Any]], current_soh: float, width: int = 5
         for i, m in enumerate(monthly)
     )
 
-    # Y-axis labels
-    y_ticks = [80, 85, 90, 95, 100, 105]
+    # Y-axis labels — ticks follow y_min so degraded batteries get a useful chart
+    y_ticks = list(range(int(y_min // 5) * 5, int(y_max) + 1, 5))
     y_labels = "".join(
         f'<text x="{padding_l - 8}" y="{y_for(t) + 4:.1f}" text-anchor="end" font-size="11" fill="{_BRAND["muted"]}">{t}%</text>'
         for t in y_ticks
@@ -496,13 +501,18 @@ def _chart_png(monthly: list[dict[str, Any]], width: int = 900, height: int = 28
     padding_l, padding_r, padding_t, padding_b = 60, 20, 20, 40
     chart_w = width - padding_l - padding_r
     chart_h = height - padding_t - padding_b
-    y_min, y_max = 80.0, 105.0
+    data_floor = 80.0
+    if monthly:
+        data_floor = min(m["soh_pct"] for m in monthly) - 5.0
+    y_min = min(80.0, data_floor)
+    y_max = 105.0
 
     img = Image.new("RGB", (width, height), (10, 10, 15))
     draw = ImageDraw.Draw(img)
 
-    # Y-axis grid + labels
-    for tick in (80, 85, 90, 95, 100, 105):
+    # Y-axis grid + labels — ticks follow y_min so degraded batteries get a useful chart
+    ticks = list(range(int(y_min // 5) * 5, int(y_max) + 1, 5))
+    for tick in ticks:
         y = padding_t + chart_h - ((tick - y_min) / (y_max - y_min)) * chart_h
         draw.line([(padding_l, y), (padding_l + chart_w, y)], fill=(30, 30, 42), width=1)
         draw.text((padding_l - 40, y - 6), f"{tick}%", fill=(136, 136, 136))

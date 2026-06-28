@@ -12,6 +12,7 @@ Endpoints:
   GET    /battery/health                      — fleet ops monitoring (stale/anomalous)
   POST   /battery/vehicles/{vehicle_id}/recompute  — force re-estimate
 """
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -191,7 +192,10 @@ async def update_user_battery_override(
         VALUES (:uid, 'admin_override', CAST(:meta AS JSONB))
     """), {
         "uid": str(user_id),
-        "meta": f'{{"tier_override": "{body.tier_override}", "by_admin": "{admin.id}"}}',
+        "meta": json.dumps({
+            "tier_override": body.tier_override,
+            "by_admin": str(admin.id),
+        }),
     })
     await db.commit()
     return {"user_id": str(user_id), "updated": True}
@@ -326,7 +330,11 @@ async def recompute_estimate(
         "vid": str(vehicle_id),
         "soh": result.soh_pct if result else None,
         "conf": result.confidence if result else None,
-        "meta": f'{{"trigger": "manual", "by_admin": "{admin.id}", "lookback_days": {body.lookback_days}}}',
+        "meta": json.dumps({
+            "trigger": "manual",
+            "by_admin": str(admin.id),
+            "lookback_days": body.lookback_days,
+        }),
     })
     await db.commit()
 
