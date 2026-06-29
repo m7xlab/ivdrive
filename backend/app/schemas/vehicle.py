@@ -123,3 +123,43 @@ class VehicleStatusResponse(BaseModel):
     is_in_motion: bool | None = None
 
     connector_status: str | None = None
+
+
+class DataHealthTimeline(BaseModel):
+    """A single telemetry stream's last-seen timestamp + age."""
+    last_at: datetime | None = None
+    age_minutes: int | None = None  # None if last_at is None
+
+
+class VehicleDataHealthResponse(BaseModel):
+    """Per-vehicle data freshness snapshot — powers both the dashboard widget
+    and the AI Support Coach tool.
+
+    `status` is a coarse health roll-up:
+      - live   — most recent telemetry within the last hour
+      - stale  — last telemetry 1-24h ago, user may notice missing recent data
+      - down   — no telemetry in >24h, vehicle essentially invisible to the app
+    """
+    vehicle_id: uuid.UUID
+    vin_last4: str
+    display_name: str | None = None
+
+    status: str  # "live" | "stale" | "down" | "unknown"
+
+    last_telemetry_at: datetime | None = None
+    minutes_since_last_telemetry: int | None = None
+
+    timeline: dict[str, DataHealthTimeline]
+    # Keys: "position", "vehicle_state", "charging_state", "charging_session",
+    #       "trip", "odometer"
+
+    has_ongoing_trip: bool = False
+    is_currently_charging: bool = False
+
+    collection_enabled: bool | None = None
+    last_fetch_at: datetime | None = None
+
+    refresh_recommended: bool = False
+    refresh_reason: str | None = None  # human-readable explanation
+
+    generated_at: datetime

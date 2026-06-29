@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -263,6 +264,23 @@ async def _upload_session_to_s3(session_id: str, user_id: str, messages: list[di
 
 
 # ─── LLM calls ─────────────────────────────────────────────────────────────────
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Strip ``<think>...</think>`` blocks from LLM output.
+
+    Reasoning-capable models (e.g. minimax M3, o1) emit their chain-of-thought
+    inside ``<think>`` tags. We don't want to leak that to end users — it reads
+    as raw scratchpad and looks broken. The tags themselves plus any whitespace
+    immediately after are removed.
+    """
+    if not text:
+        return text
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    return cleaned.strip()
+
+
 async def call_llm(
     prompt: str,
     context_chunks: list[dict],
@@ -327,7 +345,9 @@ async def call_llm(
         "7. Never expose internal labels like 'trip_summary', 'charging_event', 'location', or raw tags in your answer.\n"
         "8. ANOMALY ACKNOWLEDGEMENT: If the data contains an [ANOMALY: ...] tag, you MUST clearly convey that warning to the user in your own natural words (never omit or downplay it) — but do NOT print the literal '[ANOMALY: ...]' tag; it is internal. For example, fold it into a sentence like 'A quick heads-up: 6 of those were zero-km \"phantom\" trips, which may slightly inflate the count.' If SOH is exactly 95.0%, gently note in prose that this is likely a stale/default value from the Škoda API rather than a fresh measurement.\n"
         "9. EFFICIENCY ADVISOR: When discussing energy consumption (kWh/100km), act as an advisor. Correlate the efficiency with the provided average ambient temperature. If temperature is below 10°C, explain that cold weather causes higher consumption due to battery heating and HVAC.\n"
-        "10. INTERACTIVE CHARTS: If you are presenting numeric data (e.g., fleet overview, battery health, or trip/charging stats), append a markdown block starting with ```json_chart and ending with ``` containing a JSON object for a Recharts chart. Schema: {\"title\": \"string\", \"type\": \"bar\"|\"line\"|\"pie\"|\"donut\", \"data\": [{\"name\": \"Label\", \"value1\": 10, ...}], \"categories\": [\"value1\", ...]}. Example for battery: {\"title\": \"Battery Metrics\", \"type\": \"bar\", \"data\": [{\"name\": \"SOH\", \"%\": 95}, {\"name\": \"Degradation\", \"%\": 5}], \"categories\": [\"%\"]}. Example for fleet: {\"title\": \"Fleet Capacity\", \"type\": \"bar\", \"data\": [{\"name\": \"BlackMagic\", \"kWh\": 58}, {\"name\": \"JB_RS\", \"kWh\": 77}], \"categories\": [\"kWh\"]}."
+        "10. INTERACTIVE CHARTS: If you are presenting numeric data (e.g., fleet overview, battery health, or trip/charging stats), append a markdown block starting with ```json_chart and ending with ``` containing a JSON object for a Recharts chart. Schema: {\"title\": \"string\", \"type\": \"bar\"|\"line\"|\"pie\"|\"donut\", \"data\": [{\"name\": \"Label\", \"value1\": 10, ...}], \"categories\": [\"value1\", ...]}. Example for battery: {\"title\": \"Battery Metrics\", \"type\": \"bar\", \"data\": [{\"name\": \"SOH\", \"%\": 95}, {\"name\": \"Degradation\", \"%\": 5}], \"categories\": [\"%\"]}. Example for fleet: {\"title\": \"Fleet Capacity\", \"type\": \"bar\", \"data\": [{\"name\": \"BlackMagic\", \"kWh\": 58}, {\"name\": \"JB_RS\", \"kWh\": 77}], \"categories\": [\"kWh\"]}.\n"
+        "11. SUPPORT COACH (data-health awareness): When the user asks why something is missing, why data is not up to date, when their last trip or charge was, whether their car is syncing, or reports that the Skoda app shows data we don't — do NOT just say you don't have that info. Call the get_vehicle_data_health tool (if it isn't already in the provided context) to diagnose. Quote the relevant facts (last seen per stream, status roll-up, refresh recommendation) in natural prose, and offer one concrete next step (e.g. trigger a manual refresh from the vehicle card). Only fall back to a generic 'we don't have that' if get_vehicle_data_health also returns no useful signal.\n"
+        "12. SUPPORT ESCALATION: When data_health status is 'down' (no telemetry in >24h) or 'stale' (1-24h) AND the user has already tried a manual refresh once this turn, suggest: (a) check Skoda app login still works, (b) confirm the car has been driven or woken up recently (Škoda EVs sleep deeply after ~7 days idle and need a physical wake-up before the API will respond), and (c) as a last resort re-authenticate from Settings."
     )
 
     # Inject vehicle context into context_block so LLM knows what vehicle we're discussing
@@ -350,8 +370,11 @@ async def call_llm(
             if prov == "minimax":
                 if not MINIMAX_API_KEY:
                     continue
+                # Use the gate's model only if it looks like a minimax model.
+                # Otherwise (e.g. gemini model fell back here) use the minimax default.
+                eff_model = model if (model and (model.startswith("MiniMax-") or model.startswith("abab"))) else LLM_MODELS[prov]
                 req_json = {
-                    "model": model or LLM_MODELS.get(prov, "MiniMax-M3"),
+                    "model": eff_model,
                     "messages": messages,
                     "temperature": 0.3,
                 }
@@ -373,12 +396,15 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
                         usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cached_tokens", 0)
-                    answer = data["choices"][0]["message"]["content"]
+                    answer = _strip_thinking(data["choices"][0]["message"]["content"])
                     return answer
 
             elif prov == "gemini":
                 if not GEMINI_API_KEY:
                     continue
+                # Use gate's model only if it looks like a gemini model. If a minimax
+                # model name was passed in, use the gemini default instead.
+                gemini_eff_model = model if (model and model.startswith("gemini-")) else LLM_MODELS[prov]
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         f"{LLM_URLS[prov]}?key={GEMINI_API_KEY}",
@@ -397,11 +423,13 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("promptTokenCount", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("candidatesTokenCount", 0)
                         usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cachedContentTokenCount", 0)
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                    return _strip_thinking(data["candidates"][0]["content"]["parts"][0]["text"])
 
             elif prov == "openai":
                 if not OPENAI_API_KEY:
                     continue
+                # Use gate's model only if it looks like an openai model.
+                openai_eff_model = model if (model and (model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"))) else LLM_MODELS[prov]
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
                         LLM_URLS[prov],
@@ -410,7 +438,7 @@ async def call_llm(
                             "Content-Type": "application/json",
                         },
                         json={
-                            "model": model or LLM_MODELS.get(prov, "gpt-4o-mini"),
+                            "model": openai_eff_model,
                             "messages": messages,
                             "temperature": 0.3,
                         },
@@ -424,7 +452,7 @@ async def call_llm(
                         usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
                         usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
                         # openai might have prompt_tokens_details
-                    return data["choices"][0]["message"]["content"]
+                    return _strip_thinking(data["choices"][0]["message"]["content"])
 
         except Exception as e:
             last_error = f"{prov} exception: {str(e)[:80]}"

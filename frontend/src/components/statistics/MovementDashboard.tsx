@@ -78,7 +78,7 @@ function matchGeofence(lat: number, lon: number, geofences: Geofence[]): Geofenc
 
 function buildActivityTimeline(locations: VisitedLocation[], geofences: Geofence[]): ActivityEvent[] {
   if (locations.length === 0) return [];
-  const sorted = [...locations].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const sorted = locations.toSorted((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const STAY_RADIUS_M = 80;
   const MIN_STAY_MS = 5 * 60 * 1000;
   const events: ActivityEvent[] = [];
@@ -172,9 +172,17 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
 
-  // All-time time budget — fetched once, not date-dependent
-  useEffect(() => {
+  // All-time time budget — fetched once per vehicleId. Use prev-prop
+  // comparison so the user never sees the old budget flash for one
+  // frame when switching vehicles (no-adjust-state-on-prop-change).
+  const [prevVehicleId, setPrevVehicleId] = useState(vehicleId);
+  if (vehicleId !== prevVehicleId) {
+    setPrevVehicleId(vehicleId);
+    setTimeBudget(null);
     setLoadingBudget(true);
+  }
+
+  useEffect(() => {
     api.getTimeBudget(vehicleId)
       .then(setTimeBudget)
       .finally(() => setLoadingBudget(false));
@@ -221,7 +229,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
       placeMap.set(key, { label: s.label, lat: s.latitude, lon: s.longitude, ms: s.durationMs, charging: s.isCharging });
     }
   }
-  const topPlaces = [...placeMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 5);
+  const topPlaces = [...placeMap.values()].toSorted((a, b) => b.ms - a.ms).slice(0, 5);
 
   const tb = timeBudget;
   const totalS = Math.max(

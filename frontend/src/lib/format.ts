@@ -32,13 +32,3 @@ export function formatSmartDuration(minutes: number): string {
   return `${(minutes / 525600).toFixed(1)} years`;
 }
 
-/**
- * Classic h/m formatter — keeps minutes granularity for short durations.
- */
-export function formatDuration(minutes: number): string {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "—";
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}

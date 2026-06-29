@@ -85,6 +85,35 @@ class StorageProvider:
         else:
             return False
 
+    async def upload_bytes(self, content: bytes, destination_blob_name: str, content_type: str = "application/octet-stream", bucket_name: str | None = None) -> bool:
+        """Upload raw bytes (e.g. PDFs) to S3/GCS without any text encoding roundtrip.
+
+        Use this for binary files — do NOT decode bytes to str and re-encode,
+        because that can corrupt the binary content if the storage layer or any
+        downstream tool performs a UTF-8 roundtrip on the string.
+        """
+        if self.use_gcs:
+            blob = self.bucket.bucket if hasattr(self.bucket, "bucket") else self.client.bucket(bucket_name or self.bucket_name)
+            blob = blob.blob(destination_blob_name)
+            await asyncio.to_thread(blob.upload_from_string, content, content_type=content_type)
+            return True
+        elif getattr(self, "use_s3", False):
+            target_bucket = bucket_name or self.bucket_name
+            s3_client = self.s3_session_client if target_bucket == self._conv_bucket_name else self.client
+
+            def _upload():
+                s3_client.put_object(
+                    Bucket=target_bucket,
+                    Key=destination_blob_name,
+                    Body=content,
+                    ContentType=content_type,
+                )
+
+            await asyncio.to_thread(_upload)
+            return True
+        else:
+            return False
+
     async def upload_chat_session(self, session_id: str, user_id: str, messages: list[dict]) -> bool:
         """Upload a complete chat session as JSON to S3 conversation bucket."""
         session_log = {

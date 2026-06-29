@@ -123,6 +123,12 @@ async def lifespan(app: FastAPI):
         await _ensure_chat_tables()
     except Exception:
         logging.getLogger("app").warning("startup _ensure_chat_tables failed", exc_info=True)
+    # Start battery SoH scheduler (anomaly detection + monthly Passport)
+    try:
+        from app.services.battery_scheduler import scheduler as battery_scheduler
+        await battery_scheduler.start()
+    except Exception:
+        logging.getLogger("app").warning("battery_scheduler startup failed", exc_info=True)
     # So that logger.info() from app (e.g. STATISTICS_QUERY_DEBUG) appears in docker logs
     if getattr(settings, "statistics_query_debug", False):
         app_logger = logging.getLogger("app")
@@ -132,6 +138,12 @@ async def lifespan(app: FastAPI):
             h.setLevel(logging.INFO)
             app_logger.addHandler(h)
     yield
+    # Stop battery scheduler before closing cache
+    try:
+        from app.services.battery_scheduler import scheduler as battery_scheduler
+        await battery_scheduler.stop()
+    except Exception:
+        pass
     await close_cache()
 
 
@@ -184,6 +196,8 @@ app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["set
 app.include_router(analytics.router, prefix="/api/v1/vehicles", tags=["analytics"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(admin_ai.router, prefix="/api/v1/admin", tags=["admin"])
+from app.api.v1 import admin_battery  # noqa: E402
+app.include_router(admin_battery.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(geo.router, prefix="/api/v1/geo", tags=["geo"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])

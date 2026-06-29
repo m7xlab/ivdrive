@@ -56,7 +56,15 @@ from app.schemas.telemetry import (
     VehicleStateItem,
     WLTPResponse,
 )
-from app.schemas.vehicle import VehicleCreate, VehicleResponse, VehicleStatusResponse, VehicleUpdate, VehicleReauth
+from app.schemas.vehicle import (
+    DataHealthTimeline,
+    VehicleCreate,
+    VehicleDataHealthResponse,
+    VehicleResponse,
+    VehicleStatusResponse,
+    VehicleUpdate,
+    VehicleReauth,
+)
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
 from app.services.skoda_auth import SkodaAuthClient
@@ -329,6 +337,24 @@ async def refresh_vehicle(
     await _get_user_vehicle(vehicle_id, user, db)
     await publish_vehicle_refresh(str(vehicle_id))
     return {"status": "queued", "message": "Manual refresh triggered successfully"}
+
+
+@router.get("/{vehicle_id}/data-health", response_model=VehicleDataHealthResponse)
+async def get_vehicle_data_health(
+    vehicle_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-vehicle data-freshness snapshot. Powers the dashboard "data health" widget
+    and the AI Support Coach tool. Single source of truth for both UIs.
+
+    Returns the last-seen timestamp for each telemetry stream (position, vehicle state,
+    charging state, charging session, trip, odometer) and a coarse status roll-up
+    (live / stale / down) the AI can act on without further queries.
+    """
+    from app.services.data_health import compute_vehicle_data_health
+    vehicle = await _get_user_vehicle(vehicle_id, user, db)
+    return await compute_vehicle_data_health(db, vehicle)
 
 
 @router.post("/{vehicle_id}/reauthenticate", status_code=status.HTTP_200_OK)

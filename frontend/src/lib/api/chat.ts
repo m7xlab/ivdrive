@@ -31,10 +31,6 @@ export interface SessionInfo {
 // In-memory current session — never persisted to localStorage
 let _currentSessionId: string | null = null;
 
-export function getCurrentSessionId(): string | null {
-  return _currentSessionId;
-}
-
 function setCurrentSessionId(sid: string | null): void {
   _currentSessionId = sid;
 }
