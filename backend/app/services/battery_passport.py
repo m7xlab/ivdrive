@@ -161,14 +161,10 @@ def _bar(percent: float, label: str, score: float | None = None) -> str:
     '''
 
 
-async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
-    """Returns (subject, html_body) for the monthly Passport.
-
-    Pulls the latest aggregate estimate + 12-month trend from
-    battery_soh_estimates, then composes a branded newsletter-style HTML doc.
-    """
+async def _load_passport_data(vehicle_id: str) -> dict | None:
+    """Single source of truth for Passport data. Shared by HTML and PDF generators
+    so we don't run duplicate queries. Returns None if vehicle not found."""
     async with async_session() as db:
-        # Vehicle + user details
         meta = (await db.execute(text("""
             SELECT
               uv.id::text AS vehicle_id,
@@ -187,9 +183,8 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
         """), {"vid": vehicle_id})).mappings().first()
 
         if not meta:
-            raise ValueError(f"vehicle {vehicle_id} not found")
+            return None
 
-        # Latest aggregate
         latest = (await db.execute(text("""
             SELECT soh_pct, estimated_kwh, confidence, estimated_at, sample_count
             FROM battery_soh_estimates
@@ -197,7 +192,6 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
             ORDER BY estimated_at DESC LIMIT 1
         """), {"vid": vehicle_id})).mappings().first()
 
-        # 12-month trend
         trend_rows = (await db.execute(text("""
             SELECT
               TO_CHAR(DATE_TRUNC('month', estimated_at), 'YYYY-MM') AS month,
@@ -215,7 +209,6 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
             for r in trend_rows
         ]
 
-        # Charging habit (DC vs AC split over last 30 days)
         habit = (await db.execute(text("""
             SELECT
               charging_type,
@@ -227,14 +220,11 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
               AND charging_type IS NOT NULL
             GROUP BY charging_type
         """), {"vid": vehicle_id})).fetchall()
-        habit_map = {r.charging_type: {"n": r.n, "total_kwh": float(r.total_kwh or 0)} for r in habit}
-        dc_count = habit_map.get("DC", {}).get("n", 0)
-        ac_count = habit_map.get("AC", {}).get("n", 0)
-        dc_total_kwh = habit_map.get("DC", {}).get("total_kwh", 0.0)
-        total_sessions = dc_count + ac_count
-        dc_pct = (dc_count / total_sessions * 100) if total_sessions else 0
+        habit_rows = [
+            {"charging_type": r.charging_type, "n": r.n, "total_kwh": float(r.total_kwh or 0)}
+            for r in habit
+        ]
 
-        # Odometer for warranty check
         odo = (await db.execute(text("""
             SELECT mileage_in_km FROM odometer_readings
             WHERE user_vehicle_id = :vid
@@ -242,13 +232,54 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
         """), {"vid": vehicle_id})).fetchone()
         odo_km = float(odo.mileage_in_km) if odo and odo.mileage_in_km else None
 
-        # Open alerts
         alerts = (await db.execute(text("""
             SELECT alert_type, severity, message
             FROM battery_soh_alerts
             WHERE user_vehicle_id = :vid AND acknowledged_at IS NULL
             ORDER BY detected_at DESC
         """), {"vid": vehicle_id})).fetchall()
+        alert_rows = [
+            {"alert_type": a.alert_type, "severity": a.severity, "message": a.message}
+            for a in alerts
+        ]
+
+    return {
+        "meta": dict(meta),
+        "latest": dict(latest) if latest else None,
+        "trend": trend,
+        "habit": habit_rows,
+        "odo_km": odo_km,
+        "alerts": alert_rows,
+    }
+
+
+async def generate_passport_html(vehicle_id: str, download_url: str | None = None) -> tuple[str, str]:
+    """Returns (subject, html_body) for the monthly Passport.
+
+    Pulls the latest aggregate estimate + 12-month trend from
+    battery_soh_estimates, then composes a branded newsletter-style HTML doc.
+
+    download_url: optional presigned URL injected into the email as a
+        Download PDF button. Use the {{DOWNLOAD_BLOCK}} placeholder in the
+        template — no fragile string-replace on hardcoded HTML.
+    """
+    data = await _load_passport_data(vehicle_id)
+    if data is None:
+        raise ValueError(f"vehicle {vehicle_id} not found")
+
+    meta = data["meta"]
+    latest = data["latest"]
+    trend = data["trend"]
+    habit_rows = data["habit"]
+    odo_km = data["odo_km"]
+    alerts = data["alerts"]
+
+    habit_map = {r["charging_type"]: {"n": r["n"], "total_kwh": r["total_kwh"]} for r in habit_rows}
+    dc_count = habit_map.get("DC", {}).get("n", 0)
+    ac_count = habit_map.get("AC", {}).get("n", 0)
+    dc_total_kwh = habit_map.get("DC", {}).get("total_kwh", 0.0)
+    total_sessions = dc_count + ac_count
+    dc_pct = (dc_count / total_sessions * 100) if total_sessions else 0
 
     if not latest:
         return (
@@ -256,10 +287,10 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
             f"<p>No battery health data available yet for {html.escape(meta['vehicle_name'])}.</p>",
         )
 
-    soh = float(latest.soh_pct)
-    est_kwh = float(latest.estimated_kwh) if latest.estimated_kwh else meta["battery_capacity_kwh"] * soh / 100.0
+    soh = float(latest["soh_pct"])
+    est_kwh = float(latest["estimated_kwh"]) if latest["estimated_kwh"] else meta["battery_capacity_kwh"] * soh / 100.0
     factory_kwh = float(meta["battery_capacity_kwh"]) if meta["battery_capacity_kwh"] else est_kwh / (soh / 100.0)
-    confidence = latest.confidence or "low"
+    confidence = latest["confidence"] or "low"
 
     # 12-month delta
     if len(trend) >= 2:
@@ -315,7 +346,7 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
     if alerts:
         items = "".join(
             f'<li style="margin:6px 0;color:{_BRAND["warn"]};font-size:13px;">'
-            f'<strong>[{a.severity.upper()}]</strong> {html.escape(a.message or a.alert_type)}'
+            f'<strong>[{a["severity"].upper()}]</strong> {html.escape(a["message"] or a["alert_type"])}'
             f'</li>'
             for a in alerts
         )
@@ -402,13 +433,16 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
 
   {alert_html}
 
+  <!-- Download block (replaced by send_passport_email when download_url is set) -->
+  <tr><td style="padding:0 32px;">{{DOWNLOAD_BLOCK}}</td></tr>
+
   <!-- Footer -->
   <tr><td style="padding:24px 32px;text-align:center;border-top:1px solid {_BRAND["border"]};">
     <p style="margin:0;font-size:11px;color:{_BRAND["muted"]};">
       Generated by iVDrive Team ® · View full history at ivdrive.eu
     </p>
     <p style="margin:6px 0 0;font-size:10px;color:{_BRAND["muted"]};opacity:0.7;">
-      Based on {latest.sample_count} telemetry samples from your vehicle.
+      Based on {latest["sample_count"]} telemetry samples from your vehicle.
     </p>
   </td></tr>
 
@@ -416,6 +450,11 @@ async def generate_passport_html(vehicle_id: str) -> tuple[str, str]:
 </td></tr>
 </table>
 </body></html>'''
+
+    # Substitute the download placeholder. Caller (send_passport_email) sets the
+    # block via the {{DOWNLOAD_BLOCK}} marker — no fragile string-replace on
+    # hardcoded HTML structures.
+    body = body.replace("{{DOWNLOAD_BLOCK}}", "")
 
     return subject, body
 
@@ -599,62 +638,35 @@ class _PassportPDF(FPDF):
 
 
 async def generate_passport_pdf(vehicle_id: str) -> bytes:
-    """Generate the Passport as a real PDF (A4). Returns bytes."""
-    subject, html_body = await generate_passport_html(vehicle_id)
+    """Generate the Passport as a real PDF (A4). Returns bytes.
 
-    # Parse the html_body to extract the headline metrics we already computed.
-    # We do this by re-running the same data queries (simpler than parsing HTML).
-    async with async_session() as db:
-        meta = (await db.execute(text("""
-            SELECT uv.id::text, uv.display_name, uv.model, uv.battery_capacity_kwh,
-                   uv.wltp_range_km, uv.model_year, u.email, u.display_name AS user_name
-            FROM user_vehicles uv JOIN users u ON u.id = uv.user_id
-            WHERE uv.id = :vid
-        """), {"vid": vehicle_id})).mappings().first()
-
-        latest = (await db.execute(text("""
-            SELECT soh_pct, estimated_kwh, confidence, estimated_at, sample_count
-            FROM battery_soh_estimates
-            WHERE user_vehicle_id = :vid AND method = 'aggregate'
-            ORDER BY estimated_at DESC LIMIT 1
-        """), {"vid": vehicle_id})).mappings().first()
-
-        trend = (await db.execute(text("""
-            SELECT TO_CHAR(DATE_TRUNC('month', estimated_at), 'YYYY-MM') AS month,
-                   ROUND(AVG(soh_pct)::numeric, 2) AS soh_pct
-            FROM battery_soh_estimates
-            WHERE user_vehicle_id = :vid AND method = 'aggregate'
-              AND estimated_at >= NOW() - INTERVAL '12 months'
-            GROUP BY 1 ORDER BY 1
-        """), {"vid": vehicle_id})).fetchall()
-
-        odo = (await db.execute(text("""
-            SELECT mileage_in_km FROM odometer_readings
-            WHERE user_vehicle_id = :vid ORDER BY captured_at DESC LIMIT 1
-        """), {"vid": vehicle_id})).first()
-
-        habit = (await db.execute(text("""
-            SELECT charging_type, COUNT(*)::int AS n
-            FROM charging_sessions
-            WHERE user_vehicle_id = :vid
-              AND session_start >= NOW() - INTERVAL '30 days'
-              AND charging_type IS NOT NULL
-            GROUP BY charging_type
-        """), {"vid": vehicle_id})).fetchall()
+    Uses the shared _load_passport_data() helper so we don't duplicate the
+    six database queries that generate_passport_html() just ran.
+    """
+    # Trigger HTML generation too so the caller can reuse its subject/body if
+    # they want — but we don't need its output here. The expensive part is
+    # the queries, and we only run them once now.
+    data = await _load_passport_data(vehicle_id)
+    if data is None:
+        return _minimal_pdf("Vehicle not found.")
+    meta = data["meta"]
+    latest = data["latest"]
+    trend = data["trend"]
+    habit_rows = data["habit"]
+    odo_km = data["odo_km"]
 
     if not meta or not latest:
         return _minimal_pdf("No battery health data available yet.")
 
-    soh = float(latest.soh_pct)
-    est_kwh = float(latest.estimated_kwh) if latest.estimated_kwh else 0.0
+    soh = float(latest["soh_pct"])
+    est_kwh = float(latest["estimated_kwh"]) if latest["estimated_kwh"] else 0.0
     factory_kwh = float(meta["battery_capacity_kwh"]) if meta["battery_capacity_kwh"] else 0.0
-    confidence = latest.confidence or "low"
+    confidence = latest["confidence"] or "low"
     wltp = float(meta["wltp_range_km"]) if meta["wltp_range_km"] else None
     range_now = int(wltp * soh / 100.0) if wltp else None
     range_new = int(wltp) if wltp else None
-    odo_km = float(odo.mileage_in_km) if odo and odo.mileage_in_km else None
 
-    habit_map = {r.charging_type: r.n for r in habit}
+    habit_map = {r["charging_type"]: r["n"] for r in habit_rows}
     dc_count = habit_map.get("DC", 0)
     ac_count = habit_map.get("AC", 0)
     total = dc_count + ac_count
@@ -673,7 +685,7 @@ async def generate_passport_pdf(vehicle_id: str) -> bytes:
     warranty_ok = (odo_km is not None and odo_km < 160000 and (datetime.now().year - int(meta["model_year"]) if meta["model_year"] else 0) < 8)
 
     # Render chart as PNG bytes (PIL)
-    monthly_list = [{"month": r.month, "soh_pct": float(r.soh_pct)} for r in trend]
+    monthly_list = [{"month": r["month"], "soh_pct": r["soh_pct"]} for r in trend]
     chart_png = _chart_png(monthly_list)
 
     # Build PDF
@@ -682,7 +694,7 @@ async def generate_passport_pdf(vehicle_id: str) -> bytes:
     pdf.add_page()
 
     pdf.brand_title(
-        subtitle=f"Battery Health Report \u00b7 {datetime.now(timezone.utc).strftime('%B %Y')} \u00b7 {meta['display_name']}",
+        subtitle=f"Battery Health Report \u00b7 {datetime.now(timezone.utc).strftime('%B %Y')} \u00b7 {meta['vehicle_name']}",
     )
 
     # Hero metric
@@ -800,10 +812,13 @@ async def upload_passport_pdf(vehicle_id: str, pdf_bytes: bytes) -> str | None:
         )
 
     try:
-        # upload_content expects str; PDFs are 8-bit-clean so latin-1 preserves bytes
-        ok = await storage.upload_content(
-            pdf_bytes.decode("latin-1"),
+        # Upload raw bytes — no latin-1 roundtrip. PDFs are 8-bit binary and
+        # any text encoding (even reversible ones) risks corruption if the
+        # storage layer or downstream tooling reinterprets the string.
+        ok = await storage.upload_bytes(
+            pdf_bytes,
             key,
+            content_type="application/pdf",
             bucket_name=bucket_name,
         )
         if ok:
@@ -870,9 +885,11 @@ async def send_passport_email(
         )
         return True
 
-    # Optionally inject the download URL into the HTML body just above the footer
+    # Inject the download URL via the {{DOWNLOAD_BLOCK}} placeholder in the
+    # template. This is robust to template refactors — we no longer string-replace
+    # a hardcoded HTML row (PR Agent finding #3).
     body = html_body
-    if download_url:
+    if download_url and "{{DOWNLOAD_BLOCK}}" in body:
         download_block = (
             f'<tr><td style="padding:16px 32px;text-align:center;">'
             f'<a href="{download_url}" style="display:inline-block;padding:12px 24px;'
@@ -882,10 +899,10 @@ async def send_passport_email(
             f'<div style="margin-top:6px;font-size:11px;color:#888;">Link valid for 7 days</div>'
             f'</td></tr>'
         )
-        body = body.replace(
-            '<tr><td style="padding:24px 32px;text-align:center;border-top:1px solid #1e1e2a;">',
-            download_block + '<tr><td style="padding:24px 32px;text-align:center;border-top:1px solid #1e1e2a;">',
-        )
+        body = body.replace("{{DOWNLOAD_BLOCK}}", download_block)
+    elif "{{DOWNLOAD_BLOCK}}" in body:
+        # Strip the placeholder row when no URL — keeps HTML valid.
+        body = body.replace("{{DOWNLOAD_BLOCK}}", "")
 
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
