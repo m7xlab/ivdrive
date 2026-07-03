@@ -1098,7 +1098,27 @@ class DataCollector:
                     try:
                         from app.services.ai_embeddings import queue_content
                         from app.services.embedding_builders import CONTENT_TYPES
-                        for ct, (prefix, _builder) in CONTENT_TYPES.items():
+                        for ct, (prefix, builder) in CONTENT_TYPES.items():
+                            # v1.1.3 fix/embedding-producer-guard: skip enqueue when the
+                            # builder has no source data for this vehicle. Prevents an
+                            # infinite enqueue→fail→re-enqueue loop for vehicles that lack
+                            # the underlying rows (e.g. battery_health_summary for a vehicle
+                            # with 0 rows in battery_health). Admin backfill path is
+                            # untouched — only the collector's per-poll enqueue loop.
+                            try:
+                                chunk = await builder(session, str(user_vehicle_id))
+                            except Exception as bld_exc:
+                                logger.debug(
+                                    "skip embedding %s for vehicle %s (builder error: %s)",
+                                    ct, user_vehicle_id, bld_exc,
+                                )
+                                continue
+                            if chunk is None:
+                                logger.debug(
+                                    "skip embedding %s for vehicle %s (no source data)",
+                                    ct, user_vehicle_id,
+                                )
+                                continue
                             await queue_content(
                                 session,
                                 user_id=vehicle.user_id,
