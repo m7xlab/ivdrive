@@ -20,9 +20,52 @@ const nextConfig = {
       { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
       { key: "Cross-Origin-Embedder-Policy", value: "unsafe-none" },
     ];
+    // v1.1.3 security/csp-header: Content-Security-Policy. Build-time computed so the
+    // analytics host is included only when SITE_ANALYTICS_URL is configured.
+    // Directives:
+    //   default-src 'self'                         — baseline
+    //   script-src 'self' 'unsafe-inline' + maps   — Next.js RSC streaming emits inline
+    //                                              __next_f.push() scripts in production;
+    //                                              Leaflet marker icons served from unpkg;
+    //                                              CARTO basemap served from *.basemaps.cartocdn.com.
+    //                                              'unsafe-inline' is unfortunately required by Next.js 16
+    //                                              unless we move to nonce-based CSP (separate pass).
+    //   style-src 'self' 'unsafe-inline' + gfont CSS — Inter from Google Fonts
+    //   img-src 'self' data: blob: + maps tiles      — CARTO + Leaflet
+    //   font-src 'self' data: + gstatic             — Inter font files
+    //   connect-src 'self'                           — all API calls via Next.js rewrites
+    //   frame-ancestors 'self'                       — matches X-Frame-Options: SAMEORIGIN
+    //   form-action 'self' base-uri 'self'           — defense in depth
+    //   object-src 'none'                            — block Flash/PDF plugins
+    const analyticsHost = (() => {
+      try {
+        return process.env.SITE_ANALYTICS_URL ? new URL(process.env.SITE_ANALYTICS_URL).origin : "";
+      } catch {
+        return "";
+      }
+    })();
+    const scriptSrc = [
+      "'self'",
+      "'unsafe-inline'",
+      "https://*.basemaps.cartocdn.com",
+      "https://unpkg.com",
+      ...(analyticsHost ? [analyticsHost] : []),
+    ].join(" ");
+    const csp = [
+      `default-src 'self'`,
+      `script-src ${scriptSrc}`,
+      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+      `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com`,
+      `font-src 'self' data: https://fonts.gstatic.com`,
+      `connect-src 'self'`,
+      `frame-ancestors 'self'`,
+      `form-action 'self'`,
+      `base-uri 'self'`,
+      `object-src 'none'`,
+    ].join("; ");
     const cacheNoStore = { key: "Cache-Control", value: "no-store, must-revalidate" };
     return [
-      { source: "/:path*", headers: [...securityHeaders, cacheNoStore] },
+      { source: "/:path*", headers: [...securityHeaders, { key: "Content-Security-Policy", value: csp }, cacheNoStore] },
     ];
   },
   // Proxy /api/* to the backend (ivdrive-api in Docker; use localhost when running frontend on host)
