@@ -72,14 +72,44 @@ class DataCollector:
 
     async def start(self) -> None:
         registered = 0
-        async with async_session() as session:
-            stmt = (
-                select(UserVehicle)
-                .where(UserVehicle.collection_enabled.is_(True))
-                .options(selectinload(UserVehicle.connector_session))
+        # v1.1.3 fix/collector-startup-retry: wrap the initial DB query in a retry loop.
+        # Previously, if Postgres was briefly unavailable (e.g. just restarted itself),
+        # asyncpg raised ConnectionRefusedError at startup and the entire process exited
+        # with code 1 — leaving the container Up but with 0 processes. We'd then
+        # need a manual restart to recover. Retry up to 12 times × 5s = 60s before
+        # giving up (docker compose restart policy then takes over for the next attempt).
+        vehicles: list = []
+        last_exc: Exception | None = None
+        for attempt in range(1, 13):
+            try:
+                async with async_session() as session:
+                    stmt = (
+                        select(UserVehicle)
+                        .where(UserVehicle.collection_enabled.is_(True))
+                        .options(selectinload(UserVehicle.connector_session))
+                    )
+                    result = await session.execute(stmt)
+                    vehicles = result.scalars().all()
+                if attempt > 1:
+                    logger.info(
+                        "DataCollector: Postgres reachable after %d attempts", attempt,
+                    )
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "DataCollector: startup DB query failed (attempt %d/12): %s — retrying in 5s",
+                    attempt, exc,
+                )
+                await asyncio.sleep(5)
+        else:
+            # Exhausted retries — re-raise so the process exits with a clear traceback
+            # and docker compose restart policy can pick up the next attempt.
+            logger.error(
+                "DataCollector: Postgres unreachable after 12 attempts; exiting for restart policy."
             )
-            result = await session.execute(stmt)
-            vehicles = result.scalars().all()
+            if last_exc:
+                raise last_exc
 
         for vehicle in vehicles:
             if vehicle.connector_session and vehicle.connector_session.access_token_encrypted:
