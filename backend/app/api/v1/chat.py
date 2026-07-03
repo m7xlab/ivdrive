@@ -1441,6 +1441,10 @@ async def chat(
         {"role": "assistant", "content": answer},
     ]
     asyncio.create_task(_upload_session_to_s3(session_id, str(user_id), updated_history))
+    # v1.1.3 perf/chat-sessions-valkey-cache: invalidate the per-user sessions list
+    # cache so the widget refetches and sees the new message_count / last_message_at.
+    from app.services import sessions_cache as _sc
+    await _sc.invalidate(str(user_id))
 
     return ChatResponse(answer=answer, sources=sources, session_id=session_id)
 
@@ -1587,11 +1591,14 @@ async def delete_session(
 ):
     """Delete a specific session and all its messages."""
     from sqlalchemy import text
+    from app.services import sessions_cache
+
     result = await db.execute(text(
         "DELETE FROM chat_sessions WHERE id = :sid AND user_id = :uid RETURNING id"
     ), {"sid": session_id, "uid": str(user.id)})
     if not result.fetchone():
         raise HTTPException(status_code=404, detail="Session not found")
+    await sessions_cache.invalidate(str(user.id))
     return {"deleted": True}
 
 
@@ -1602,8 +1609,11 @@ async def delete_all_sessions(
 ):
     """Delete all chat sessions for current user."""
     from sqlalchemy import text
+    from app.services import sessions_cache
+
     result = await db.execute(text(
         "DELETE FROM chat_sessions WHERE user_id = :uid RETURNING id"
     ), {"uid": str(user.id)})
     deleted = len(result.fetchall())
+    await sessions_cache.invalidate(str(user.id))
     return {"deleted_count": deleted}
