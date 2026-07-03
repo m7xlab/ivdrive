@@ -359,6 +359,9 @@ async def get_battery_health(
     latest_derived_kwh = None
 
     if soh_estimates:
+        # v1.1.3 fix/soh-cap-100-percent: the 103% noise buffer was kept for filtering
+        # (rejects regen-inflated values that exceed 103% of factory), but the resulting
+        # percentage and capacity now clamp to factory. A real battery never has SoH > 100%.
         limit_kwh = float(factory_kwh) * 1.03
         valid = [r for r in soh_estimates if r.estimated_kwh and float(r.estimated_kwh) <= limit_kwh]
         if valid:
@@ -370,17 +373,19 @@ async def get_battery_health(
             for month in sorted(by_month.keys()):
                 vals = by_month[month]
                 avg_kwh = round(sum(vals) / len(vals), 2)
-                soh_pct = round((avg_kwh / float(factory_kwh)) * 100, 1)
+                raw_pct = round((avg_kwh / float(factory_kwh)) * 100, 1)
                 curve_data.append({
                     "month": month,
-                    "estimated_kwh": avg_kwh,
-                    "soh_pct": soh_pct,
+                    "estimated_kwh": round(min(avg_kwh, float(factory_kwh)), 2),   # clamp capacity
+                    "soh_pct": min(raw_pct, 100.0),                                  # clamp %
                     "sample_count": len(vals),
                 })
 
     if valid:
-        latest_derived = round((float(valid[0].estimated_kwh) / float(factory_kwh)) * 100, 1)
-        latest_derived_kwh = float(valid[0].estimated_kwh)
+        raw_latest_kwh = float(valid[0].estimated_kwh)
+        raw_latest_pct = round((raw_latest_kwh / float(factory_kwh)) * 100, 1)
+        latest_derived_kwh = round(min(raw_latest_kwh, float(factory_kwh)), 2)   # clamp capacity
+        latest_derived = min(raw_latest_pct, 100.0)                              # clamp %
 
     return {
         "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
