@@ -6,6 +6,8 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react
 
 import { X, Send, Bot, Loader2, MessageSquare, Trash2, Plus, Sparkles } from "lucide-react";
 
+import ReactMarkdown from "react-markdown";
+
 import { chatApi, ChatMessage, SessionInfo } from "@/lib/api/chat";
 
 import { ChartRenderer } from "./ChartRenderer";
@@ -682,7 +684,25 @@ export function IVDriveAIWidget() {
 
                 <div key={idx}>
 
-                  {part.type === "text" && <span className="whitespace-pre-wrap">{part.content}</span>}
+                  {part.type === "text" && (
+                    // v1.1.3 fix/chat-markdown-render: render the LLM's markdown through
+                    // react-markdown so **bold**, *italic`, `code`, lists, links, etc. show
+                    // up formatted instead of as raw characters. Tailwind classes keep the
+                    // visual style consistent with the rest of the chat bubble. Whitespace
+                    // preserved via the wrapper div. JSON chart parts still go through
+                    // ChartRenderer as before.
+                    <div className="whitespace-pre-wrap [&_p]:m-0 [&_p+p]:mt-1 [&_strong]:font-semibold [&_strong]:text-iv-text [&_em]:italic [&_code]:bg-iv-surface [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_a]:text-blue-400 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-iv-muted [&_blockquote]:pl-2 [&_blockquote]:italic">
+                      <ReactMarkdown
+                        components={{
+                          a: ({ node, ...props }) => (
+                            <a {...props} target="_blank" rel="noopener noreferrer" />
+                          ),
+                        }}
+                      >
+                        {part.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
 
                   {part.type === "chart" && <ChartRenderer chartJson={part.content} />}
 
