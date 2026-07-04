@@ -264,7 +264,7 @@ async def fleet_health(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_superuser),
 ):
-    """Fleet-wide battery ops dashboard for Gedas.
+    """Fleet-wide battery ops dashboard for superusers.
 
     Returns:
       - total_vehicles: count of all user_vehicles
