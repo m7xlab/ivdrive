@@ -61,10 +61,16 @@ async def process_one(
     content_type: str,
     content_id: str,
     priority: int,
-) -> tuple[bool, str]:
-    """Process a single queue item. Returns (success, message)."""
+) -> tuple[bool, bool, str]:
+    """Process a single queue item. Returns (success, permanent_failure, message).
+
+    permanent_failure=True signals the caller to delete the queue row instead of
+    incrementing attempts — for errors that won't be fixed by retry (no source
+    data, unknown content_type).
+    """
     if content_type not in CONTENT_TYPES:
-        return False, f"unknown content_type={content_type}"
+        # Unknown content type — won't be fixed by retry.
+        return False, True, f"unknown content_type={content_type}"
 
     _, builder = CONTENT_TYPES[content_type]
     # content_id format: "<prefix>:<vehicle_id>". Builder expects the vehicle id only.
@@ -72,10 +78,16 @@ async def process_one(
     try:
         result = await builder(session, target_id)
     except Exception as e:
-        return False, f"builder error: {e!r}"
+        # Builder error might be transient (DB blip) — keep retrying.
+        return False, False, f"builder error: {e!r}"
 
     if not result:
-        return False, f"no source data for {content_type}/{content_id}"
+        # v1.1.3 fix/embedding-producer-guard: no source data is permanent —
+        # the next poll won't change anything, so delete the item now instead
+        # of letting it churn through max_attempts retries. PR Agent #167
+        # recommended moving the no-data check out of the collector path into
+        # the worker where it can also clean up its own queue items.
+        return False, True, f"no source data for {content_type}/{content_id}"
 
     chunk, meta = result
     try:
@@ -155,7 +167,7 @@ async def process_pending_batch(session, batch_size: int, max_attempts: int) -> 
     success = 0
     for r in rows:
         queue_id, user_id, vehicle_id, content_type, content_id, priority, attempts = r
-        ok, msg = await process_one(
+        ok, permanent, msg = await process_one(
             session,
             str(queue_id),
             str(user_id),
@@ -166,7 +178,21 @@ async def process_pending_batch(session, batch_size: int, max_attempts: int) -> 
         )
         if ok:
             success += 1
+        elif permanent:
+            # v1.1.3 fix/embedding-producer-guard: permanent failures (no source
+            # data, unknown content_type) get deleted immediately instead of
+            # retrying. These won't be fixed by waiting — they only churn the
+            # queue and waste worker ticks. PR Agent #167 recommendation.
+            logger.info(
+                "Embedding worker: dropping %s/%s queue_id=%s (permanent: %s)",
+                content_type, content_id, queue_id, msg,
+            )
+            await session.execute(
+                text("DELETE FROM ai_embeddings_queue WHERE id = :id"),
+                {"id": queue_id},
+            )
         else:
+            # Transient failure — increment attempts, mark failed at max_attempts.
             logger.warning(
                 "Embedding worker: failed %s/%s queue_id=%s: %s",
                 content_type, content_id, queue_id, msg,

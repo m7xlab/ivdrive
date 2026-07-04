@@ -1098,32 +1098,18 @@ class DataCollector:
                     try:
                         from app.services.ai_embeddings import queue_content
                         from app.services.embedding_builders import CONTENT_TYPES
-                        for ct, (prefix, builder) in CONTENT_TYPES.items():
-                            # v1.1.3 fix/embedding-producer-guard: skip enqueue when the
-                            # builder has no source data for this vehicle. Prevents an
-                            # infinite enqueue→fail→re-enqueue loop for vehicles that lack
-                            # the underlying rows (e.g. battery_health_summary for a vehicle
-                            # with 0 rows in battery_health). Admin backfill path is
-                            # untouched — only the collector's per-poll enqueue loop.
-                            #
-                            # PR Agent #167 finding: `if chunk is None` is too narrow.
-                            # Builders commonly return [] / "" / {} to signal 'no data',
-                            # none of which are caught by an `is None` check. Use a
-                            # truthiness check so all of those short-circuit too.
-                            try:
-                                chunk = await builder(session, str(user_vehicle_id))
-                            except Exception as bld_exc:
-                                logger.debug(
-                                    "skip embedding %s for vehicle %s (builder error: %s)",
-                                    ct, user_vehicle_id, bld_exc,
-                                )
-                                continue
-                            if not chunk:
-                                logger.debug(
-                                    "skip embedding %s for vehicle %s (no source data)",
-                                    ct, user_vehicle_id,
-                                )
-                                continue
+                        # v1.1.3 fix/embedding-producer-guard: enqueue unconditionally.
+                        # The 'no source data' check is now done by the embedding worker
+                        # (see app/services/embedding_worker.py:process_one), which runs
+                        # the same builder anyway when processing the queue. Doing the
+                        # check here too doubled the DB load on every poll without
+                        # any benefit — PR Agent #167 perf concern.
+                        # The worker treats 'no source data' as a PERMANENT failure
+                        # and deletes the queue row immediately, so the queue stays
+                        # clean without an infinite enqueue→fail→re-enqueue loop.
+                        for ct, (prefix, _builder) in CONTENT_TYPES.items():
+                            # _builder intentionally unused — worker runs it. See comment above.
+                            del _builder
                             await queue_content(
                                 session,
                                 user_id=vehicle.user_id,
