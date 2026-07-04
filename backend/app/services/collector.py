@@ -1105,6 +1105,11 @@ class DataCollector:
                             # the underlying rows (e.g. battery_health_summary for a vehicle
                             # with 0 rows in battery_health). Admin backfill path is
                             # untouched — only the collector's per-poll enqueue loop.
+                            #
+                            # PR Agent #167 finding: `if chunk is None` is too narrow.
+                            # Builders commonly return [] / "" / {} to signal 'no data',
+                            # none of which are caught by an `is None` check. Use a
+                            # truthiness check so all of those short-circuit too.
                             try:
                                 chunk = await builder(session, str(user_vehicle_id))
                             except Exception as bld_exc:
@@ -1113,7 +1118,7 @@ class DataCollector:
                                     ct, user_vehicle_id, bld_exc,
                                 )
                                 continue
-                            if chunk is None:
+                            if not chunk:
                                 logger.debug(
                                     "skip embedding %s for vehicle %s (no source data)",
                                     ct, user_vehicle_id,
