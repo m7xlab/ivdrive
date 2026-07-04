@@ -2319,7 +2319,22 @@ async def get_route_efficiency(
         avg_eff = round(sum(effs) / len(effs), 1) if effs else 0
         avg_temp = round(sum(data["temps"]) / len(data["temps"]), 1) if data["temps"] else None
         total_dist = sum(data["distances"])
-        score = max(0, 100 - (avg_eff - 12) * 10) if avg_eff > 0 else 50
+        # v1.1.3 fix/statistics-period-limit-from-daterange (RouteEfficiency):
+        # previous formula `max(0, 100 - (avg_eff - 12) * 10)` clipped to 0 at any
+        # avg_eff >= 22 kWh/100km. For a Skoda Enyaq, normal driving is 15-22 and
+        # winter/motorway is 25-35 — so 56% of routes on this vehicle were scoring
+        # 0 (no differentiation between 'slightly inefficient' and 'terrible').
+        #
+        # New formula: 100 at <=12 kWh/100km (great), linear to 0 at >=35 kWh/100km
+        # (genuinely bad). Anything in between gets a meaningful score.
+        if avg_eff <= 0:
+            score = 50  # no data — neutral
+        elif avg_eff <= 12:
+            score = 100
+        elif avg_eff >= 35:
+            score = 0
+        else:
+            score = round(100 * (35 - avg_eff) / 23, 1)
 
         results.append({
             "route_key": f"{data['start_name']} → {data['end_name']}",
