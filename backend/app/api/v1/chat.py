@@ -1526,7 +1526,19 @@ async def list_sessions(
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all chat sessions for current user, newest first."""
+    """List all chat sessions for current user, newest first.
+
+    v1.1.3 perf/chat-sessions-valkey-cache: read-through Valkey cache (60s TTL).
+    Cache hit → return immediately, skip the JOIN+GROUP BY.
+    Cache miss → query DB, then warm the cache for the next widget-open / post-chat
+    refetch. Invalidated on chat() / chat_stream() writes and on session deletes.
+    """
+    from app.services import sessions_cache
+
+    cached = await sessions_cache.get(str(user.id))
+    if cached is not None:
+        return cached
+
     from sqlalchemy import text
     await _ensure_chat_tables(db)
     result = await db.execute(text("""
@@ -1540,7 +1552,7 @@ async def list_sessions(
         ORDER BY s.updated_at DESC
         LIMIT 20
     """), {"uid": str(user.id)})
-    return [
+    sessions = [
         {
             "id": str(row[0]),
             "created_at": row[1].isoformat() if row[1] else None,
@@ -1550,6 +1562,9 @@ async def list_sessions(
         }
         for row in result.fetchall()
     ]
+    # list-of-dicts is JSON-safe; timestamps were already .isoformat()-ed above.
+    await sessions_cache.set(str(user.id), sessions)
+    return sessions
 
 
 @router.get("/sessions/{session_id}", response_model=dict)

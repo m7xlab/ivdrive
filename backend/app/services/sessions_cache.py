@@ -34,23 +34,40 @@ def _key(user_id: str) -> str:
 
 
 async def get(user_id: str) -> list[dict[str, Any]] | None:
-    """Return cached sessions list for user_id, or None on miss/error."""
+    """Return cached sessions list for user_id, or None on miss/error.
+
+    Note: timestamps come back as ISO strings (JSON has no datetime type).
+    The chat list_sessions endpoint pre-converts timestamps to .isoformat()
+    before calling set(), so the cached shape matches what the API always
+    returned. PR Agent #166 — also defensively reject non-list shapes
+    (e.g. stale foreign values) by treating them as a cache miss.
+    """
     try:
         client = await get_valkey_client()
         raw = await client.get(_key(user_id))
         if raw is None:
             return None
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            logger.debug("sessions cache get: unexpected shape for %s, treating as miss", user_id)
+            return None
+        return parsed
     except Exception as exc:  # never let cache outage break the API
         logger.debug("sessions cache get failed for %s: %s", user_id, exc)
         return None
 
 
 async def set(user_id: str, value: list[dict[str, Any]]) -> None:
-    """Store sessions list for user_id with TTL. Best-effort."""
+    """Store sessions list for user_id with TTL. Best-effort.
+
+    `value` should already be JSON-safe (datetimes as .isoformat()). The
+    `default=str` fallback here is defense in depth in case a future caller
+    passes a datetime.
+    """
     try:
         client = await get_valkey_client()
-        await client.set(_key(user_id), json.dumps(value, default=str), ex=CACHE_TTL_SECONDS)
+        payload = json.dumps(value, default=str)
+        await client.set(_key(user_id), payload, ex=CACHE_TTL_SECONDS)
     except Exception as exc:
         logger.debug("sessions cache set failed for %s: %s", user_id, exc)
 
