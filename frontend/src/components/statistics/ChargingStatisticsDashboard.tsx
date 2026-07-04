@@ -6,6 +6,7 @@ import { BarChart3, Loader2, Zap, Battery } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
+import { calculateStatisticsLimit } from "@/lib/periodLimit";
 
 export interface ChargingStatisticsDashboardProps {
   vehicleId: string;
@@ -36,7 +37,9 @@ export function ChargingStatisticsDashboard({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await api.getStatistics(vehicleId, period, 30, fromISO, toISO);
+      // v1.1.3 fix/statistics-period-limit-from-daterange: see DrivingStatisticsDashboard.
+      const limit = calculateStatisticsLimit(period, fromISO, toISO);
+      const list = await api.getStatistics(vehicleId, period, limit, fromISO, toISO);
       setStats(list ?? []);
     } catch {
       setStats([]);

@@ -6,6 +6,7 @@ import { Loader2, Route, Zap, BatteryCharging, Timer, Calendar, History } from "
 import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
+import { calculateStatisticsLimit } from "@/lib/periodLimit";
 
 export interface DrivingStatisticsDashboardProps {
   vehicleId: string;
@@ -66,7 +67,12 @@ export function DrivingStatisticsDashboard({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await api.getStatistics(vehicleId, period, 30, fromISO, toISO);
+      // v1.1.3 fix/statistics-period-limit-from-daterange: scale the API
+      // limit to the user's selected dateRange + period so long windows
+      // (e.g. "Last 1 year", period=day) don't silently collapse to the
+      // most-recent 30 day-buckets. Backend caps at 365.
+      const limit = calculateStatisticsLimit(period, fromISO, toISO);
+      const list = await api.getStatistics(vehicleId, period, limit, fromISO, toISO);
       setRows(list ?? []);
     } catch {
       setRows([]);

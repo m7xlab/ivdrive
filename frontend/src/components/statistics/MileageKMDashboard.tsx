@@ -13,6 +13,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { api } from "@/lib/api";
+import { calculateStatisticsLimit } from "@/lib/periodLimit";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
 
@@ -65,7 +66,6 @@ function linearRegression(
 }
 
 const FORECAST_DAYS = 90;
-const STATS_LOOKBACK_DAYS = 90;
 
 export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardProps) {
   const [odometer, setOdometer] = useState<OdometerItem[]>([]);
@@ -78,12 +78,20 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const now = new Date();
-      const statsFrom = toISO(subDays(now, STATS_LOOKBACK_DAYS));
-      const statsTo = toISO(now);
+      // v1.1.3 fix/statistics-period-limit-from-daterange: previously the stats
+      // call used a fixed STATS_LOOKBACK_DAYS (90) window from `now`, completely
+      // ignoring the user's selected dateRange. The forecast (avgDailyKm) then
+      // used only the last 90 days even when the user was viewing a year of
+      // odometer data, biasing the projection. Pass the user's actual dateRange
+      // for both the limit and the window. If the user's window is shorter than
+      // STATS_LOOKBACK_DAYS, the forecast will use whatever is available — the
+      // user can pick a longer range for a more stable projection.
+      const statsFrom = fromISO;
+      const statsTo = toISOVal;
+      const limit = calculateStatisticsLimit("day", statsFrom, statsTo);
       const [list, stats] = await Promise.all([
         api.getOdometer(vehicleId, 10000, fromISO, toISOVal),
-        api.getStatistics(vehicleId, "day", STATS_LOOKBACK_DAYS, statsFrom, statsTo),
+        api.getStatistics(vehicleId, "day", limit, statsFrom, statsTo),
       ]);
       setOdometer(list ?? []);
       setStatsDaily(Array.isArray(stats) ? stats : []);
