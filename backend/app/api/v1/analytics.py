@@ -373,19 +373,27 @@ async def get_battery_health(
             for month in sorted(by_month.keys()):
                 vals = by_month[month]
                 avg_kwh = round(sum(vals) / len(vals), 2)
-                raw_pct = round((avg_kwh / float(factory_kwh)) * 100, 1)
+                # v1.1.3 fix/soh-cap-100-percent: guard against ZeroDivisionError
+                # when factory_kwh is zero/anomalous, and clamp BOTH bounds to [0,100].
+                # PR Agent #168 finding — previous code only clamped the upper bound,
+                # letting negative values from cold-soak under-voltage pass through.
+                f_kwh = float(factory_kwh)
+                raw_pct = round((avg_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
                 curve_data.append({
                     "month": month,
-                    "estimated_kwh": round(min(avg_kwh, float(factory_kwh)), 2),   # clamp capacity
-                    "soh_pct": min(raw_pct, 100.0),                                  # clamp %
+                    "estimated_kwh": round(max(0.0, min(avg_kwh, f_kwh)), 2),
+                    "soh_pct": max(0.0, min(raw_pct, 100.0)),
                     "sample_count": len(vals),
                 })
 
     if valid:
         raw_latest_kwh = float(valid[0].estimated_kwh)
-        raw_latest_pct = round((raw_latest_kwh / float(factory_kwh)) * 100, 1)
-        latest_derived_kwh = round(min(raw_latest_kwh, float(factory_kwh)), 2)   # clamp capacity
-        latest_derived = min(raw_latest_pct, 100.0)                              # clamp %
+        # v1.1.3 fix/soh-cap-100-percent: same clamp + zero-division guard as above
+        # for the summary latest_derived values.
+        f_kwh = float(factory_kwh)
+        raw_latest_pct = round((raw_latest_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
+        latest_derived_kwh = round(max(0.0, min(raw_latest_kwh, f_kwh)), 2)
+        latest_derived = max(0.0, min(raw_latest_pct, 100.0))
 
     return {
         "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
