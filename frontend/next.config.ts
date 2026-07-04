@@ -24,16 +24,21 @@ const nextConfig = {
     // analytics host is included only when SITE_ANALYTICS_URL is configured.
     // Directives:
     //   default-src 'self'                         — baseline
-    //   script-src 'self' 'unsafe-inline' + maps   — Next.js RSC streaming emits inline
-    //                                              __next_f.push() scripts in production;
-    //                                              Leaflet marker icons served from unpkg;
-    //                                              CARTO basemap served from *.basemaps.cartocdn.com.
+    //   script-src 'self' 'unsafe-inline' + analytics — Next.js RSC streaming emits inline
+    //                                              __next_f.push() scripts in production.
     //                                              'unsafe-inline' is unfortunately required by Next.js 16
     //                                              unless we move to nonce-based CSP (separate pass).
+    //                                              Map tile domains (unpkg, cartocdn) belong ONLY in
+    //                                              img-src — they serve image assets, never JS.
+    //                                              Allowing arbitrary scripts from those CDNs would
+    //                                              escalate any XSS into a full CDN-level hijack.
+    //                                              (PR Agent #163 finding.)
     //   style-src 'self' 'unsafe-inline' + gfont CSS — Inter from Google Fonts
-    //   img-src 'self' data: blob: + maps tiles      — CARTO + Leaflet
+    //   img-src 'self' data: blob: + maps tiles      — CARTO basemap tiles + Leaflet marker icons (unpkg)
     //   font-src 'self' data: + gstatic             — Inter font files
-    //   connect-src 'self'                           — all API calls via Next.js rewrites
+    //   connect-src 'self' + analytics host         — API calls via Next.js rewrites;
+    //                                              analytics provider needs fetch/XHR for telemetry
+    //                                              (PR Agent #163 finding — was previously blocked).
     //   frame-ancestors 'self'                       — matches X-Frame-Options: SAMEORIGIN
     //   form-action 'self' base-uri 'self'           — defense in depth
     //   object-src 'none'                            — block Flash/PDF plugins
@@ -47,8 +52,10 @@ const nextConfig = {
     const scriptSrc = [
       "'self'",
       "'unsafe-inline'",
-      "https://*.basemaps.cartocdn.com",
-      "https://unpkg.com",
+      ...(analyticsHost ? [analyticsHost] : []),
+    ].join(" ");
+    const connectSrc = [
+      "'self'",
       ...(analyticsHost ? [analyticsHost] : []),
     ].join(" ");
     const csp = [
@@ -57,7 +64,7 @@ const nextConfig = {
       `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
       `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com`,
       `font-src 'self' data: https://fonts.gstatic.com`,
-      `connect-src 'self'`,
+      `connect-src ${connectSrc}`,
       `frame-ancestors 'self'`,
       `form-action 'self'`,
       `base-uri 'self'`,
