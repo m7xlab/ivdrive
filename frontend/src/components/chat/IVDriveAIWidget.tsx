@@ -686,17 +686,50 @@ export function IVDriveAIWidget() {
 
                   {part.type === "text" && (
                     // v1.1.3 fix/chat-markdown-render: render the LLM's markdown through
-                    // react-markdown so **bold**, *italic`, `code`, lists, links, etc. show
+                    // react-markdown so **bold**, *italic*, `code`, lists, links, etc. show
                     // up formatted instead of as raw characters. Tailwind classes keep the
-                    // visual style consistent with the rest of the chat bubble. Whitespace
-                    // preserved via the wrapper div. JSON chart parts still go through
-                    // ChartRenderer as before.
-                    <div className="whitespace-pre-wrap [&_p]:m-0 [&_p+p]:mt-1 [&_strong]:font-semibold [&_strong]:text-iv-text [&_em]:italic [&_code]:bg-iv-surface [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_a]:text-blue-400 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-iv-muted [&_blockquote]:pl-2 [&_blockquote]:italic">
+                    // visual style consistent with the rest of the chat bubble. JSON chart
+                    // parts still go through ChartRenderer as before.
+                    //
+                    // PR Agent #165 findings addressed here:
+                    //   1. XSS hardening on <a> tags: validate href protocol. Only http(s),
+                    //      relative (/), fragment (#), and mailto: are rendered as real
+                    //      anchors. Everything else (javascript:, data:, vbscript:,
+                    //      malformed) becomes a muted span with a tooltip. Defense in
+                    //      depth — react-markdown's default URL transformer already blocks
+                    //      javascript:, but AI-generated content is untrusted so we belt
+                    //      and-brace it.
+                    //   2. Block-level layout: dropped whitespace-pre-wrap from the wrapper
+                    //      (it caused extra vertical gaps between Markdown blocks) and added
+                    //      explicit <pre> styling so multi-line code blocks render readably.
+                    <div className="[&_p]:m-0 [&_p+p]:mt-1 [&_strong]:font-semibold [&_strong]:text-iv-text [&_em]:italic [&_code]:bg-iv-surface [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_pre]:bg-iv-surface [&_pre]:p-3 [&_pre]:rounded-md [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre_code]:p-0 [&_pre_code]:bg-transparent [&_a]:text-blue-400 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-iv-muted [&_blockquote]:pl-2 [&_blockquote]:italic">
                       <ReactMarkdown
                         components={{
-                          a: ({ node, ...props }) => (
-                            <a {...props} target="_blank" rel="noopener noreferrer" />
-                          ),
+                          a: ({ node, href, children, ...props }) => {
+                            const safe =
+                              typeof href === "string" &&
+                              /^(https?:|\/|#|mailto:)/i.test(href);
+                            if (!safe) {
+                              return (
+                                <span
+                                  className="text-iv-muted underline decoration-dotted cursor-help"
+                                  title="Blocked unsafe link"
+                                >
+                                  {children}
+                                </span>
+                              );
+                            }
+                            return (
+                              <a
+                                {...props}
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {children}
+                              </a>
+                            );
+                          },
                         }}
                       >
                         {part.content}
