@@ -34,7 +34,12 @@ const nextConfig = {
     //                                              escalate any XSS into a full CDN-level hijack.
     //                                              (PR Agent #163 finding.)
     //   style-src 'self' 'unsafe-inline' + gfont CSS — Inter from Google Fonts
-    //   img-src 'self' data: blob: + maps tiles      — CARTO basemap tiles + Leaflet marker icons (unpkg)
+    //   img-src 'self' data: blob: + maps tiles + Skoda Azure blob renders — CARTO basemap tiles + Leaflet marker icons (unpkg) +
+    //                                              Skoda vehicle render images served from Azure blob
+    //                                              storage (URLs come from the Skoda API at runtime, e.g.
+    //                                              https://iprenders.blob.core.windows.net/...). Wildcard on
+    //                                              blob.core.windows.net covers all of Skoda's containers
+    //                                              without opening any general CDN wildcard.
     //   font-src 'self' data: + gstatic             — Inter font files
     //   connect-src 'self' + analytics host         — API calls via Next.js rewrites;
     //                                              analytics provider needs fetch/XHR for telemetry
@@ -62,7 +67,7 @@ const nextConfig = {
       `default-src 'self'`,
       `script-src ${scriptSrc}`,
       `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-      `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com`,
+      `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com https://*.blob.core.windows.net`,
       `font-src 'self' data: https://fonts.gstatic.com`,
       `connect-src ${connectSrc}`,
       `frame-ancestors 'self'`,
