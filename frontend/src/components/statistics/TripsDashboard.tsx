@@ -218,6 +218,13 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
+  // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
+  // is inlined into the client bundle at build time by Next.js.
+  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
+  const tripsTileUrl = isDark
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${cartoKey ? `?key=${cartoKey}` : ""}`
+    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${cartoKey ? `?key=${cartoKey}` : ""}`;
+
 
 
   // Geocoding helper
@@ -649,7 +656,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               <TileLayer
 
                 attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
+                url={tripsTileUrl}
               />
 
               {displayTrips.map(trip => {

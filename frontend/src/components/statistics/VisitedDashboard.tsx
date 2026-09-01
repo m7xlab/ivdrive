@@ -142,8 +142,13 @@ function VisitedMap({ locations }: VisitedMapProps) {
     lonSum / locations.length,
   ];
 
-  const tileUrl =
-    isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
+  // is inlined into the client bundle at build time by Next.js.
+  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
+  const keySuffix = cartoKey ? `?key=${cartoKey}` : "";
+  const tileUrl = isDark
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`
+    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keySuffix}`;
 
   return (
     <div className="absolute inset-0 z-0">

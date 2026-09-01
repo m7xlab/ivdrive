@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **CARTO Basemaps API key wiring**: CARTO now requires an API key for public basemap tile access. New env var `NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY` (added to `.env`, `.env.example`, and `docker-compose.yml` `ivdrive-web` service) is appended as `?key=...` on every `basemaps.cartocdn.com` tile URL across all four map locations: `frontend/src/components/map.tsx` (Car Overview), `frontend/src/components/statistics/MovementDashboard.tsx`, `TripsDashboard.tsx`, and `VisitedDashboard.tsx`. The `NEXT_PUBLIC_` prefix is required by Next.js so the value reaches the client bundle (all four map components render client-side). Get a free key at https://carto.com/basemaps/apikey/ — no approval queue, no CARTO account required. The CSP `img-src` directive already permits `https://*.basemaps.cartocdn.com` (added in v1.1.2.1 PR #163), so no CSP change was needed. Without this key, tiles 401 and the CARTO "API key required" watermark shows on every map.
+
 ## [v1.1.3] - 2026-07-08
 Major authentication architecture overhaul and frontend fetching modernization. Resolves persistent API anti-bot rejection issues and transient backend server errors. The authentication state machine has been hardened to securely maintain and refresh sessions, supported by a newly introduced frontend query layer and user-facing connection state UI.
 

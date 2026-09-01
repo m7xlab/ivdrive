@@ -31,11 +31,16 @@ export default function LocationMap({ latitude, longitude }: MapProps) {
 
   const isDark = resolvedTheme === "dark";
 
-  // CartoDB tiles are free to use without API keys and look very modern, 
-  // similar to Mapbox or stylized maps.
+  // CARTO Basemaps tiles — require an API key since CARTO gated the public
+  // tile service. NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY is inlined into the client
+  // bundle at build time by Next.js. Get a free key at
+  // https://carto.com/basemaps/apikey/. The CSP img-src directive already
+  // permits https://*.basemaps.cartocdn.com (added in v1.1.2.1 PR #163).
+  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
+  const keySuffix = cartoKey ? `?key=${cartoKey}` : "";
   const tileUrl = isDark
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`
+    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keySuffix}`;
 
   return (
     <div className="absolute inset-0 w-full h-full z-0 bg-[var(--iv-charcoal)]">
