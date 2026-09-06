@@ -8,6 +8,12 @@ COPY package.json package-lock.json* ./
 RUN npm install --legacy-peer-deps
 
 FROM base AS builder
+# NEXT_PUBLIC_* env vars must be inlined by `next build` at build time, not
+# runtime. Declared as ARG here and exported as ENV so `next build` sees them;
+# the same names must also be passed via `build.args` in docker-compose.yml
+# for the ivdrive-web service (or via `--build-arg` on `docker build`).
+ARG NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
+ENV NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY=$NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

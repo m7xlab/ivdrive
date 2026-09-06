@@ -52,6 +52,12 @@ services:
     image: ivdrive-ivdrive-web:latest
     build:
       context: ./frontend
+      args:
+        # NEXT_PUBLIC_* vars are inlined by `next build` at build time and must
+        # be declared here so the value is available during the builder stage in
+        # frontend/Dockerfile. Mirrored under `environment:` below for any
+        # server-side reads in the running container.
+        NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY: "${NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY:-}"
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
       NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY: "${NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY:-}"
