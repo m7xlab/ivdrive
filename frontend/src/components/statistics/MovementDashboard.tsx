@@ -410,8 +410,6 @@ function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; 
   const center: [number, number] = [latSum / locations.length, lonSum / locations.length];
   const maxMs = Math.max(...stayEvents.map((s) => s.durationMs), 1);
 
-  // Tile URLs matching app theme. CARTO Basemaps require an API key —
-  // NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY is inlined at build time.
   // Tile URLs matching app theme. CARTO Basemaps API key wiring lives in
   // getCartoTileUrl() (frontend/src/lib/map-utils.ts).
   const tileUrl = getCartoTileUrl(isDark);

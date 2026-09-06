@@ -32,11 +32,6 @@ export default function LocationMap({ latitude, longitude }: MapProps) {
 
   const isDark = resolvedTheme === "dark";
 
-  // CARTO Basemaps tiles — require an API key since CARTO gated the public
-  // tile service. NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY is inlined into the client
-  // bundle at build time by Next.js. Get a free key at
-  // https://carto.com/basemaps/apikey/. The CSP img-src directive already
-  // permits https://*.basemaps.cartocdn.com (added in v1.1.2.1 PR #163).
   // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
   // (frontend/src/lib/map-utils.ts) so all four map components stay in sync.
   const tileUrl = getCartoTileUrl(isDark);

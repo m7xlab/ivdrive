@@ -143,8 +143,6 @@ function VisitedMap({ locations }: VisitedMapProps) {
     lonSum / locations.length,
   ];
 
-  // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
-  // is inlined into the client bundle at build time by Next.js.
   // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
   // (frontend/src/lib/map-utils.ts).
   const tileUrl = getCartoTileUrl(isDark);

@@ -219,8 +219,6 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
-  // is inlined into the client bundle at build time by Next.js.
   // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
   // (frontend/src/lib/map-utils.ts).
   const tripsTileUrl = getCartoTileUrl(isDark);
