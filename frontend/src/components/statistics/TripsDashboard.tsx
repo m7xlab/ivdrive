@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { useTheme } from "next-themes";
 import { TripElevationCard } from "./TripElevationCard";
+import { getCartoTileUrl } from "@/lib/map-utils";
 
 import "leaflet/dist/leaflet.css";
 
@@ -220,10 +221,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
   // is inlined into the client bundle at build time by Next.js.
-  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
-  const tripsTileUrl = isDark
-    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${cartoKey ? `?key=${cartoKey}` : ""}`
-    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${cartoKey ? `?key=${cartoKey}` : ""}`;
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts).
+  const tripsTileUrl = getCartoTileUrl(isDark);
 
 
 

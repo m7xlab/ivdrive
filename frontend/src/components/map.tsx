@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, ZoomControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useTheme } from "next-themes";
+import { getCartoTileUrl } from "@/lib/map-utils";
 
 // Fix for default Leaflet markers in Next.js/Webpack
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -36,11 +37,9 @@ export default function LocationMap({ latitude, longitude }: MapProps) {
   // bundle at build time by Next.js. Get a free key at
   // https://carto.com/basemaps/apikey/. The CSP img-src directive already
   // permits https://*.basemaps.cartocdn.com (added in v1.1.2.1 PR #163).
-  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
-  const keySuffix = cartoKey ? `?key=${cartoKey}` : "";
-  const tileUrl = isDark
-    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`
-    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keySuffix}`;
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts) so all four map components stay in sync.
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="absolute inset-0 w-full h-full z-0 bg-[var(--iv-charcoal)]">

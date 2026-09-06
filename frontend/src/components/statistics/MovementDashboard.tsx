@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
 import { useTheme } from "next-themes";
 import { formatSmartDuration } from "@/lib/format";
+import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface MovementDashboardProps {
@@ -411,11 +412,9 @@ function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; 
 
   // Tile URLs matching app theme. CARTO Basemaps require an API key —
   // NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY is inlined at build time.
-  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
-  const keySuffix = cartoKey ? `?key=${cartoKey}` : "";
-  const tileUrl = isDark
-    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`
-    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keySuffix}`;
+  // Tile URLs matching app theme. CARTO Basemaps API key wiring lives in
+  // getCartoTileUrl() (frontend/src/lib/map-utils.ts).
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="glass rounded-xl overflow-hidden">

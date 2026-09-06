@@ -5,6 +5,7 @@ import { MapPin, Loader2, Zap } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
 import { useTheme } from "next-themes";
+import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface VisitedDashboardProps {
@@ -144,11 +145,9 @@ function VisitedMap({ locations }: VisitedMapProps) {
 
   // CARTO Basemaps require an API key — NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY
   // is inlined into the client bundle at build time by Next.js.
-  const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
-  const keySuffix = cartoKey ? `?key=${cartoKey}` : "";
-  const tileUrl = isDark
-    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`
-    : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keySuffix}`;
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts).
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="absolute inset-0 z-0">
