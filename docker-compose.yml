@@ -57,6 +57,7 @@ services:
         # be declared here so the value is available during the builder stage in
         # frontend/Dockerfile. Mirrored under `environment:` below for any
         # server-side reads in the running container.
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
         NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY: "${NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY:-}"
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
