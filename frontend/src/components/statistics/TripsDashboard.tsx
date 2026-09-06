@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { useTheme } from "next-themes";
 import { TripElevationCard } from "./TripElevationCard";
+import { getCartoTileUrl } from "@/lib/map-utils";
 
 import "leaflet/dist/leaflet.css";
 
@@ -217,6 +218,10 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
   const [visibleCount, setVisibleCount] = useState(10);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts).
+  const tripsTileUrl = getCartoTileUrl(isDark);
 
 
 
@@ -649,7 +654,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               <TileLayer
 
                 attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
+                url={tripsTileUrl}
               />
 
               {displayTrips.map(trip => {
