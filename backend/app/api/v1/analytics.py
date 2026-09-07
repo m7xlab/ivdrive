@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_current_user
 from app.constants.calibration import effective_vehicle_calibration as _calibration
 from app.database import get_db
-from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError
+from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError, BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import PulseResponse
+from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.cache import invalidate_vehicle_cache
 
 from pydantic import BaseModel
@@ -227,18 +228,13 @@ async def get_battery_health(
     user: User = Depends(get_current_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
-    limit: int = Query(default=100, ge=1, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000),
 ):
-    """Return battery health metrics including HV system, cell voltages, and derived SoH.
+    """Return battery health metrics. Cache-first via battery_health_analytics
+    (v2 cache); live-compute via v2 service on miss. Response shape preserved for
+    backward compat with the legacy UI (skoda_soh_pct / derived_soh_pct / curve).
 
-    Provides two SoH values:
-    - skoda_soh_pct: raw hv_battery_soh from Skoda BMS (may be stale/cached)
-    - derived_soh_pct: our own estimate (prefers the cached battery_soh_estimates
-      table populated by the battery_scheduler; falls back to live computation
-      if no recent estimate exists)
-    - derived_capacity_kwh: our estimated current full capacity in kWh
-    - curve: monthly averaged SoH history (also reads from battery_soh_estimates
-      when available, falls back to live group-by)
+    Per the Sep 5/6 rebuild (commit history on feature/soh-soc-rebuild).
     """
     await get_user_vehicle(user.id, vehicle_id, db)
 
@@ -257,239 +253,78 @@ async def get_battery_health(
     vehicle_result = await db.execute(vehicle_stmt)
     factory_kwh = vehicle_result.scalar_one_or_none()
 
-    # Try cached aggregate from battery_soh_estimates first (preferred path —
-    # the scheduler keeps this fresh and uses the full SoH pipeline including
-    # charging-loss correction, SoC calibration, temperature correction, and
-    # outlier trim). Fall back to live computation if the cache is empty or stale.
-    cache_stmt = text("""
-        SELECT soh_pct, estimated_kwh, confidence, estimated_at, sample_count
-        FROM battery_soh_estimates
-        WHERE user_vehicle_id = :vehicle_id
-          AND method = 'aggregate'
-        ORDER BY estimated_at DESC
-        LIMIT 1
-    """)
-    cached = (await db.execute(cache_stmt, {"vehicle_id": str(vehicle_id)})).mappings().first()
-    cache_max_age = timedelta(days=7)  # refresh weekly
-    cache_is_fresh = (
-        cached is not None
-        and cached["estimated_at"] is not None
-        and (datetime.now(timezone.utc) - cached["estimated_at"]) < cache_max_age
-    )
-
-    if cache_is_fresh:
-        # Read curve from cache (monthly aggregates) too
-        curve_rows = (await db.execute(text("""
+    async def _build_curve_rows(vehicle_uuid: str) -> list[dict]:
+        rows = (await db.execute(text("""
             SELECT
-              TO_CHAR(DATE_TRUNC('month', estimated_at), 'YYYY-MM') AS month,
+              TO_CHAR(DATE_TRUNC('month', computed_at), 'YYYY-MM') AS month,
               ROUND(AVG(soh_pct)::numeric, 2) AS soh_pct,
               ROUND(AVG(estimated_kwh)::numeric, 2) AS estimated_kwh,
               COUNT(*)::int AS sample_count
-            FROM battery_soh_estimates
+            FROM battery_health_analytics
             WHERE user_vehicle_id = :vehicle_id
-              AND method = 'aggregate'
-              AND estimated_at >= NOW() - INTERVAL '12 months'
+              AND method = 'combined'
+              AND computed_at >= NOW() - INTERVAL '12 months'
             GROUP BY 1
             ORDER BY 1
-        """), {"vehicle_id": str(vehicle_id)})).fetchall()
-        curve_data = [
+        """), {"vehicle_id": vehicle_uuid})).fetchall()
+        return [
             {
                 "month": r.month,
                 "soh_pct": float(r.soh_pct),
                 "estimated_kwh": float(r.estimated_kwh) if r.estimated_kwh else None,
                 "sample_count": r.sample_count,
             }
-            for r in curve_rows
+            for r in rows
         ]
+
+    # Cache-first: latest 'combined' row from battery_health_analytics (v2 cache)
+    cache_max_age = timedelta(days=7)  # refresh weekly via scheduler
+    cached = (await db.execute(
+        select(BatteryHealthAnalytics)
+        .where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
+        .where(BatteryHealthAnalytics.method == "combined")
+        .order_by(desc(BatteryHealthAnalytics.computed_at))
+        .limit(1)
+    )).scalar_one_or_none()
+    cache_is_fresh = (
+        cached is not None
+        and cached.computed_at is not None
+        and (datetime.now(timezone.utc) - cached.computed_at) < cache_max_age
+    )
+
+    if cache_is_fresh:
+        curve_data = await _build_curve_rows(str(vehicle_id))
         return {
             "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
             "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
             "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": float(cached["soh_pct"]),
-            "derived_capacity_kwh": float(cached["estimated_kwh"]) if cached["estimated_kwh"] else None,
-            "derived_confidence": cached["confidence"],
-            "derived_estimated_at": cached["estimated_at"].isoformat() if cached["estimated_at"] else None,
-            "derived_sample_count": cached["sample_count"],
-            "derived_source": "battery_soh_estimates",
-            "total_soh_estimates": cached["sample_count"],
+            "derived_soh_pct": float(cached.soh_pct),
+            "derived_capacity_kwh": float(cached.estimated_kwh) if cached.estimated_kwh else None,
+            "derived_confidence": cached.confidence,
+            "derived_estimated_at": cached.computed_at.isoformat(),
+            "derived_sample_count": cached.sample_count,
+            "derived_source": "battery_health_analytics",
+            "total_soh_estimates": cached.sample_count,
             "curve": curve_data,
         }
 
-    # ---- Live-compute fallback (unchanged legacy path) ---------------------
-    # This path runs when the cache is empty or stale. Identical math to the
-    # original endpoint, kept for backward compatibility. The scheduler will
-    # populate the cache on the next run.
-    # Filter: ΔSOC 15-65% (avoid short charges and regen-heavy large charges)
-    # Cap: estimated capacity ≤ 103% of factory (excludes regen-inflated values)
-    soh_stmt = text("""
-        SELECT
-            session_start::date as charge_date,
-            start_level,
-            end_level,
-            energy_kwh,
-            ROUND((energy_kwh / ((end_level - start_level)/100.0))::numeric, 2) as estimated_kwh,
-            ROUND(((energy_kwh / ((end_level - start_level)/100.0)) / :factory_kwh * 100)::numeric, 1) as soh_pct,
-            (end_level - start_level) as delta_soc
-        FROM charging_sessions
-        WHERE user_vehicle_id = :vehicle_id
-          AND end_level IS NOT NULL AND start_level IS NOT NULL
-          AND energy_kwh IS NOT NULL AND energy_kwh > 0
-          AND (end_level - start_level) BETWEEN 15 AND 65
-        ORDER BY session_start DESC
-        LIMIT 50
-    """)
-    if not factory_kwh or factory_kwh <= 0:
-        return {
-            "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-            "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-            "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": None,
-            "derived_capacity_kwh": None,
-            "derived_source": "fallback_no_capacity",
-            "total_soh_estimates": 0,
-            "curve": [],
-        }
+    # ---- Live-compute fallback via v2 service ---------------------------
+    # Cache empty or stale. Run all 6 methods + persist, then build legacy response.
+    analytics = await compute_full_analytics(db, vehicle_id, 365)
+    await persist_analytics(db, analytics)
 
-    soh_result = await db.execute(soh_stmt, {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh})
-    soh_estimates = soh_result.fetchall()
-
-    curve_data = []
-    valid = []
-    latest_derived = None
-    latest_derived_kwh = None
-
-    if soh_estimates:
-        # v1.1.3 fix/soh-cap-100-percent: the 103% noise buffer was kept for filtering
-        # (rejects regen-inflated values that exceed 103% of factory), but the resulting
-        # percentage and capacity now clamp to factory. A real battery never has SoH > 100%.
-        limit_kwh = float(factory_kwh) * 1.03
-        valid = [r for r in soh_estimates if r.estimated_kwh and float(r.estimated_kwh) <= limit_kwh]
-        if valid:
-            from collections import defaultdict
-            by_month: dict[str, list[float]] = defaultdict(list)
-            for r in valid:
-                month = str(r.charge_date)[:7]
-                by_month[month].append(float(r.estimated_kwh))
-            for month in sorted(by_month.keys()):
-                vals = by_month[month]
-                avg_kwh = round(sum(vals) / len(vals), 2)
-                # v1.1.3 fix/soh-cap-100-percent: guard against ZeroDivisionError
-                # when factory_kwh is zero/anomalous, and clamp BOTH bounds to [0,100].
-                # PR Agent #168 finding — previous code only clamped the upper bound,
-                # letting negative values from cold-soak under-voltage pass through.
-                f_kwh = float(factory_kwh)
-                raw_pct = round((avg_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
-                curve_data.append({
-                    "month": month,
-                    "estimated_kwh": round(max(0.0, min(avg_kwh, f_kwh)), 2),
-                    "soh_pct": max(0.0, min(raw_pct, 100.0)),
-                    "sample_count": len(vals),
-                })
-
-    if valid:
-        raw_latest_kwh = float(valid[0].estimated_kwh)
-        # v1.1.3 fix/soh-cap-100-percent: same clamp + zero-division guard as above
-        # for the summary latest_derived values.
-        f_kwh = float(factory_kwh)
-        raw_latest_pct = round((raw_latest_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
-        latest_derived_kwh = round(max(0.0, min(raw_latest_kwh, f_kwh)), 2)
-        latest_derived = max(0.0, min(raw_latest_pct, 100.0))
-
+    curve_data = await _build_curve_rows(str(vehicle_id))
     return {
         "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
         "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
         "factory_capacity_kwh": factory_kwh,
-        "derived_soh_pct": latest_derived,
-        "derived_capacity_kwh": latest_derived_kwh if latest_derived else None,
-        "derived_source": "fallback_live_compute",
-        "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
-        "curve": curve_data,
-    }
-
-    # Compute SoH estimates from charging sessions
-    # Filter: ΔSOC 15-65% (avoid short charges and regen-heavy large charges)
-    # Cap: estimated capacity ≤ 103% of factory (excludes regen-inflated values)
-    date_filter = ""
-    params = {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh}
-    if from_date:
-        date_filter += " AND session_start >= :from_date"
-        params["from_date"] = from_date
-    if to_date:
-        date_filter += " AND session_start <= :to_date"
-        params["to_date"] = to_date
-
-    soh_stmt = text(f"""
-        SELECT 
-            session_start::date as charge_date,
-            start_level,
-            end_level,
-            energy_kwh,
-            ROUND((energy_kwh / ((end_level - start_level)/100.0))::numeric, 2) as estimated_kwh,
-            ROUND(((energy_kwh / ((end_level - start_level)/100.0)) / :factory_kwh * 100)::numeric, 1) as soh_pct,
-            (end_level - start_level) as delta_soc
-        FROM charging_sessions
-        WHERE user_vehicle_id = :vehicle_id
-          AND end_level IS NOT NULL AND start_level IS NOT NULL
-          AND energy_kwh IS NOT NULL AND energy_kwh > 0
-          AND (end_level - start_level) BETWEEN 15 AND 65
-          {date_filter}
-        ORDER BY session_start DESC
-        LIMIT 5000
-    """)
-    soh_result = await db.execute(soh_stmt, params)
-    soh_estimates = soh_result.fetchall()
-
-    # Build monthly averaged curve (last 6 months)
-    curve_data = []
-    valid = []
-    latest_derived = None
-    latest_derived_kwh = None
-
-    if not factory_kwh or factory_kwh <= 0:
-        return {
-            "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-            "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-            "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": None,
-            "derived_capacity_kwh": None,
-            "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
-            "curve": [],
-        }
-
-    if soh_estimates:
-        # Filter valid estimates (≤ 103% of factory — excludes regen noise)
-        limit_kwh = float(factory_kwh) * 1.03
-        valid = [r for r in soh_estimates if r.estimated_kwh and float(r.estimated_kwh) <= limit_kwh]
-        if valid:
-            # Group by month
-            from collections import defaultdict
-            by_month: dict[str, list[float]] = defaultdict(list)
-            for r in valid:
-                month = str(r.charge_date)[:7]  # "YYYY-MM"
-                by_month[month].append(float(r.estimated_kwh))
-            for month in sorted(by_month.keys()):
-                vals = by_month[month]
-                avg_kwh = round(sum(vals) / len(vals), 2)
-                soh_pct = round((avg_kwh / float(factory_kwh)) * 100, 1)
-                curve_data.append({
-                    "month": month,
-                    "estimated_kwh": avg_kwh,
-                    "soh_pct": soh_pct,
-                    "sample_count": len(vals),
-                })
-
-    # Latest derived SoH (most recent valid estimate)
-    if valid:
-        latest_derived = round((float(valid[0].estimated_kwh) / float(factory_kwh)) * 100, 1)
-        latest_derived_kwh = float(valid[0].estimated_kwh)
-
-    return {
-        "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-        "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-        "factory_capacity_kwh": factory_kwh,
-        "derived_soh_pct": latest_derived,
-        "derived_capacity_kwh": latest_derived_kwh if latest_derived else None,
-        "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
+        "derived_soh_pct": analytics.soh_pct,
+        "derived_capacity_kwh": analytics.estimated_kwh,
+        "derived_confidence": analytics.confidence,
+        "derived_estimated_at": analytics.computed_at.isoformat(),
+        "derived_sample_count": sum(m.sample_count for m in analytics.methods),
+        "derived_source": "v2_live_compute",
+        "total_soh_estimates": sum(m.sample_count for m in analytics.methods),
         "curve": curve_data,
     }
 
