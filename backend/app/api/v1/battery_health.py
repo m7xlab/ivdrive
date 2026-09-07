@@ -118,47 +118,6 @@ async def _latest_methods(
     return list(rows)
 
 
-async def persist_analytics(db: AsyncSession, analytics: CombinedAnalytics) -> None:
-    """Write one row per method + one 'combined' row to battery_health_analytics."""
-    now = datetime.now(timezone.utc)
-    for m in analytics.methods:
-        row = BatteryHealthAnalytics(
-            user_vehicle_id=analytics.user_vehicle_id,
-            computed_at=now,
-            method=m.method,
-            soh_pct=m.soh_pct if m.soh_pct is not None else 0.0,
-            estimated_kwh=_extract_kwh(m),
-            sample_count=m.sample_count,
-            confidence=m.confidence,
-            inputs_json=m.inputs,
-            extra_json=m.extra,
-        )
-        db.add(row)
-    combined_row = BatteryHealthAnalytics(
-        user_vehicle_id=analytics.user_vehicle_id,
-        computed_at=now,
-        method="combined",
-        soh_pct=analytics.soh_pct if analytics.soh_pct is not None else 0.0,
-        estimated_kwh=analytics.estimated_kwh,
-        sample_count=sum(m.sample_count for m in analytics.methods),
-        confidence=analytics.confidence,
-        inputs_json=None,
-        extra_json={"anomalies": analytics.anomalies},
-    )
-    db.add(combined_row)
-    await db.commit()
-
-
-def _extract_kwh(m: MethodResult) -> float | None:
-    if m.method == "tesla_capacity":
-        return m.extra.get("median_kwh")
-    if m.method == "cell_imbalance":
-        return m.extra.get("median_imbalance_mv")  # not kWh but closest persistable
-    if m.method == "throughput":
-        return m.extra.get("cycles")
-    if m.method == "range_drift_over_time":
-        return m.extra.get("retention_pct")
-    return None
 
 
 def _method_row_to_dict(row: BatteryHealthAnalytics) -> Dict[str, Any]:
