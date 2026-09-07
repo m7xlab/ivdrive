@@ -10,8 +10,27 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _build_invite_html(invite_link: str, email: str) -> str:
+def _invite_token_from_link(invite_link: str) -> str:
+    from urllib.parse import parse_qs, urlparse
+
+    return (parse_qs(urlparse(invite_link).query).get("token") or [""])[0]
+
+
+def _build_invite_html(invite_link: str, email: str, token: str = "") -> str:
     """Build a clean HTML invitation email."""
+    token_block = ""
+    if token:
+        token_block = f"""
+    <p style="margin:24px 0 8px;font-size:14px;color:#888;line-height:1.6;text-align:center;">
+      Prefer not to click the button? Open the register page and paste this invite token:
+    </p>
+    <p style="margin:0 0 8px;font-size:13px;color:#00bcd4;letter-spacing:0.4px;text-align:center;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">
+      {token}
+    </p>
+    <p style="margin:0 0 8px;font-size:12px;color:#555;text-align:center;">
+      You can also share this token with the person who should register.
+    </p>
+"""
     return f"""\
 <!DOCTYPE html>
 <html lang="en">
@@ -54,7 +73,7 @@ def _build_invite_html(invite_link: str, email: str) -> str:
       </a>
     </td></tr>
     </table>
-
+{token_block}
     <p style="margin:28px 0 0;font-size:13px;color:#555;line-height:1.5;text-align:center;">
       This invitation was sent to <strong style="color:#888;">{email}</strong>.<br>
       If you did not request access, you can safely ignore this email.
@@ -75,12 +94,18 @@ def _build_invite_html(invite_link: str, email: str) -> str:
 </html>"""
 
 
-def _build_invite_plain(invite_link: str, email: str) -> str:
+def _build_invite_plain(invite_link: str, email: str, token: str) -> str:
     """Plaintext fallback for the invitation email."""
+    token_lines = (
+        f"Invite token (paste this on the register form if you do not want to open the link):\n{token}\n\n"
+        if token
+        else ""
+    )
     return (
         f"You're Invited to iVDrive!\n\n"
         f"Your request to join iVDrive has been approved.\n\n"
         f"Create your account here:\n{invite_link}\n\n"
+        f"{token_lines}"
         f"This invitation was sent to {email}.\n"
         f"If you did not request access, you can safely ignore this email.\n\n"
         f"— iVDrive"
@@ -200,7 +225,7 @@ def send_password_reset_email(to_email: str, reset_link: str) -> bool:
         return False
 
 
-def send_invite_email(to_email: str, invite_link: str) -> bool:
+def send_invite_email(to_email: str, invite_link: str, token: str | None = None) -> bool:
     """Send an invitation email. Returns True on success, False on failure.
 
     If SMTP is not configured, logs the invite link and returns True
@@ -219,8 +244,9 @@ def send_invite_email(to_email: str, invite_link: str) -> bool:
     msg["From"] = settings.smtp_from or settings.smtp_user
     msg["To"] = to_email
 
-    msg.attach(MIMEText(_build_invite_plain(invite_link, to_email), "plain"))
-    msg.attach(MIMEText(_build_invite_html(invite_link, to_email), "html"))
+    invite_token = token or _invite_token_from_link(invite_link)
+    msg.attach(MIMEText(_build_invite_plain(invite_link, to_email, invite_token), "plain"))
+    msg.attach(MIMEText(_build_invite_html(invite_link, to_email, invite_token), "html"))
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:

@@ -15,32 +15,34 @@ const VALID_TABS = [
   "hvac-isolation",
   "climate-penalty",
   "charging-curve-integrals",
-  "elevation",
-  "speed-temp",
-  "ice-vs-ev",
+  "elevation-penalty",
+  "speed-temp-matrix",
+  "ice-tco",
   "route-efficiency",
-  "arrival-soc",
+  "predictive-soc",
   "mileage",
   "battery-soh",
 ] as const;
 
-type ValidTab = (typeof VALID_TABS)[number];
-
-function isValidTab(tab: string): tab is ValidTab {
-  return (VALID_TABS as readonly string[]).includes(tab);
-}
+const TAB_ALIASES: Record<string, string> = {
+  elevation: "elevation-penalty",
+  "speed-temp": "speed-temp-matrix",
+  "ice-vs-ev": "ice-tco",
+  "arrival-soc": "predictive-soc",
+};
 
 export default async function VehicleStatisticsTabPage({ params }: PageProps): Promise<ReactNode> {
   const { id, tab } = await params;
+  const canonical = TAB_ALIASES[tab] ?? tab;
 
-  if (!isValidTab(tab)) {
+  if (!(VALID_TABS as readonly string[]).includes(canonical)) {
     redirect(`/vehicles/${id}/statistics`);
   }
 
-  // The actual tab rendering is handled by the client-side
-  // StatisticsShell component, which reads the tab from the URL pathname.
-  // This page exists purely to make Next.js accept the dynamic [tab] segment
-  // and to redirect invalid tabs back to the default.
+  if (canonical !== tab) {
+    redirect(`/vehicles/${id}/statistics/${canonical}`);
+  }
+
   const { StatisticsShell } = await import("@/components/statistics/StatisticsShell");
-  return <StatisticsShell vehicleId={id} />;
+  return <StatisticsShell vehicleId={id} initialTab={canonical} />;
 }

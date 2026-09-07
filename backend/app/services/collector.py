@@ -150,6 +150,8 @@ class DataCollector:
             seconds=5,
             id="manual_refresh_queue",
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
 
         from app.tasks.extraction import cleanup_expired_extractions
@@ -220,11 +222,13 @@ class DataCollector:
             self._listen_task = asyncio.ensure_future(self._listen_events())
 
     async def _process_manual_refresh_queue(self) -> None:
-        """Drain the manual refresh Valkey queue and trigger force-collect for each vehicle.
+        """Drain the manual refresh Valkey queue one vehicle at a time.
 
         Uses a persistent Valkey List (RPUSH/LPOP) instead of pub/sub so that
         refresh requests survive pub/sub listener crashes and collector reconnects.
-        Max latency: 5 seconds (the scheduler interval).
+        Each collect is awaited before the next LPOP — Škoda cannot handle
+        concurrent refreshes after outages (rate limits / token races).
+        Max start latency: 5 seconds (the scheduler interval).
         """
         client = await get_valkey_client()
         try:
@@ -234,12 +238,16 @@ class DataCollector:
                     break
                 try:
                     vehicle_id = UUID(vehicle_id_str)
-                    logger.info("Manual refresh queue: triggering force-collect for vehicle %s", vehicle_id)
-                    task = asyncio.create_task(self.collect_vehicle(vehicle_id, force=True))
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._handle_task_result)
+                    logger.info(
+                        "Manual refresh queue: sequential collect for vehicle %s",
+                        vehicle_id,
+                    )
+                    await self.collect_vehicle(vehicle_id, force=True)
                 except Exception:
-                    logger.exception("Manual refresh queue: failed to process vehicle %s", vehicle_id_str)
+                    logger.exception(
+                        "Manual refresh queue: failed to process vehicle %s",
+                        vehicle_id_str,
+                    )
         finally:
             await client.aclose()
 

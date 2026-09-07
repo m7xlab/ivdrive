@@ -1,7 +1,7 @@
 """add battery_health_analytics table (cache for v2 SoH estimates)
 
-Revision ID: a1b2c3d4e5f6
-Revises: c4d5e6f7a8b9
+Revision ID: d6e7f8a9b0c1
+Revises: 1924fb48a5b1
 Create Date: 2026-09-07 06:55:00
 
 Adds the battery_health_analytics table that caches per-method SoH estimates
@@ -9,10 +9,12 @@ plus the combined view per vehicle. Used by /api/v1/vehicles/{id}/battery-
 health-analytics and the legacy /analytics/battery-health endpoint (cache-
 first read with live-compute fallback).
 
-The table already exists in production (created via raw SQL during the
-Aug 5 work that was lost from the branches). The migration uses
-CREATE TABLE IF NOT EXISTS so it is safe to run on both fresh and
-existing databases.
+NOTE: Originally shipped with revision id 'a1b2c3d4e5f6', which already
+belongs to add_smart_polling_intervals. That collision produced
+"Revision a1b2c3d4e5f6 is present more than once" and a second head
+beside 1924fb48a5b1 (current production). Re-issued as d6e7f8a9b0c1
+on top of 1924fb48a5b1. CREATE TABLE IF NOT EXISTS keeps this safe
+on DBs that already have the table from the Aug 5 raw-SQL work.
 """
 
 from alembic import op
@@ -20,8 +22,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "a1b2c3d4e5f6"
-down_revision = "c4d5e6f7a8b9"
+revision = "d6e7f8a9b0c1"
+down_revision = "1924fb48a5b1"
 branch_labels = None
 depends_on = None
 

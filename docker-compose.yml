@@ -14,7 +14,6 @@ services:
       VALKEY_URL: "valkey://:${VALKEY_PASSWORD}@valkey:6379/0"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
-      CORS_ORIGINS: "${CORS_ORIGINS}"
       STATISTICS_QUERY_DEBUG: "${STATISTICS_QUERY_DEBUG:-false}"
       SERVICE_REGISTRATION: "${SERVICE_REGISTRATION:-open}"
       SMTP_HOST: "${SMTP_HOST:-}"
@@ -109,8 +108,8 @@ services:
       POSTGRES_DB: "${POSTGRES_DB}"
     volumes:
       - ./data/postgresql:/var/lib/postgresql/
-    ports:
-      - "6432:5432"
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s

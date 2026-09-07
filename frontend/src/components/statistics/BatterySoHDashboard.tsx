@@ -65,9 +65,7 @@ export function BatterySoHDashboard({
       try {
         setLoading(true);
         setError(null);
-        const result = await api.get<BatteryHealthAnalytics>(
-          `/api/v1/vehicles/${vehicleId}/battery-health-analytics`
-        );
+        const result = await api.getBatteryHealthAnalytics(vehicleId);
         if (!cancelled) setData(result);
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Failed to load battery health analytics');
@@ -91,7 +89,9 @@ export function BatterySoHDashboard({
     return <div className="p-4 text-center text-iv-muted">No data available</div>;
   }
 
-  const methodByName = (name: string) => data.methods.find(m => m.method === name);
+  const methods = data.methods ?? [];
+  const anomalies = data.anomalies ?? [];
+  const methodByName = (name: string) => methods.find(m => m.method === name);
   const tesla = methodByName('tesla_capacity');
   const taper = methodByName('charging_curve_taper');
   const cellImb = methodByName('cell_imbalance');
@@ -123,7 +123,7 @@ export function BatterySoHDashboard({
             Calculated SoH
           </div>
           <div className="text-3xl font-bold text-iv-text">
-            {data.soh_pct != null ? `${data.soh_pct}%` : '—'}
+            {formatSoh(data.soh_pct)}
           </div>
           <div className="text-xs text-iv-muted mt-1">
             {data.cached ? 'cached' : 'freshly computed'}
@@ -158,7 +158,7 @@ export function BatterySoHDashboard({
             <div className="text-sm font-semibold text-iv-text">⚡ Charging Power by SOC</div>
             {taper?.soh_pct != null && (
               <div className="text-xs text-iv-muted">
-                Taper SoH: <span className="font-bold text-iv-text">{taper.soh_pct}%</span>
+                Taper SoH: <span className="font-bold text-iv-text">{formatSoh(taper.soh_pct)}</span>
                 {' · '}
                 {taper.sample_count} DC samples
               </div>
@@ -184,10 +184,10 @@ export function BatterySoHDashboard({
           🎯 Per-Method Scorecard
         </div>
         <div className="text-xs text-iv-muted mb-4">
-          Why your battery is {data.soh_pct ?? '—'}% — not a black box
+          Why your battery is {formatSoh(data.soh_pct)} — not a black box
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {data.methods
+          {methods
             .filter(m => m.method !== 'combined')
             .map(m => {
               const meta = METHOD_LABELS[m.method] || {
@@ -211,7 +211,7 @@ export function BatterySoHDashboard({
                     </span>
                   </div>
                   <div className="text-xl font-bold text-iv-text">
-                    {m.soh_pct != null ? `${m.soh_pct}%` : '—'}
+                    {formatSoh(m.soh_pct)}
                   </div>
                   <div className="text-xs text-iv-muted mt-1">
                     {m.sample_count} samples
@@ -304,14 +304,14 @@ export function BatterySoHDashboard({
           <div className="flex items-baseline gap-4 flex-wrap">
             <div>
               <div className="text-3xl font-bold text-iv-text">
-                {fleet.soh_pct?.toFixed(1) ?? '—'}%
+                {formatSoh(fleet.soh_pct)}
               </div>
               <div className="text-xs text-iv-muted mt-1">Your battery</div>
             </div>
             <div className="text-iv-muted">vs</div>
             <div>
               <div className="text-3xl font-bold text-iv-muted">
-                {fleet.extra.similar_age_avg_soh?.toFixed(1) ?? '—'}%
+                {formatSoh(fleet.extra.similar_age_avg_soh as number | null)}
               </div>
               <div className="text-xs text-iv-muted mt-1">
                 Similar-age fleet avg ({fleet.extra.peer_count ?? 0} peers)
@@ -363,11 +363,11 @@ export function BatterySoHDashboard({
       )}
 
       {/* Anomalies */}
-      {data.anomalies.length > 0 && (
+      {anomalies.length > 0 && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
           <div className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Anomalies</div>
           <ul className="text-xs text-iv-muted space-y-1">
-            {data.anomalies.map((a, i) => (
+            {anomalies.map((a, i) => (
               <li key={i}>• {a}</li>
             ))}
           </ul>
@@ -387,13 +387,17 @@ function buildTaperChartData(
   }));
 }
 
+function formatSoh(value: number | null | undefined): string {
+  return value != null && Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : '—';
+}
+
 function computeForecast(currentSoh: number | null) {
   if (currentSoh == null) return null;
   const annualDeg = 1.8; // Skoda Enyaq fleet average per research doc
   return {
-    oneYear: Math.max(0, currentSoh - annualDeg).toFixed(1),
-    threeYear: Math.max(0, currentSoh - annualDeg * 3).toFixed(1),
-    fiveYear: Math.max(0, currentSoh - annualDeg * 5).toFixed(1),
+    oneYear: Math.max(0, currentSoh - annualDeg).toFixed(2),
+    threeYear: Math.max(0, currentSoh - annualDeg * 3).toFixed(2),
+    fiveYear: Math.max(0, currentSoh - annualDeg * 5).toFixed(2),
   };
 }
 

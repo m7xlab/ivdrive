@@ -28,7 +28,6 @@ Methods:
 
 from __future__ import annotations
 
-import asyncio
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -40,10 +39,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.telemetry import (
     BatteryHealth,
+    BatteryHealthAnalytics,
     ChargingCurve,
     ChargingSession,
+    Drive,
     DriveRangeEstimatedFull,
-    BatteryHealthAnalytics,
 )
 from app.models.vehicle import UserVehicle
 
@@ -142,7 +142,7 @@ def _confidence_from_samples(method: str, sample_count: int) -> str:
 def _clamp_soh(value: Optional[float]) -> Optional[float]:
     if value is None:
         return None
-    return max(SOH_CAP_LOWER, min(SOH_CAP_UPPER, value))
+    return round(max(SOH_CAP_LOWER, min(SOH_CAP_UPPER, value)), 2)
 
 
 def _weighted_median(values_with_weights: List[Tuple[float, float]]) -> Optional[float]:
@@ -491,21 +491,14 @@ async def estimate_fleet_benchmark(
                     "model_year": veh.model_year},
         )
 
-    # Query each peer's latest combined SoH from battery_health_analytics.
-    # The BatteryHealthAnalytics model class will be added to telemetry.py
-    # by the migration that accompanies this service.
     peer_ids = [p.id for p in peers]
-    try:
-        from app.models.battery_health_analytics import BatteryHealthAnalytics
-        rows = (await db.execute(
-            select(BatteryHealthAnalytics)
-            .where(BatteryHealthAnalytics.user_vehicle_id.in_(peer_ids))
-            .where(BatteryHealthAnalytics.method == "combined")
-            .order_by(BatteryHealthAnalytics.user_vehicle_id,
-                      desc(BatteryHealthAnalytics.computed_at))
-        )).scalars().all()
-    except Exception:
-        rows = []
+    rows = (await db.execute(
+        select(BatteryHealthAnalytics)
+        .where(BatteryHealthAnalytics.user_vehicle_id.in_(peer_ids))
+        .where(BatteryHealthAnalytics.method == "combined")
+        .order_by(BatteryHealthAnalytics.user_vehicle_id,
+                  desc(BatteryHealthAnalytics.computed_at))
+    )).scalars().all()
 
     latest_per_peer: Dict[UUID, float] = {}
     for r in rows:
@@ -524,7 +517,7 @@ async def estimate_fleet_benchmark(
     peer_avg = statistics.median(peer_sohs)
     return MethodResult(
         method="fleet_benchmark",
-        soh_pct=peer_avg,
+        soh_pct=_clamp_soh(peer_avg),
         sample_count=len(peer_sohs),
         confidence=_confidence_from_samples("fleet_benchmark", len(peer_sohs)),
         inputs={"model_year": veh.model_year},
@@ -549,11 +542,12 @@ async def estimate_range_drift_over_time(
 
     rows = (await db.execute(
         select(DriveRangeEstimatedFull)
-        .where(DriveRangeEstimatedFull.user_vehicle_id == vehicle_id)
-        .where(DriveRangeEstimatedFull.captured_at >= cutoff)
-        .where(DriveRangeEstimatedFull.range_km.isnot(None))
-        .where(DriveRangeEstimatedFull.range_km > 0)
-        .order_by(DriveRangeEstimatedFull.captured_at.asc())
+        .join(Drive, Drive.id == DriveRangeEstimatedFull.drive_id)
+        .where(Drive.user_vehicle_id == vehicle_id)
+        .where(DriveRangeEstimatedFull.last_date >= cutoff)
+        .where(DriveRangeEstimatedFull.range_estimated_full.isnot(None))
+        .where(DriveRangeEstimatedFull.range_estimated_full > 0)
+        .order_by(DriveRangeEstimatedFull.last_date.asc())
     )).scalars().all()
 
     if len(rows) < 10:
@@ -564,8 +558,8 @@ async def estimate_range_drift_over_time(
                     "lookback_days": lookback_days},
         )
 
-    first_half = [r.range_km for r in rows if r.captured_at < mid_cutoff]
-    second_half = [r.range_km for r in rows if r.captured_at >= mid_cutoff]
+    first_half = [r.range_estimated_full for r in rows if r.last_date < mid_cutoff]
+    second_half = [r.range_estimated_full for r in rows if r.last_date >= mid_cutoff]
     if not first_half or not second_half:
         return MethodResult(
             method="range_drift_over_time", soh_pct=None,
@@ -603,14 +597,21 @@ async def compute_full_analytics(
     vehicle_id: UUID,
     lookback_days: int = 365,
 ) -> CombinedAnalytics:
-    """Run all 6 methods and combine them into a single analytics result."""
-    results = await asyncio.gather(
-        estimate_tesla_capacity(db, vehicle_id, lookback_days),
-        estimate_charging_curve_taper(db, vehicle_id, lookback_days),
-        estimate_cell_imbalance(db, vehicle_id, lookback_days),
-        estimate_throughput(db, vehicle_id, lookback_days),
-        estimate_fleet_benchmark(db, vehicle_id, lookback_days),
-        estimate_range_drift_over_time(db, vehicle_id, lookback_days),
+    """Run all 6 methods and combine them into a single analytics result.
+
+    Methods run sequentially on purpose: AsyncSession/asyncpg is not safe for
+    concurrent execute() on one connection. The previous asyncio.gather()
+    caused "another operation is in progress", left the connection in a
+    half-open transaction, and poisoned the pool so later requests
+    (including /auth/login) returned 500.
+    """
+    results = (
+        await estimate_tesla_capacity(db, vehicle_id, lookback_days),
+        await estimate_charging_curve_taper(db, vehicle_id, lookback_days),
+        await estimate_cell_imbalance(db, vehicle_id, lookback_days),
+        await estimate_throughput(db, vehicle_id, lookback_days),
+        await estimate_fleet_benchmark(db, vehicle_id, lookback_days),
+        await estimate_range_drift_over_time(db, vehicle_id, lookback_days),
     )
 
     valid = [

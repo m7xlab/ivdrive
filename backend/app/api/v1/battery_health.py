@@ -23,8 +23,8 @@ from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.services.battery_health_v2 import (
     CombinedAnalytics,
-    MethodResult,
     compute_full_analytics,
+    persist_analytics,
 )
 
 
@@ -50,7 +50,7 @@ async def get_battery_health_analytics(
     if not force_recompute:
         cached_combined = await _latest_combined(db, vehicle_id)
         if cached_combined is not None:
-            methods = await _latest_methods(db, vehicle_id, limit=7)
+            methods = await _latest_methods(db, vehicle_id)
             return {
                 "user_vehicle_id": str(vehicle_id),
                 "soh_pct": cached_combined.soh_pct,
@@ -59,6 +59,7 @@ async def get_battery_health_analytics(
                 "computed_at": cached_combined.computed_at.isoformat(),
                 "cached": True,
                 "methods": [_method_row_to_dict(m) for m in methods],
+                "anomalies": _anomalies_from_extra(cached_combined.extra_json),
             }
 
     analytics = await compute_full_analytics(db, vehicle_id, lookback_days)
@@ -107,15 +108,24 @@ async def _latest_combined(
 
 
 async def _latest_methods(
-    db: AsyncSession, vehicle_id: UUID, limit: int = 7
+    db: AsyncSession, vehicle_id: UUID
 ) -> List[BatteryHealthAnalytics]:
+    """Latest row per method (excluding the combined rollup)."""
     rows = (await db.execute(
         select(BatteryHealthAnalytics)
         .where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
-        .order_by(desc(BatteryHealthAnalytics.computed_at))
-        .limit(limit)
+        .where(BatteryHealthAnalytics.method != "combined")
+        .distinct(BatteryHealthAnalytics.method)
+        .order_by(BatteryHealthAnalytics.method, desc(BatteryHealthAnalytics.computed_at))
     )).scalars().all()
     return list(rows)
+
+
+def _anomalies_from_extra(extra: Any) -> List[str]:
+    if not isinstance(extra, dict):
+        return []
+    anomalies = extra.get("anomalies") or []
+    return anomalies if isinstance(anomalies, list) else []
 
 
 
@@ -127,8 +137,8 @@ def _method_row_to_dict(row: BatteryHealthAnalytics) -> Dict[str, Any]:
         "estimated_kwh": row.estimated_kwh,
         "sample_count": row.sample_count,
         "confidence": row.confidence,
-        "inputs": row.inputs_json,
-        "extra": row.extra_json,
+        "inputs": row.inputs_json or {},
+        "extra": row.extra_json or {},
     }
 
 

@@ -4,7 +4,7 @@
 
 
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 import { format, parseISO, getYear, getMonth } from "date-fns";
 
@@ -231,13 +231,11 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
     try {
 
-      const data = await api.reverseGeocode(lat, lon);
-
-      return data.display_name || "Location";
+      return await api.reverseGeocode(lat, lon);
 
     } catch {
 
-      return "Location";
+      return { display_name: "Location", retry_after_seconds: 8 };
 
     }
 
@@ -245,13 +243,16 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
+  const locationsRef = useRef(locations);
+  locationsRef.current = locations;
+
   const getLocationName = (lat: number | null | undefined, lon: number | null | undefined) => {
 
     if (lat == null || lon == null) return "Location";
 
-    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    const key = api.coordKey(lat, lon);
 
-    return locations.get(key) || "Location";
+    return locations.get(key) || api.peekReverseGeocode(lat, lon) || "Location";
 
   };
 
@@ -367,7 +368,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   const visibleTrips = useMemo(() => {
 
-    if (dateRange) return displayTrips;
+    if (dateRange) return displayTrips.slice(0, visibleCount);
 
     return displayTrips.slice(0, visibleCount);
 
@@ -403,23 +404,29 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
-  // Lazy geocoding
+  // Lazy geocoding — "Location" is a miss, not a final name. Retry until cached.
 
   useEffect(() => {
 
     let isMounted = true;
 
-    const newLocations = new Map(locations);
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    let changed = false;
+    const resolved = new Map(locationsRef.current);
 
 
 
     const resolve = async () => {
 
+      let changed = false;
+
+      let retryMs = 0;
+
+
+
       for (const trip of visibleTrips) {
 
-        if (!isMounted) break;
+        if (!isMounted) return;
 
         const coords = [
 
@@ -433,35 +440,41 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
           if (lat == null || lon == null) continue;
 
-          const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+          const key = api.coordKey(lat, lon);
 
-          
+          if (resolved.has(key)) continue;
 
-          if (!newLocations.has(key)) {
 
-            // Check session storage first to avoid API calls on refresh
 
-            const cached = sessionStorage.getItem(`geo_${key}`);
+          const cached = api.peekReverseGeocode(lat, lon);
 
-            if (cached) {
+          if (cached) {
 
-              newLocations.set(key, cached);
+            resolved.set(key, cached);
 
-              changed = true;
+            changed = true;
 
-            } else {
+            continue;
 
-              const name = await fetchLocationName(lat, lon);
+          }
 
-              if (!isMounted) break;
 
-              newLocations.set(key, name);
 
-              sessionStorage.setItem(`geo_${key}`, name);
+          const data = await fetchLocationName(lat, lon);
 
-              changed = true;
+          if (!isMounted) return;
 
-            }
+          const name = data.display_name;
+
+          if (name && name !== "Location" && name !== "Unknown Location") {
+
+            resolved.set(key, name);
+
+            changed = true;
+
+          } else {
+
+            retryMs = Math.max(retryMs, (data.retry_after_seconds ?? 8) * 1000);
 
           }
 
@@ -469,17 +482,25 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
       }
 
-      if (isMounted && changed) setLocations(newLocations);
+      if (isMounted && changed) setLocations(new Map(resolved));
+
+      if (isMounted && retryMs > 0) {
+
+        timer = setTimeout(resolve, retryMs);
+
+      }
 
     };
 
     resolve();
 
-    
+
 
     return () => {
 
       isMounted = false;
+
+      if (timer) clearTimeout(timer);
 
     };
 
@@ -783,7 +804,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
-              {!dateRange && selectedMonth !== null && visibleCount < displayTrips.length && (
+              {visibleCount < displayTrips.length && (
 
                 <button type="button"
 

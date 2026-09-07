@@ -8,7 +8,19 @@ import { useSearchParams } from "next/navigation";
 
 import Link from "next/link";
 
-import { Mail, Lock, User, Eye, EyeOff, Sparkles, CheckCircle } from "lucide-react";
+import { Mail, Lock, User, Eye, EyeOff, Sparkles, CheckCircle, Ticket } from "lucide-react";
+
+function normalizeInviteToken(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    return url.searchParams.get("token")?.trim() || trimmed;
+  } catch {
+    const match = trimmed.match(/[?&]token=([^&]+)/);
+    return match ? decodeURIComponent(match[1]).trim() : trimmed;
+  }
+}
 
 import { useAuth } from "@/lib/auth-context";
 
@@ -64,6 +76,8 @@ function RegisterForm() {
 
 
 
+  const [inviteToken, setInviteToken] = useState(tokenFromUrl ?? "");
+
   const [displayName, setDisplayName] = useState("");
 
   const [email, setEmail] = useState("");
@@ -102,6 +116,12 @@ function RegisterForm() {
 
       // If invite_only and no token, show request form
 
+      if (tokenFromUrl) {
+
+        setInviteToken(tokenFromUrl);
+
+      }
+
       if (m === "invite_only" && !tokenFromUrl) {
 
         setView("request");
@@ -138,6 +158,16 @@ function RegisterForm() {
 
     }
 
+    const token = normalizeInviteToken(inviteToken);
+
+    if (mode === "invite_only" && !token) {
+
+      setError("Invite token is required. Paste the token from your invite email, or use the invite link.");
+
+      return;
+
+    }
+
 
 
     setLoading(true);
@@ -152,7 +182,7 @@ function RegisterForm() {
 
         displayName || undefined,
 
-        tokenFromUrl || undefined
+        token || undefined
 
       );
 
@@ -254,7 +284,7 @@ function RegisterForm() {
 
           <p className="text-center text-sm text-iv-muted mt-8">
 
-            Already have an invite?{" "}
+            Already have an invite token? Paste it — or share the token — and{" "}
 
             <button type="button"
 
@@ -264,7 +294,7 @@ function RegisterForm() {
 
             >
 
-              Register here
+              register here
 
             </button>
 
@@ -396,7 +426,7 @@ function RegisterForm() {
 
           <p className="text-sm text-iv-muted">
 
-            Already have an invite token?{" "}
+            Already have an invite token? You can paste or share it.{" "}
 
             <button type="button"
 
@@ -406,7 +436,7 @@ function RegisterForm() {
 
             >
 
-              Register here
+              Enter token and register
 
             </button>
 
@@ -446,9 +476,13 @@ function RegisterForm() {
 
         <p className="text-iv-muted text-sm mt-1">
 
-          {tokenFromUrl
+          {mode === "invite_only"
 
-            ? "You've been invited — complete your registration"
+            ? (tokenFromUrl
+
+              ? "Your invite token is filled in below — you can also copy and share it."
+
+              : "Paste your invite token (or the invite link). You can share the same token.")
 
             : "Get started with iVDrive"}
 
@@ -465,6 +499,58 @@ function RegisterForm() {
           <div className="bg-iv-danger/10 border border-iv-danger/30 text-iv-danger text-sm rounded-lg px-4 py-3">
 
             {error}
+
+          </div>
+
+        )}
+
+
+
+        {mode === "invite_only" && (
+
+          <div className="flex flex-col gap-1.5">
+
+            <label htmlFor="inviteToken" className="text-sm font-medium text-iv-muted">
+
+              Invite token <span className="text-iv-cyan font-normal">(required)</span>
+
+            </label>
+
+            <div className="relative">
+
+              <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-iv-muted" />
+
+              <input
+
+                id="inviteToken"
+
+                type="text"
+
+                value={inviteToken}
+
+                onChange={(e) => setInviteToken(e.target.value)}
+
+                onBlur={() => setInviteToken(normalizeInviteToken(inviteToken))}
+
+                placeholder="Paste token or invite link"
+
+                required
+
+                autoComplete="off"
+
+                spellCheck={false}
+
+                className="w-full bg-iv-surface border border-iv-border rounded-lg py-2.5 pl-10 pr-4 text-iv-text placeholder:text-iv-muted/50 focus:outline-none focus:border-iv-cyan transition-colors font-mono text-sm"
+
+              />
+
+            </div>
+
+            <p className="text-xs text-iv-muted/70">
+
+              Use the token from your invite email, or paste the full invite link. You can share this token with the person who should register.
+
+            </p>
 
           </div>
 
@@ -662,7 +748,7 @@ function RegisterForm() {
 
           type="submit"
 
-          disabled={loading || password.length < 8 || password !== confirmPassword}
+          disabled={loading || password.length < 8 || password !== confirmPassword || (mode === "invite_only" && !normalizeInviteToken(inviteToken))}
 
           className="mt-2 w-full bg-gradient-to-r from-iv-green to-iv-cyan text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
 
