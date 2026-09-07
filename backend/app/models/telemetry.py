@@ -506,3 +506,38 @@ class CollectorRawResponse(Base):
 
 
 
+
+
+class BatteryHealthAnalytics(Base):
+    """Per-method SoH estimates + combined view, persisted for cache-first reads."""
+    __tablename__ = "battery_health_analytics"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_vehicle_id", "method", "computed_at",
+            name="uq_bha_vehicle_method_computed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    user_vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_vehicles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    method: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    soh_pct: Mapped[float] = mapped_column(nullable=False)
+    estimated_kwh: Mapped[float | None] = mapped_column()
+    sample_count: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[str | None] = mapped_column(String(10))
+    inputs_json: Mapped[Any | None] = mapped_column(JSONB)
+    extra_json: Mapped[Any | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user_vehicle: Mapped["UserVehicle"] = relationship()
