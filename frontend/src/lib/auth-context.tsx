@@ -19,6 +19,10 @@ interface User {
   is_totp_enabled: boolean;
   ai_enabled: boolean;
   ai_tier: string;
+  default_currency?: string;
+  unit_system?: "metric" | "uk" | "us" | "imperial";
+  fx_rate?: number;
+  fx_as_of?: string | null;
   created_at: string;
 }
 

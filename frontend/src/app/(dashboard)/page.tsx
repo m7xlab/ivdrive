@@ -8,6 +8,8 @@ import { Plus, Car, X, Loader2, AlertCircle, Timer } from "lucide-react";
 
 import { api } from "@/lib/api";
 
+import { useLocale } from "@/lib/locale";
+
 import { useAuth } from "@/lib/auth-context";
 
 import { VehicleCard, CardSkeleton } from "@/components/vehicle-card";
@@ -344,6 +346,8 @@ function AddVehicleModal({
 
 }) {
 
+  const { distanceLabel, displayToKm } = useLocale();
+
   const [vin, setVin] = useState("");
 
   const [displayName, setDisplayName] = useState("");
@@ -394,7 +398,7 @@ function AddVehicleModal({
 
         parked_interval_seconds: parkedInterval,
 
-        wltp_range_km: wltpRangeKm ? parseFloat(wltpRangeKm) : null,
+        wltp_range_km: wltpRangeKm ? displayToKm(parseFloat(wltpRangeKm)) : null,
 
       });
 
@@ -561,7 +565,7 @@ function AddVehicleModal({
 
           <FormField
 
-            label="WLTP Range (km)"
+            label={`WLTP Range (${distanceLabel})`}
 
             type="number"
 

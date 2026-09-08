@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, ReferenceLine, Cell } from "recharts";
 import { api } from '../../lib/api';
 import { TimelineRange } from "./StatisticsShell";
+import { useLocale } from "@/lib/locale";
 
 interface MethodResult {
   method: string;
@@ -55,6 +56,7 @@ export function BatterySoHDashboard({
   vehicleId: string;
   dateRange?: TimelineRange;
 }) {
+  const { formatDistance } = useLocale();
   const [data, setData] = useState<BatteryHealthAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -272,13 +274,13 @@ export function BatterySoHDashboard({
           <div className="grid grid-cols-3 gap-4">
             <div>
               <div className="text-2xl font-bold text-iv-text">
-                {rangeDrift.extra.first_half_median_km?.toFixed(0) ?? '—'} km
+                {rangeDrift.extra.first_half_median_km != null ? formatDistance(rangeDrift.extra.first_half_median_km) : '—'}
               </div>
               <div className="text-xs text-iv-muted mt-1">Earlier half median</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-iv-text">
-                {rangeDrift.extra.second_half_median_km?.toFixed(0) ?? '—'} km
+                {rangeDrift.extra.second_half_median_km != null ? formatDistance(rangeDrift.extra.second_half_median_km) : '—'}
               </div>
               <div className="text-xs text-iv-muted mt-1">Recent half median</div>
             </div>

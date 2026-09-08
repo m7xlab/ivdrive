@@ -48,6 +48,7 @@ from app.security import (
     verify_password,
 )
 from app.services.email import send_password_reset_email
+from app.services.fx import is_supported, rate_for
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 
 router = APIRouter()
@@ -495,9 +496,19 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
 # ── user profile ─────────────────────────────────────────────────────
 
 
+async def _user_with_fx(user: User, db: AsyncSession) -> UserResponse:
+    rate, as_of = await rate_for(db, user.default_currency)
+    return UserResponse.model_validate(user).model_copy(
+        update={"fx_rate": rate, "fx_as_of": as_of}
+    )
+
+
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(get_current_active_user)):
-    return user
+async def get_me(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _user_with_fx(user, db)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -508,9 +519,16 @@ async def update_me(
 ):
     if body.display_name is not None:
         user.display_name = body.display_name
+    if body.default_currency is not None:
+        code = body.default_currency.upper()
+        if not await is_supported(db, code):
+            raise HTTPException(status_code=400, detail=f"Unsupported currency: {code}")
+        user.default_currency = code
+    if body.unit_system is not None:
+        user.unit_system = body.unit_system
     await db.flush()
     await db.refresh(user)
-    return user
+    return await _user_with_fx(user, db)
 
 
 

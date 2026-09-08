@@ -90,8 +90,12 @@ class ChargingSession(Base):
     actual_cost_eur: Mapped[float | None] = mapped_column(Float)
     provider_name: Mapped[str | None] = mapped_column(String(100))
     avg_temp_celsius: Mapped[float | None] = mapped_column(Float)
+    charging_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_charging_plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="charging_sessions")  # noqa: F821
+    charging_plan: Mapped["UserChargingPlan | None"] = relationship()  # noqa: F821
 
 
 class ChargingState(Base):

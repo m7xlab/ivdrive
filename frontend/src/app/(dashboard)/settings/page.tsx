@@ -12,6 +12,8 @@ import {
 
   MapPin,
 
+  PlugZap,
+
   Trash2,
 
   Plus,
@@ -61,6 +63,12 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 
 import { ThemeSection } from "./theme-section";
+
+import { ECB_CURRENCIES } from "@/lib/currency";
+
+import { useLocale } from "@/lib/locale";
+
+import { cToF, distanceLabel, fToC, kmhToMph, mphToKmh, parseUnitSystem, speedLabel, tempLabel, usesFahrenheit, usesMiles, type UnitSystem } from "@/lib/units";
 
 
 
@@ -150,7 +158,19 @@ interface Geofence {
 
 }
 
-
+interface ChargingPlan {
+  id: string;
+  name: string;
+  plan_type: "subscription" | "home" | "public";
+  periodicity: string | null;
+  subscription_start_date: string | null;
+  monthly_fee_eur: number | null;
+  kwh_allotment: number | null;
+  overage_price_per_kwh_eur: number | null;
+  price_per_kwh_eur: number | null;
+  geofence_id: string | null;
+  notes: string | null;
+}
 
 function Toast({ status, message, onDismiss }: { status: "success" | "error"; message: string; onDismiss: () => void }) {
 
@@ -283,11 +303,19 @@ export default function SettingsPage() {
 
   const { user, logout, refreshUser } = useAuth();
 
+  const { currency, unitSystem, fxRate, fxAsOf, fromEur, toEur, formatMoneyFromEur, formatDistance, kmToDisplay, displayToKm } = useLocale();
+
   const [toast, setToast] = useState<{ status: "success" | "error"; message: string } | null>(null);
 
 
 
   const [displayName, setDisplayName] = useState("");
+
+  const [defaultCurrency, setDefaultCurrency] = useState("EUR");
+
+  const [unitSystemDraft, setUnitSystemDraft] = useState<UnitSystem>("metric");
+
+  const [currencies, setCurrencies] = useState<Array<{ code: string; name: string; as_of?: string }>>([]);
 
   const [profileSaving, setProfileSaving] = useState(false);
 
@@ -363,7 +391,25 @@ export default function SettingsPage() {
 
   const [gfDeleting, setGfDeleting] = useState<string | null>(null);
 
-
+  const emptyPlanForm = {
+    name: "",
+    plan_type: "subscription" as ChargingPlan["plan_type"],
+    periodicity: "monthly",
+    subscription_start_date: "",
+    monthly_fee_eur: "",
+    kwh_allotment: "",
+    overage_price_per_kwh_eur: "",
+    price_per_kwh_eur: "",
+    geofence_id: "",
+    notes: "",
+  };
+  const [chargingPlans, setChargingPlans] = useState<ChargingPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [showPlanForm, setShowPlanForm] = useState(false);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [planForm, setPlanForm] = useState(emptyPlanForm);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planDeleting, setPlanDeleting] = useState<string | null>(null);
 
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
 
@@ -406,7 +452,13 @@ export default function SettingsPage() {
 
 
 
-  useEffect(() => { if (user) setDisplayName(user.display_name || ""); }, [user]);
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.display_name || "");
+      setDefaultCurrency(user.default_currency || "EUR");
+      setUnitSystemDraft(parseUnitSystem(user.unit_system));
+    }
+  }, [user]);
 
 
 
@@ -460,6 +512,11 @@ export default function SettingsPage() {
 
   }, []);
 
+  const loadChargingPlans = useCallback(async () => {
+    try { const data = await api.getChargingPlans(); setChargingPlans(data); }
+    finally { setPlansLoading(false); }
+  }, []);
+
 
 
     const loadExportJobs = useCallback(async () => {
@@ -485,14 +542,19 @@ export default function SettingsPage() {
 
 
   useEffect(() => {
+    api.getCurrencies().then(setCurrencies).catch(() => setCurrencies([]));
+  }, []);
+
+  useEffect(() => {
     api.getCalibrationDefaults().then(setCalibrationDefaults).catch(() => setCalibrationDefaults(null));
   }, []);
 
   useEffect(() => {
     loadVehicles();
     loadGeofences();
+    loadChargingPlans();
     loadExportJobs();
-  }, [loadVehicles, loadGeofences, loadExportJobs]);
+  }, [loadVehicles, loadGeofences, loadChargingPlans, loadExportJobs]);
 
   useEffect(() => {
     const hasPending = exportJobs.some(j => j.status === "PENDING" || j.status === "PROCESSING");
@@ -508,6 +570,21 @@ export default function SettingsPage() {
   }, [exportJobs, loadExportJobs]);
 
   const effectiveCalibDefaults = calibrationDefaults ?? CALIBRATION_FALLBACK_DEFAULTS;
+
+  const SPEED_CALIB_KEYS = new Set(["speed_city_threshold_kmh", "speed_highway_threshold_kmh"]);
+  const TEMP_CALIB_KEYS = new Set(["temp_cold_max_celsius", "temp_optimal_min_celsius", "temp_optimal_max_celsius"]);
+  const siToCalibDisplay = (key: string, si: number) => {
+    if (!usesMiles(unitSystem)) return si;
+    if (SPEED_CALIB_KEYS.has(key)) return Math.round(kmhToMph(si));
+    if (TEMP_CALIB_KEYS.has(key)) return usesFahrenheit(unitSystem) ? Math.round(cToF(si)) : si;
+    return si;
+  };
+  const calibDisplayToSi = (key: string, display: number) => {
+    if (!usesMiles(unitSystem)) return display;
+    if (SPEED_CALIB_KEYS.has(key)) return mphToKmh(display);
+    if (TEMP_CALIB_KEYS.has(key)) return usesFahrenheit(unitSystem) ? fToC(display) : display;
+    return display;
+  };
 
   const showToast = (status: "success" | "error", message: string) => setToast({ status, message });
 
@@ -585,7 +662,7 @@ export default function SettingsPage() {
 
         incognito_mode: form.incognitoMode,
 
-        wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? parsedWltp : null,
+        wltp_range_km: parsedWltp && !isNaN(parsedWltp) ? displayToKm(parsedWltp) : null,
 
         country_code: form.countryCode.trim() ? form.countryCode.trim().toUpperCase() : null,
 
@@ -611,7 +688,7 @@ export default function SettingsPage() {
 
     setProfileSaving(true);
 
-    try { await api.updateMe({ display_name: displayName }); await refreshUser(); showToast("success", "Profile updated"); }
+    try { await api.updateMe({ display_name: displayName, default_currency: defaultCurrency, unit_system: unitSystemDraft }); await refreshUser(); showToast("success", "Profile updated"); }
 
     catch (err) { showToast("error", err instanceof Error ? err.message : "Failed to update profile"); }
 
@@ -777,6 +854,82 @@ export default function SettingsPage() {
 
     finally { setGfDeleting(null); }
 
+  };
+
+  const resetPlanForm = () => {
+    setPlanForm(emptyPlanForm);
+    setEditingPlanId(null);
+    setShowPlanForm(false);
+  };
+
+  const openPlanCreate = () => {
+    setPlanForm(emptyPlanForm);
+    setEditingPlanId(null);
+    setShowPlanForm(true);
+  };
+
+  const openPlanEdit = (plan: ChargingPlan) => {
+    setEditingPlanId(plan.id);
+    setPlanForm({
+      name: plan.name,
+      plan_type: plan.plan_type,
+      periodicity: plan.periodicity || "monthly",
+      subscription_start_date: plan.subscription_start_date || "",
+      monthly_fee_eur: plan.monthly_fee_eur != null ? String(fromEur(plan.monthly_fee_eur) ?? "") : "",
+      kwh_allotment: plan.kwh_allotment != null ? String(plan.kwh_allotment) : "",
+      overage_price_per_kwh_eur: plan.overage_price_per_kwh_eur != null ? String(fromEur(plan.overage_price_per_kwh_eur, 4) ?? "") : "",
+      price_per_kwh_eur: plan.price_per_kwh_eur != null ? String(fromEur(plan.price_per_kwh_eur, 4) ?? "") : "",
+      geofence_id: plan.geofence_id || "",
+      notes: plan.notes || "",
+    });
+    setShowPlanForm(true);
+  };
+
+  const parseOptionalNumber = (value: string) => {
+    if (!value.trim()) return null;
+    const n = Number.parseFloat(value);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const handleSavePlan = async () => {
+    if (!planForm.name.trim()) { showToast("error", "Plan name is required"); return; }
+    setPlanSaving(true);
+    const payload: Record<string, unknown> = {
+      name: planForm.name.trim(),
+      plan_type: planForm.plan_type,
+      periodicity: planForm.plan_type === "subscription" ? planForm.periodicity : null,
+      subscription_start_date: planForm.subscription_start_date || null,
+      monthly_fee_eur: toEur(parseOptionalNumber(planForm.monthly_fee_eur), 2),
+      kwh_allotment: parseOptionalNumber(planForm.kwh_allotment),
+      overage_price_per_kwh_eur: toEur(parseOptionalNumber(planForm.overage_price_per_kwh_eur), 4),
+      price_per_kwh_eur: toEur(parseOptionalNumber(planForm.price_per_kwh_eur), 4),
+      geofence_id: planForm.geofence_id || null,
+      notes: planForm.notes || null,
+    };
+    try {
+      if (editingPlanId) await api.updateChargingPlan(editingPlanId, payload);
+      else await api.createChargingPlan(payload);
+      resetPlanForm();
+      await loadChargingPlans();
+      showToast("success", editingPlanId ? "Charging plan updated" : "Charging plan created");
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to save charging plan");
+    } finally {
+      setPlanSaving(false);
+    }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    setPlanDeleting(id);
+    try {
+      await api.deleteChargingPlan(id);
+      await loadChargingPlans();
+      showToast("success", "Charging plan deleted");
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to delete charging plan");
+    } finally {
+      setPlanDeleting(null);
+    }
   };
 
 
@@ -1157,7 +1310,7 @@ export default function SettingsPage() {
 
                       <div className="flex items-center gap-2">
 
-                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">WLTP Range (km)</span>
+                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">WLTP Range ({distanceLabel(unitSystem)})</span>
 
                         <input
 
@@ -1179,7 +1332,7 @@ export default function SettingsPage() {
 
                         />
 
-                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">km</span>
+                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">{distanceLabel(unitSystem)}</span>
 
                       </div>
 
@@ -1243,7 +1396,7 @@ export default function SettingsPage() {
 
                             incognitoMode: v.incognito_mode ?? false,
 
-                            wltpRange: v.wltp_range_km != null ? String(v.wltp_range_km) : "",
+                            wltpRange: v.wltp_range_km != null ? String(Math.round(kmToDisplay(v.wltp_range_km))) : "",
 
                             countryCode: v.country_code || ""
 
@@ -1273,7 +1426,7 @@ export default function SettingsPage() {
 
                           <span className="sm:before:content-['·'] sm:before:mx-1">
 
-                            WLTP: {v.wltp_range_km} km
+                            WLTP: {formatDistance(v.wltp_range_km)}
 
                           </span>
 
@@ -1321,29 +1474,35 @@ export default function SettingsPage() {
 
                         { key: "downhill_kwh_per_100km_per_100m", label: "Downhill Regen", step: "0.01", min: "0.01", max: "2" },
 
-                        { key: "speed_city_threshold_kmh", label: "City Speed (km/h)", step: "5", min: "10", max: "150" },
+                        { key: "speed_city_threshold_kmh", label: `City Speed (${speedLabel(unitSystem)})`, step: "5", min: "10", max: "150" },
 
-                        { key: "speed_highway_threshold_kmh", label: "Highway Speed (km/h)", step: "5", min: "50", max: "250" },
+                        { key: "speed_highway_threshold_kmh", label: `Highway Speed (${speedLabel(unitSystem)})`, step: "5", min: "50", max: "250" },
 
-                        { key: "temp_cold_max_celsius", label: "Cold Temp (°C)", step: "1", min: "-20", max: "30" },
+                        { key: "temp_cold_max_celsius", label: `Cold Temp (${tempLabel(unitSystem)})`, step: "1", min: "-20", max: "30" },
 
-                        { key: "temp_optimal_min_celsius", label: "Optimal Min (°C)", step: "1", min: "-10", max: "40" },
+                        { key: "temp_optimal_min_celsius", label: `Optimal Min (${tempLabel(unitSystem)})`, step: "1", min: "-10", max: "40" },
 
-                        { key: "temp_optimal_max_celsius", label: "Optimal Max (°C)", step: "1", min: "-10", max: "50" },
+                        { key: "temp_optimal_max_celsius", label: `Optimal Max (${tempLabel(unitSystem)})`, step: "1", min: "-10", max: "50" },
 
                       ].map(({ key, label, step, min, max }) => {
                         const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null | undefined>;
                         const displayVal = (fieldKey: string) => {
+                          let raw = "";
                           const fromForm = f[fieldKey];
                           if (fromForm !== undefined && fromForm !== null) {
-                            return String(fromForm);
+                            raw = String(fromForm);
+                          } else {
+                            const fromVehicle = v[fieldKey as keyof SettingsVehicle];
+                            if (typeof fromVehicle === "number" && Number.isFinite(fromVehicle)) {
+                              raw = String(fromVehicle);
+                            } else {
+                              const d = effectiveCalibDefaults[fieldKey];
+                              raw = d !== undefined ? String(d) : "";
+                            }
                           }
-                          const fromVehicle = v[fieldKey as keyof SettingsVehicle];
-                          if (typeof fromVehicle === "number" && Number.isFinite(fromVehicle)) {
-                            return String(fromVehicle);
-                          }
-                          const d = effectiveCalibDefaults[fieldKey];
-                          return d !== undefined ? String(d) : "";
+                          const n = Number(raw);
+                          if (raw !== "" && Number.isFinite(n)) return String(siToCalibDisplay(fieldKey, n));
+                          return raw;
                         };
 
                         return (
@@ -1354,14 +1513,15 @@ export default function SettingsPage() {
 
                             <input
 
-                              type="number" step={step} min={min} max={max}
+                              type="number" step={step} min={String(siToCalibDisplay(key, Number(min)))} max={String(siToCalibDisplay(key, Number(max)))}
 
                               value={displayVal(key)}
 
                               onChange={e => {
-
-                                setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], [key]: e.target.value } }));
-
+                                const raw = e.target.value;
+                                const n = Number(raw);
+                                const stored = raw !== "" && Number.isFinite(n) ? String(calibDisplayToSi(key, n)) : raw;
+                                setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], [key]: stored } }));
                               }}
 
                               className="bg-iv-bg border border-iv-border rounded px-2 py-1.5 text-iv-text text-xs w-full"
@@ -1468,6 +1628,34 @@ export default function SettingsPage() {
             <label htmlFor="profile-display-name" className="block text-xs font-medium text-iv-muted mb-1.5">Display Name</label>
 
             <input id="profile-display-name" type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className={inputClasses} />
+
+          </div>
+
+          <div>
+
+            <label htmlFor="profile-currency" className="block text-xs font-medium text-iv-muted mb-1.5">Display currency</label>
+
+            <select id="profile-currency" value={defaultCurrency} onChange={(e) => setDefaultCurrency(e.target.value)} className={inputClasses}>
+              {(currencies.length > 0 ? currencies : ECB_CURRENCIES).map((row) => (
+                <option key={row.code} value={row.code}>{row.code} — {row.name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-iv-muted">
+              Full European Central Bank list versus the euro, not filtered by region. Costs stay stored in EUR{fxAsOf ? `; rates as of ${fxAsOf}` : ""}. 1 EUR = {fxRate.toLocaleString(undefined, { maximumFractionDigits: 4 })} {defaultCurrency}.
+            </p>
+
+          </div>
+
+          <div>
+
+            <label htmlFor="profile-units" className="block text-xs font-medium text-iv-muted mb-1.5">Units</label>
+
+            <select id="profile-units" value={unitSystemDraft} onChange={(e) => setUnitSystemDraft(e.target.value as UnitSystem)} className={inputClasses}>
+              <option value="metric">Metric (km, km/h, °C)</option>
+              <option value="uk">UK (miles, mph, °C)</option>
+              <option value="us">US (miles, mph, °F)</option>
+            </select>
+            <p className="mt-1 text-xs text-iv-muted">Your display preference, not inferred from country. Vehicle data stays in km and °C. Energy stays kWh.</p>
 
           </div>
 
@@ -2009,6 +2197,130 @@ export default function SettingsPage() {
 
         </div>
 
+      </SectionCard>
+
+      <SectionCard icon={PlugZap} title="Charging Plans">
+        <div className="space-y-4">
+          <p className="text-sm text-iv-muted">
+            Subscriptions with included kWh or a discounted kWh rate, plus home tariff and public chargers. Optional geofence for location auto-fill. Network-wide plans should skip the geofence and be selected on each session.
+          </p>
+          {plansLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin text-iv-muted" /></div>
+          ) : chargingPlans.length === 0 && !showPlanForm ? (
+            <div className="text-center py-8">
+              <PlugZap size={28} className="mx-auto mb-2 text-iv-muted" />
+              <p className="text-sm text-iv-muted">No charging plans configured</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {chargingPlans.map((plan) => (
+                <div key={plan.id} className="flex items-center gap-3 rounded-lg bg-iv-surface border border-iv-border p-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-iv-cyan/10">
+                    <PlugZap size={14} className="text-iv-cyan" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-iv-text">{plan.name}</p>
+                    <p className="text-xs text-iv-muted capitalize">
+                      {plan.plan_type}
+                      {plan.plan_type === "subscription" && plan.monthly_fee_eur != null ? ` · ${formatMoneyFromEur(plan.monthly_fee_eur)}/period` : ""}
+                      {plan.kwh_allotment != null ? ` · ${plan.kwh_allotment} kWh` : ""}
+                      {plan.price_per_kwh_eur != null ? ` · ${formatMoneyFromEur(plan.price_per_kwh_eur, 4)}/kWh` : ""}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => openPlanEdit(plan)} className="text-xs text-iv-cyan hover:underline">Edit</button>
+                  <button type="button" onClick={() => handleDeletePlan(plan.id)} disabled={planDeleting === plan.id} className="text-iv-muted hover:text-iv-danger">
+                    {planDeleting === plan.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {showPlanForm ? (
+            <div className="space-y-3 rounded-lg border border-iv-border p-4">
+              <div>
+                <label htmlFor="cp-name" className="block text-xs font-medium text-iv-muted mb-1.5">Name</label>
+                <input id="cp-name" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} className={inputClasses} placeholder="Home, monthly pass, highway DC" />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="cp-type" className="block text-xs font-medium text-iv-muted mb-1.5">Type</label>
+                  <select id="cp-type" value={planForm.plan_type} onChange={(e) => setPlanForm({ ...planForm, plan_type: e.target.value as ChargingPlan["plan_type"] })} className={inputClasses}>
+                    <option value="subscription">Subscription</option>
+                    <option value="home">Home</option>
+                    <option value="public">Public</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cp-geofence" className="block text-xs font-medium text-iv-muted mb-1.5">Geofence (optional)</label>
+                  <select id="cp-geofence" value={planForm.geofence_id} onChange={(e) => setPlanForm({ ...planForm, geofence_id: e.target.value })} className={inputClasses}>
+                    <option value="">None — pick on session</option>
+                    {geofences.map((gf) => (
+                      <option key={gf.id} value={gf.id}>{gf.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {planForm.plan_type === "subscription" && (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="cp-start" className="block text-xs font-medium text-iv-muted mb-1.5">Start date</label>
+                      <input id="cp-start" type="date" value={planForm.subscription_start_date} onChange={(e) => setPlanForm({ ...planForm, subscription_start_date: e.target.value })} className={inputClasses} />
+                    </div>
+                    <div>
+                      <label htmlFor="cp-period" className="block text-xs font-medium text-iv-muted mb-1.5">Periodicity</label>
+                      <select id="cp-period" value={planForm.periodicity} onChange={(e) => setPlanForm({ ...planForm, periodicity: e.target.value })} className={inputClasses}>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="cp-fee" className="block text-xs font-medium text-iv-muted mb-1.5">Period fee ({currency})</label>
+                      <input id="cp-fee" type="number" step="0.01" min="0" value={planForm.monthly_fee_eur} onChange={(e) => setPlanForm({ ...planForm, monthly_fee_eur: e.target.value })} className={inputClasses} placeholder="49" />
+                    </div>
+                    <div>
+                      <label htmlFor="cp-allotment" className="block text-xs font-medium text-iv-muted mb-1.5">Included kWh (optional)</label>
+                      <input id="cp-allotment" type="number" step="0.01" min="0" value={planForm.kwh_allotment} onChange={(e) => setPlanForm({ ...planForm, kwh_allotment: e.target.value })} className={inputClasses} placeholder="250" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="cp-overage" className="block text-xs font-medium text-iv-muted mb-1.5">Overage {currency}/kWh</label>
+                      <input id="cp-overage" type="number" step="0.0001" min="0" value={planForm.overage_price_per_kwh_eur} onChange={(e) => setPlanForm({ ...planForm, overage_price_per_kwh_eur: e.target.value })} className={inputClasses} placeholder="0.31" />
+                    </div>
+                    <div>
+                      <label htmlFor="cp-sub-rate" className="block text-xs font-medium text-iv-muted mb-1.5">Discounted {currency}/kWh</label>
+                      <input id="cp-sub-rate" type="number" step="0.0001" min="0" value={planForm.price_per_kwh_eur} onChange={(e) => setPlanForm({ ...planForm, price_per_kwh_eur: e.target.value })} className={inputClasses} placeholder="leave empty if included kWh" />
+                    </div>
+                  </div>
+                </>
+              )}
+              {planForm.plan_type !== "subscription" && (
+                <div>
+                  <label htmlFor="cp-rate" className="block text-xs font-medium text-iv-muted mb-1.5">Price per kWh ({currency})</label>
+                  <input id="cp-rate" type="number" step="0.0001" min="0" value={planForm.price_per_kwh_eur} onChange={(e) => setPlanForm({ ...planForm, price_per_kwh_eur: e.target.value })} className={inputClasses} placeholder="0.20" />
+                </div>
+              )}
+              {geofences.length === 0 && (
+                <p className="text-xs text-iv-muted">Create a geofence first if you want GPS auto-fill for home or a specific charger.</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={resetPlanForm} className="rounded-lg px-4 py-2 text-sm text-iv-muted hover:text-iv-text">Cancel</button>
+                <button type="button" onClick={handleSavePlan} disabled={planSaving} className={btnPrimaryClasses}>
+                  {planSaving ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Saving...</span> : (editingPlanId ? "Save Plan" : "Create Plan")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={openPlanCreate}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-iv-border px-4 py-2.5 text-sm text-iv-muted hover:text-iv-green hover:border-iv-green/40 transition-colors w-full justify-center">
+              <Plus size={16} />
+              Add Charging Plan
+            </button>
+          )}
+        </div>
       </SectionCard>
 
 

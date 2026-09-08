@@ -285,6 +285,21 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async suggestChargingSessionCost(
+    id: string,
+    sessionId: string | number,
+    planId?: string | null,
+    energyKwh?: number | null
+  ) {
+    const params = new URLSearchParams();
+    if (planId) params.set("plan_id", planId);
+    if (energyKwh != null && Number.isFinite(energyKwh)) params.set("energy_kwh", String(energyKwh));
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/charging-sessions/${sessionId}/suggest-cost${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
+    return res.json();
+  },
+
   async getRouteEfficiency(id: string, fromDate?: string, toDate?: string) {
     const params = new URLSearchParams();
     if (fromDate) params.set("from_date", fromDate);

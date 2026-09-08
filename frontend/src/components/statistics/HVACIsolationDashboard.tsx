@@ -30,7 +30,11 @@ interface HVACResponse {
   summary: string;
 }
 
+import { useLocale } from "@/lib/locale";
+import { cToF, usesFahrenheit } from "@/lib/units";
+
 export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: { from: Date; to: Date } }) {
+  const { formatConsumption, consumptionLabel, kwhPer100ToDisplay, unitSystem } = useLocale();
   const [data, setData] = useState<HVACResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -73,10 +77,13 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
   }
 
   // Format data for Recharts
+  const optKey = usesFahrenheit(unitSystem)
+    ? `Optimal (${Math.round(cToF(15))}-${Math.round(cToF(25))}°F)`
+    : "Optimal (15-25°C)";
   const chartData = data.metrics.map((m) => ({
     name: `${m.speed_profile.charAt(0).toUpperCase() + m.speed_profile.slice(1)} (${m.avg_speed_desc})`,
-    "Optimal (15-25°C)": m.optimal_kwh_100km,
-    "HVAC Cost": m.hvac_cost_kwh_100km,
+    [optKey]: kwhPer100ToDisplay(m.optimal_kwh_100km),
+    "HVAC Cost": kwhPer100ToDisplay(m.hvac_cost_kwh_100km),
   }));
 
   return (
@@ -96,7 +103,7 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
             >
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
               <XAxis dataKey="name" className="text-iv-muted text-xs" />
-              <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+              <YAxis className="text-iv-muted text-xs" label={{ value: consumptionLabel, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "var(--iv-charcoal)",
@@ -106,7 +113,7 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
                 itemStyle={{ color: "var(--iv-text)" }}
               />
               <Legend wrapperStyle={{ paddingTop: "20px" }} />
-              <Bar dataKey="Optimal (15-25°C)" stackId="a" fill="var(--iv-green)" radius={[0, 0, 4, 4]} />
+              <Bar dataKey={optKey} stackId="a" fill="var(--iv-green)" radius={[0, 0, 4, 4]} />
               <Bar dataKey="HVAC Cost" stackId="a" fill="var(--iv-cyan)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -125,16 +132,16 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
                 <div className="flex flex-col gap-2 text-sm text-iv-text">
                   <div className="flex justify-between items-center">
                     <span className="text-iv-text-muted">Optimal Consumption:</span>
-                    <span className="font-medium">{m.optimal_kwh_100km} kWh</span>
+                    <span className="font-medium">{formatConsumption(m.optimal_kwh_100km)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-iv-text-muted">Cold Consumption:</span>
-                    <span className="font-medium">{m.cold_kwh_100km} kWh</span>
+                    <span className="font-medium">{formatConsumption(m.cold_kwh_100km)}</span>
                   </div>
                   <div className="flex justify-between items-center font-bold border-t border-iv-border pt-3 mt-1">
                     <span className="text-iv-primary">HVAC Penalty:</span>
                     <span className="text-iv-primary text-lg">
-                      +{m.hvac_cost_kwh_100km} kWh/100km
+                      +{formatConsumption(m.hvac_cost_kwh_100km)}
                     </span>
                   </div>
                 </div>

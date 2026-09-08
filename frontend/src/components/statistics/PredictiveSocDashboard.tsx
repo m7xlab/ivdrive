@@ -35,8 +35,11 @@ interface PredictiveSocResponse {
 }
 
 import { TimelineRange } from "./StatisticsShell";
+import { useLocale } from "@/lib/locale";
+import { cToF, usesFahrenheit } from "@/lib/units";
 
 export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
+  const { formatDistance, formatTemp, formatConsumption, consumptionLabel, kwhPer100ToDisplay, unitSystem } = useLocale();
   const [data, setData] = useState<PredictiveSocResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,11 +90,12 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
     { label: "Predicted Arrival", value: data.predicted_arrival_soc_pct, color: confidenceColor },
   ];
 
+  const tf = (c: number) => usesFahrenheit(unitSystem) ? `${Math.round(cToF(c))}°F` : `${c}°C`;
   const tempConsumptionData = [
-    { temp: "<5°C", label: "Cold", consumption: data.consumption_by_temp.cold, color: "var(--iv-blue)" },
-    { temp: "5-15°C", label: "Mild", consumption: data.consumption_by_temp.mild, color: "var(--iv-cyan)" },
-    { temp: "15-25°C", label: "Optimal", consumption: data.consumption_by_temp.optimal, color: "var(--iv-green)" },
-    { temp: ">25°C", label: "Hot", consumption: data.consumption_by_temp.hot, color: "var(--iv-red)" },
+    { temp: `<${tf(5)}`, label: "Cold", consumption: data.consumption_by_temp.cold != null ? kwhPer100ToDisplay(data.consumption_by_temp.cold) : null, color: "var(--iv-blue)" },
+    { temp: `${tf(5)}-${tf(15)}`, label: "Mild", consumption: data.consumption_by_temp.mild != null ? kwhPer100ToDisplay(data.consumption_by_temp.mild) : null, color: "var(--iv-cyan)" },
+    { temp: `${tf(15)}-${tf(25)}`, label: "Optimal", consumption: data.consumption_by_temp.optimal != null ? kwhPer100ToDisplay(data.consumption_by_temp.optimal) : null, color: "var(--iv-green)" },
+    { temp: `>${tf(25)}`, label: "Hot", consumption: data.consumption_by_temp.hot != null ? kwhPer100ToDisplay(data.consumption_by_temp.hot) : null, color: "var(--iv-red)" },
   ].filter((t) => t.consumption !== null && t.consumption !== undefined);
 
   return (
@@ -108,7 +112,7 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
           <div>
             <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-2">Current</p>
             <p className="text-4xl font-bold text-iv-cyan">{data.current_soc_pct}%</p>
-            <p className="text-xs text-iv-muted mt-1">{data.estimated_range_km} km range</p>
+            <p className="text-xs text-iv-muted mt-1">{formatDistance(data.estimated_range_km)} range</p>
           </div>
           <div className="text-iv-muted text-3xl">→</div>
           <div>
@@ -117,7 +121,7 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
               {data.predicted_arrival_soc_pct}%
             </p>
             <p className="text-xs text-iv-muted mt-1">
-              {data.target_distance_km} km trip · {data.current_temp_celsius}°C
+              {formatDistance(data.target_distance_km, 1)} trip · {formatTemp(data.current_temp_celsius)}
             </p>
           </div>
         </div>
@@ -144,8 +148,8 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
           <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-3">Consumption Breakdown</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-iv-text-muted">Baseline (at {data.current_temp_celsius}°C)</p>
-              <p className="text-lg font-bold text-iv-text">{data.baseline_consumption_kwh_100km} kWh/100km</p>
+              <p className="text-xs text-iv-text-muted">Baseline (at {formatTemp(data.current_temp_celsius)})</p>
+              <p className="text-lg font-bold text-iv-text">{formatConsumption(data.baseline_consumption_kwh_100km)}</p>
             </div>
             <div>
               <p className="text-xs text-iv-text-muted">Energy Needed</p>
@@ -164,11 +168,11 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
               <BarChart data={tempConsumptionData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
                 <XAxis dataKey="temp" className="text-iv-muted text-xs" />
-                <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+                <YAxis className="text-iv-muted text-xs" label={{ value: consumptionLabel, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
                 <Tooltip
                   contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
-                  formatter={(value: number) => [`${value} kWh/100km`, "Consumption"]}
+                  formatter={(value: number) => [`${Number(value).toFixed(1)} ${consumptionLabel}`, "Consumption"]}
                 />
                 <Bar dataKey="consumption" radius={[4, 4, 0, 0]}>
                   {tempConsumptionData.map((entry, index) => (

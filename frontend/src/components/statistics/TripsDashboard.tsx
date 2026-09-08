@@ -21,6 +21,8 @@ import "leaflet/dist/leaflet.css";
 
 import { formatSmartDuration } from "@/lib/format";
 
+import { useLocale } from "@/lib/locale";
+
 
 
 // --- Types ---
@@ -217,6 +219,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   const [visibleCount, setVisibleCount] = useState(10);
   const { resolvedTheme } = useTheme();
+  const { formatDistance, formatConsumption, consumptionLabel, kwhPer100ToDisplay } = useLocale();
   const isDark = resolvedTheme === "dark";
 
   // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
@@ -560,7 +563,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
               <p className="text-[10px] font-bold text-iv-muted uppercase mb-1">Total Distance</p>
 
-              <p className="text-2xl font-bold text-iv-text">{summary.totalDistance.toFixed(1)} km</p>
+              <p className="text-2xl font-bold text-iv-text">{formatDistance(summary.totalDistance, 1)}</p>
 
             </div>
 
@@ -576,9 +579,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
               <p className="text-[10px] font-bold text-iv-cyan uppercase mb-1 tracking-wider">Avg. Efficiency</p>
 
-              <p className="text-2xl font-bold text-iv-cyan">{summary.avgEfficiency > 0 ? summary.avgEfficiency.toFixed(2) : '—'}</p>
+              <p className="text-2xl font-bold text-iv-cyan">{summary.avgEfficiency > 0 ? kwhPer100ToDisplay(summary.avgEfficiency).toFixed(2) : '—'}</p>
 
-              {summary.avgEfficiency > 0 && <p className="text-[10px] text-iv-muted mt-1">kWh/100km</p>}
+              {summary.avgEfficiency > 0 && <p className="text-[10px] text-iv-muted mt-1">{consumptionLabel}</p>}
 
             </div>
 
@@ -776,9 +779,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
                       <div className="text-right shrink-0">
 
-                        <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
+                        <p className="text-xs font-bold text-iv-text">{formatDistance(trip.distance_km, 1)}</p>
 
-                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
+                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km != null ? formatConsumption(trip.efficiency_kwh_100km) : "—"}</p>
 
                         {expandedTripId === trip.trip_id && (
 

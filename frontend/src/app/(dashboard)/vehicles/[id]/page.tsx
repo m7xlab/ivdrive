@@ -124,6 +124,10 @@ import {
 
 import { api } from "@/lib/api";
 
+import { useLocale } from "@/lib/locale";
+
+import { cToF, fToC } from "@/lib/units";
+
 import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangePicker";
 
 import { subDays, startOfDay, endOfDay } from "date-fns";
@@ -763,6 +767,20 @@ export default function VehicleDetailPage() {
 
   const vehicleId = params.id as string;
 
+  const {
+    formatDistance,
+    formatTemp,
+    formatMoneyFromEur,
+    formatConsumption,
+    kmToDisplay,
+    per100ToDisplay,
+    consumptionLabel,
+    per100Label,
+    distanceLabel,
+    tempLabel,
+    usesFahrenheit,
+  } = useLocale();
+
 
 
   const [tab, setTab] = useState<Tab>("overview");
@@ -1152,7 +1170,7 @@ export default function VehicleDetailPage() {
 
                 <span className="text-iv-border">·</span>
 
-                <span>{status.odometer_km.toLocaleString()} km</span>
+                <span>{formatDistance(status.odometer_km)}</span>
 
               </>
 
@@ -1398,7 +1416,7 @@ export default function VehicleDetailPage() {
 
         <StatusPill label="Range" icon={Gauge} accent="cyan"
 
-          value={status.latest_range_km != null ? `${Math.round(status.latest_range_km)} km` : null} />
+          value={status.latest_range_km != null ? formatDistance(status.latest_range_km) : null} />
 
         <StatusPill label="Charging" icon={Plug} 
 
@@ -1408,7 +1426,7 @@ export default function VehicleDetailPage() {
 
         <StatusPill label="Climate" icon={Wind} accent="muted"
 
-          value={status.climate_state === "INVALID" ? "OFF" : (status.climate_state || (status.outside_temp != null ? `${status.outside_temp}°C` : null))} />
+          value={status.climate_state === "INVALID" ? "OFF" : (status.climate_state || (status.outside_temp != null ? formatTemp(status.outside_temp) : null))} />
 
         <StatusPill label="Lock" icon={Lock} accent={status.doors_locked?.toLowerCase().includes("locked") ? "green" : "warning"}
 
@@ -1550,9 +1568,9 @@ export default function VehicleDetailPage() {
 
                 {status.climate_state && <span>State: <strong className="text-iv-text">{status.climate_state}</strong></span>}
 
-                {status.target_temp != null && <span>Target: <strong className="text-iv-cyan">{status.target_temp}°C</strong></span>}
+                {status.target_temp != null && <span>Target: <strong className="text-iv-cyan">{formatTemp(status.target_temp)}</strong></span>}
 
-                {status.outside_temp != null && <span>Outside: <strong className="text-iv-text">{status.outside_temp}°C</strong></span>}
+                {status.outside_temp != null && <span>Outside: <strong className="text-iv-text">{formatTemp(status.outside_temp)}</strong></span>}
 
               </div>
 
@@ -1616,15 +1634,15 @@ export default function VehicleDetailPage() {
 
                 <ResponsiveContainer width="100%" height="100%">
 
-                  <AreaChart data={rangeHistory.slice().reverse().map(d => ({ time: formatTime(d.timestamp), value: d.range_km }))}>
+                  <AreaChart data={rangeHistory.slice().reverse().map(d => ({ time: formatTime(d.timestamp), value: kmToDisplay(d.range_km) }))}>
 
                     <defs><linearGradient id="cyanGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00D4FF" stopOpacity={0.4} /><stop offset="100%" stopColor="#00D4FF" stopOpacity={0} /></linearGradient></defs>
 
                     <XAxis dataKey="time" stroke="#8b8fa3" fontSize={11} tickLine={false} axisLine={false} />
 
-                    <YAxis stroke="#8b8fa3" fontSize={11} tickLine={false} axisLine={false} tickFormatter={v => `${v} km`} />
+                    <YAxis stroke="#8b8fa3" fontSize={11} tickLine={false} axisLine={false} tickFormatter={v => `${Math.round(v)} ${distanceLabel}`} />
 
-                    <Tooltip content={<ChartTooltipContent unit=" km" />} />
+                    <Tooltip content={<ChartTooltipContent unit={` ${distanceLabel}`} />} />
 
                     <Area type="monotone" dataKey="value" stroke="#00D4FF" strokeWidth={2} fill="url(#cyanGrad)" />
 
@@ -2010,9 +2028,9 @@ export default function VehicleDetailPage() {
 
                 <div className="flex items-baseline gap-2 mt-2">
 
-                  <span className="text-3xl font-bold text-iv-text">{analytics.efficiency.avg_kwh_100km.toFixed(1)}</span>
+                  <span className="text-3xl font-bold text-iv-text">{per100ToDisplay(analytics.efficiency.avg_kwh_100km).toFixed(1)}</span>
 
-                  <span className="text-sm text-iv-muted">kWh/100km</span>
+                  <span className="text-sm text-iv-muted">{consumptionLabel}</span>
 
                 </div>
 
@@ -2106,9 +2124,9 @@ export default function VehicleDetailPage() {
 
                     <div className="flex items-baseline gap-2 mt-2">
 
-                      <span className="text-2xl font-bold text-iv-muted line-through opacity-70">€{estTotalCost.toFixed(0)}</span>
+                      <span className="text-2xl font-bold text-iv-muted line-through opacity-70">{formatMoneyFromEur(estTotalCost, 0)}</span>
 
-                      <span className="text-3xl font-bold text-iv-text">€{realTotalCost.toFixed(0)}</span>
+                      <span className="text-3xl font-bold text-iv-text">{formatMoneyFromEur(realTotalCost, 0)}</span>
 
                       <span className="text-sm text-iv-muted">est. total</span>
 
@@ -2116,13 +2134,13 @@ export default function VehicleDetailPage() {
 
                     <div className="mt-3 text-xs font-medium text-iv-muted">
 
-                      ~ <span className="text-iv-text font-semibold">€{(analytics.efficiency.avg_kwh_100km * userAvgElecPrice!).toFixed(2)}</span> / 100km
+                      ~ <span className="text-iv-text font-semibold">{formatMoneyFromEur(per100ToDisplay(analytics.efficiency.avg_kwh_100km * userAvgElecPrice!))}</span> / {per100Label}
 
                     </div>
 
                     <div className="mt-1 text-[10px] text-iv-muted opacity-60">
 
-                      Based on your actual avg €{userAvgElecPrice!.toFixed(2)}/kWh (vs {activeCountry} avg €{activeElecPrice.toFixed(2)})
+                      Based on your actual avg {formatMoneyFromEur(userAvgElecPrice!)}/kWh (vs {activeCountry} avg {formatMoneyFromEur(activeElecPrice)})
 
                     </div>
 
@@ -2134,7 +2152,7 @@ export default function VehicleDetailPage() {
 
                     <div className="flex items-baseline gap-2 mt-2">
 
-                      <span className="text-3xl font-bold text-iv-text">€{estTotalCost.toFixed(0)}</span>
+                      <span className="text-3xl font-bold text-iv-text">{formatMoneyFromEur(estTotalCost, 0)}</span>
 
                       <span className="text-sm text-iv-muted">est. total</span>
 
@@ -2142,13 +2160,13 @@ export default function VehicleDetailPage() {
 
                     <div className="mt-3 text-xs font-medium text-iv-muted">
 
-                      ~ <span className="text-iv-text font-semibold">€{costPer100km.toFixed(2)}</span> / 100km
+                      ~ <span className="text-iv-text font-semibold">{formatMoneyFromEur(per100ToDisplay(costPer100km))}</span> / {per100Label}
 
                     </div>
 
                     <div className="mt-1 text-[10px] text-iv-muted opacity-60">
 
-                      Based on {activeCountry} avg €{activeElecPrice.toFixed(2)}/kWh
+                      Based on {activeCountry} avg {formatMoneyFromEur(activeElecPrice)}/kWh
 
                     </div>
 
@@ -2186,17 +2204,17 @@ export default function VehicleDetailPage() {
 
                   <div className="flex justify-between">
 
-                    <span className="text-iv-muted">Cold (&lt;7°C)</span>
+                    <span className="text-iv-muted">Cold (&lt;{formatTemp(7)})</span>
 
-                    <span className="font-mono text-iv-text">{analytics.efficiency.cold_eff_kwh_100km.toFixed(1)} kWh/100km</span>
+                    <span className="font-mono text-iv-text">{formatConsumption(analytics.efficiency.cold_eff_kwh_100km)}</span>
 
                   </div>
 
                    <div className="flex justify-between">
 
-                    <span className="text-iv-muted">Warm (&gt;12°C)</span>
+                    <span className="text-iv-muted">Warm (&gt;{formatTemp(12)})</span>
 
-                    <span className="font-mono text-iv-text">{analytics.efficiency.warm_eff_kwh_100km.toFixed(1)} kWh/100km</span>
+                    <span className="font-mono text-iv-text">{formatConsumption(analytics.efficiency.warm_eff_kwh_100km)}</span>
 
                   </div>
 
@@ -2226,7 +2244,7 @@ export default function VehicleDetailPage() {
 
                      <div className="flex justify-between text-xs mb-1">
 
-                       <span className="text-iv-muted">Short / City (&lt;15km)</span>
+                       <span className="text-iv-muted">Short / City (&lt;{formatDistance(15)})</span>
 
                        <span className="text-iv-text font-mono">{analytics.trip_types.short_pct}%</span>
 
@@ -2244,7 +2262,7 @@ export default function VehicleDetailPage() {
 
                      <div className="flex justify-between text-xs mb-1">
 
-                       <span className="text-iv-muted">Commute (15-80km)</span>
+                       <span className="text-iv-muted">Commute ({formatDistance(15)}-{formatDistance(80)})</span>
 
                        <span className="text-iv-text font-mono">{analytics.trip_types.medium_pct}%</span>
 
@@ -2262,7 +2280,7 @@ export default function VehicleDetailPage() {
 
                      <div className="flex justify-between text-xs mb-1">
 
-                       <span className="text-iv-muted">Long Haul (&gt;80km)</span>
+                       <span className="text-iv-muted">Long Haul (&gt;{formatDistance(80)})</span>
 
                        <span className="text-iv-text font-mono">{analytics.trip_types.long_pct}%</span>
 
@@ -2406,17 +2424,17 @@ export default function VehicleDetailPage() {
 
                       <div className="flex items-baseline gap-2 mt-2">
 
-                        <span className="text-3xl font-bold text-iv-green">~€{totalSavings.toFixed(0)}</span>
+                        <span className="text-3xl font-bold text-iv-green">~{formatMoneyFromEur(totalSavings, 0)}</span>
 
                         <span className="text-sm text-iv-muted">saved</span>
 
                       </div>
 
-                      <div className="mt-3 text-xs font-medium text-iv-muted">vs {ICE_CONSUMPTION}L/100km SUV</div>
+                      <div className="mt-3 text-xs font-medium text-iv-muted">vs {per100ToDisplay(ICE_CONSUMPTION).toFixed(1)}L/{per100Label} SUV</div>
 
                       <div className="mt-1 text-[10px] text-iv-muted opacity-60">
 
-                        Gas: €{dieselCostPer100.toFixed(2)}/100km | EV: €{effCostPer100km.toFixed(2)}/100km
+                        Gas: {formatMoneyFromEur(per100ToDisplay(dieselCostPer100))}/{per100Label} | EV: {formatMoneyFromEur(per100ToDisplay(effCostPer100km))}/{per100Label}
 
                       </div>
 
@@ -2482,7 +2500,7 @@ export default function VehicleDetailPage() {
 
                   <p className="text-lg font-bold text-iv-text">
 
-                    {maintenance[0].mileage_in_km != null ? `${maintenance[0].mileage_in_km.toLocaleString()} km` : "—"}
+                    {maintenance[0].mileage_in_km != null ? formatDistance(maintenance[0].mileage_in_km) : "—"}
 
                   </p>
 
@@ -2502,11 +2520,11 @@ export default function VehicleDetailPage() {
 
                 <div>
 
-                  <p className="text-xs text-iv-muted">Inspection km</p>
+                  <p className="text-xs text-iv-muted">Inspection {distanceLabel}</p>
 
                   <p className="text-lg font-bold text-iv-text">
 
-                    {maintenance[0].inspection_due_in_km != null ? `${maintenance[0].inspection_due_in_km.toLocaleString()} km` : "—"}
+                    {maintenance[0].inspection_due_in_km != null ? formatDistance(maintenance[0].inspection_due_in_km) : "—"}
 
                   </p>
 
@@ -2550,7 +2568,7 @@ export default function VehicleDetailPage() {
 
                       time: new Date(o.captured_at).getTime(),
 
-                      km: o.mileage_in_km,
+                      km: kmToDisplay(o.mileage_in_km),
 
                     }));
 
@@ -2784,7 +2802,7 @@ export default function VehicleDetailPage() {
 
                             <p className="text-sm font-semibold text-iv-text">
 
-                              {Number(payload[0].value).toLocaleString()} km
+                              {Number(payload[0].value).toLocaleString()} {distanceLabel}
 
                             </p>
 
@@ -2866,9 +2884,9 @@ export default function VehicleDetailPage() {
 
                         <td className="px-4 py-3 text-iv-text">{formatDate(m.captured_at)}</td>
 
-                        <td className="px-4 py-3 text-iv-text">{m.mileage_in_km != null ? `${m.mileage_in_km.toLocaleString()} km` : "—"}</td>
+                        <td className="px-4 py-3 text-iv-text">{m.mileage_in_km != null ? formatDistance(m.mileage_in_km) : "—"}</td>
 
-                        <td className="px-4 py-3 text-iv-warning">{m.inspection_due_in_days != null ? `${m.inspection_due_in_days}d / ${m.inspection_due_in_km?.toLocaleString() || "—"} km` : "—"}</td>
+                        <td className="px-4 py-3 text-iv-warning">{m.inspection_due_in_days != null ? `${m.inspection_due_in_days}d / ${m.inspection_due_in_km != null ? formatDistance(m.inspection_due_in_km) : "—"}` : "—"}</td>
 
                         <td className="px-4 py-3 text-iv-text">{m.oil_service_due_in_days != null ? `${m.oil_service_due_in_days}d` : "—"}</td>
 
@@ -2920,11 +2938,15 @@ export default function VehicleDetailPage() {
 
                  <div className="flex items-center gap-1 bg-iv-surface rounded-lg px-2 py-1 border border-iv-border/50">
 
-                    <input type="number" min="16" max="30" value={climateTemp} onChange={(e) => setClimateTemp(e.target.value)}
+                    <input type="number" min={usesFahrenheit ? 61 : 16} max={usesFahrenheit ? 86 : 30} value={usesFahrenheit ? String(Math.round(cToF(parseFloat(climateTemp) || 21))) : climateTemp} onChange={(e) => {
+                      const n = parseFloat(e.target.value);
+                      if (Number.isNaN(n)) { setClimateTemp(e.target.value); return; }
+                      setClimateTemp(String(usesFahrenheit ? Math.round(fToC(n) * 10) / 10 : n));
+                    }}
 
                       className="w-8 bg-transparent text-center font-bold text-lg text-iv-text focus:outline-none" />
 
-                    <span className="text-xs text-iv-muted">°C</span>
+                    <span className="text-xs text-iv-muted">{tempLabel}</span>
 
                  </div>
 

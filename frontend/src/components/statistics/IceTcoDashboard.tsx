@@ -15,6 +15,8 @@ import {
   BarChart,
   Bar,
 } from "recharts";
+import { useLocale } from "@/lib/locale";
+import { formatMoney } from "@/lib/currency";
 
 interface IceTcoTrip {
   trip_id: number;
@@ -44,6 +46,7 @@ interface IceTcoResponse {
 import { TimelineRange } from "./StatisticsShell";
 
 export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
+  const { fromEur, formatMoneyFromEur, formatDistance, currency } = useLocale();
   const [data, setData] = useState<IceTcoResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -89,16 +92,16 @@ export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; d
   // Cumulative chart data
   const cumulativeData = data.trips.map((t) => ({
     date: t.start_date ? new Date(t.start_date).toLocaleDateString() : "?",
-    "EV Cumulative": t.cumulative_ev_cost_eur,
-    "ICE Cumulative": t.cumulative_ice_cost_eur,
+    "EV Cumulative": fromEur(t.cumulative_ev_cost_eur) ?? 0,
+    "ICE Cumulative": fromEur(t.cumulative_ice_cost_eur) ?? 0,
   }));
 
   // Per-trip savings
   const savingsData = data.trips.slice(-30).map((t) => ({
     date: t.start_date ? new Date(t.start_date).toLocaleDateString() : "?",
-    savings: t.savings_eur,
-    ev: t.ev_cost_eur,
-    ice: t.ice_cost_eur,
+    savings: fromEur(t.savings_eur) ?? 0,
+    ev: fromEur(t.ev_cost_eur) ?? 0,
+    ice: fromEur(t.ice_cost_eur) ?? 0,
   }));
 
   return (
@@ -107,9 +110,9 @@ export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; d
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Trips Analyzed", value: summary.total_trips, color: "text-iv-text" },
-          { label: "Total Distance", value: `${summary.total_distance_km} km`, color: "text-iv-text" },
-          { label: "EV Cost", value: `${summary.total_ev_cost_eur} €`, color: "text-iv-cyan" },
-          { label: "ICE Cost", value: `${summary.total_ice_cost_eur} €`, color: "text-iv-red" },
+          { label: "Total Distance", value: formatDistance(summary.total_distance_km, 1), color: "text-iv-text" },
+          { label: "EV Cost", value: formatMoneyFromEur(summary.total_ev_cost_eur), color: "text-iv-cyan" },
+          { label: "ICE Cost", value: formatMoneyFromEur(summary.total_ice_cost_eur), color: "text-iv-red" },
         ].map((item) => (
           <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
             <p className="text-xs text-iv-text-muted uppercase tracking-wider">{item.label}</p>
@@ -121,8 +124,8 @@ export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; d
       {/* Savings highlight */}
       <div className="glass rounded-xl border border-iv-green/30 bg-iv-green/5 p-4 text-center">
         <p className="text-sm text-iv-text">
-          <span className="font-bold text-iv-green text-2xl">{summary.total_savings_eur} €</span>
-          <span className="text-iv-text-muted ml-2">saved vs ICE ({summary.electricity_price_eur_kwh.toFixed(2)} €/kWh vs {summary.petrol_price_eur_l.toFixed(2)} €/L)</span>
+          <span className="font-bold text-iv-green text-2xl">{formatMoneyFromEur(summary.total_savings_eur)}</span>
+          <span className="text-iv-text-muted ml-2">saved vs ICE ({formatMoneyFromEur(summary.electricity_price_eur_kwh)}/kWh vs {formatMoneyFromEur(summary.petrol_price_eur_l)}/L)</span>
         </p>
       </div>
 
@@ -134,11 +137,11 @@ export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; d
             <LineChart data={cumulativeData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
-              <YAxis className="text-iv-muted text-xs" label={{ value: 'EUR', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+              <YAxis className="text-iv-muted text-xs" label={{ value: currency, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
-                formatter={(value: number, name: string) => [`${value.toFixed(2)} €`, name]}
+                formatter={(value: number, name: string) => [formatMoney(value, currency), name]}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />
               <Line type="monotone" dataKey="ICE Cumulative" stroke="var(--iv-red)" strokeWidth={2} strokeDasharray="5 5" name="ICE (fuel)" />
@@ -156,11 +159,11 @@ export function IceTcoDashboard({ vehicleId, dateRange }: { vehicleId: string; d
             <BarChart data={savingsData} margin={{ top: 10, right: 30, left: 0, bottom: 30 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
               <XAxis dataKey="date" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} />
-              <YAxis className="text-iv-muted text-xs" label={{ value: 'EUR', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+              <YAxis className="text-iv-muted text-xs" label={{ value: currency, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}
-                formatter={(value: number, name: string) => [`${value.toFixed(2)} €`, name]}
+                formatter={(value: number, name: string) => [formatMoney(value, currency), name]}
               />
               <Legend wrapperStyle={{ paddingTop: "16px" }} />
               <Bar dataKey="ice" fill="var(--iv-red)" name="ICE Cost" opacity={0.6} radius={[2, 2, 0, 0]} />

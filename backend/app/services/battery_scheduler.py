@@ -28,6 +28,7 @@ from app.services.battery_soh import (
     compute_and_store_estimate,
     detect_sudden_drop,
 )
+from app.services.fx import job_refresh_fx_rates
 
 
 log = logging.getLogger("app.battery_scheduler")
@@ -257,8 +258,19 @@ class BatteryScheduler:
             max_instances=1,
             coalesce=True,
         )
+        # ECB publishes around 16:00 CET; 16:30 UTC picks up the day's file.
+        self._scheduler.add_job(
+            job_refresh_fx_rates,
+            CronTrigger(hour=16, minute=30),
+            id="fx_ecb_refresh",
+            name="ECB currency rates (daily 16:30 UTC)",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         self._scheduler.start()
-        log.info("battery_scheduler started: 2 jobs registered")
+        log.info("battery_scheduler started: 3 jobs registered")
+        asyncio.create_task(job_refresh_fx_rates())
 
     async def stop(self) -> None:
         if self._scheduler and self._scheduler.running:

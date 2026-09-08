@@ -1,4 +1,5 @@
 from datetime import datetime
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,7 @@ class ChargingSessionItem(BaseModel):
     base_cost_eur: float | None = None
     latitude: float | None = None
     longitude: float | None = None
+    charging_plan_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

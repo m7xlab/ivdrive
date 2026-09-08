@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -47,6 +48,10 @@ class UserResponse(BaseModel):
     is_totp_enabled: bool = False
     ai_enabled: bool = False
     ai_tier: str = "free"
+    default_currency: str = "EUR"
+    unit_system: str = "metric"
+    fx_rate: float | None = None
+    fx_as_of: date | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -54,6 +59,8 @@ class UserResponse(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     display_name: str | None = None
+    default_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    unit_system: Literal["metric", "uk", "us", "imperial"] | None = None
 
 
 class PasswordChangeRequest(BaseModel):

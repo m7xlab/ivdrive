@@ -32,7 +32,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             path = request.url.path
             if "overview" in path or "analytics" in path or "statistics" in path or "history" in path or "trips" in path or "charging" in path:
                 # Exclude live status
-                if "/status" not in path and "/pulse" not in path:
+                if "/status" not in path and "/pulse" not in path and "suggest-cost" not in path:
                     
                     # Extract user_id from cookie to scope cache keys securely
                     user_id = "anonymous"
