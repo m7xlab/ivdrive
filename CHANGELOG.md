@@ -1,9 +1,45 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.14] - 2026-09-08
+Major feature release on top of v1.1.3: six-method Battery SoH v2 (weighted-median combined), trip-gap vampire drain, user charging plans, display locale (ECB FX + metric/UK/US units), CARTO basemap API keys, Nominatim/Photon geo cache, and a Node 24 frontend image. Storage stays km / °C / EUR / kWh; conversion is display-only.
 
 ### Added
-- **CARTO Basemaps API key wiring**: CARTO now requires an API key for public basemap tile access. New env var `NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY` (added to `.env`, `.env.example`, and `docker-compose.yml` `ivdrive-web` service) is appended as `?key=...` on every `basemaps.cartocdn.com` tile URL across all four map locations: `frontend/src/components/map.tsx` (Car Overview), `frontend/src/components/statistics/MovementDashboard.tsx`, `TripsDashboard.tsx`, and `VisitedDashboard.tsx`. The `NEXT_PUBLIC_` prefix is required by Next.js so the value reaches the client bundle (all four map components render client-side). Get a free key at https://carto.com/basemaps/apikey/ — no approval queue, no CARTO account required. The CSP `img-src` directive already permits `https://*.basemaps.cartocdn.com` (added in v1.1.2.1 PR #163), so no CSP change was needed. Without this key, tiles 401 and the CARTO "API key required" watermark shows on every map.
+- **Battery SoH v2** (PR #182): six independent methods with confidence — Tesla capacity (3×), charging-curve taper (2×), cell imbalance, throughput, fleet benchmark, range-drift — combined as a weighted median. New `battery_health_analytics` cache (`GET /api/v1/vehicles/{id}/battery-health-analytics`, owner POST recompute). Legacy `/analytics/battery-health` is cache-first against the v2 combined row. Statistics Battery SoH tab is a 5-card dashboard; tab URLs are `/vehicles/{id}/statistics/{tab}`.
+- **Vampire drain from trip gaps** (PR #182): parked SoC loss is `trip[i].end_soc → trip[i+1].start_soc` while odometer is still and no charging session overlaps. Hour-weighted, including 0% integer-SoC nights (Škoda only reports integer SoC; parked charging payloads are not persisted). Replaces the empty/biased `v_phantom_drain_stats` parked-state join.
+- **User charging plans** (PR #182): Settings CRUD for included-kWh subscriptions, discounted-rate subscriptions, and home/public kWh rates. Sessions can pick a plan or match a geofence. **€0 is a real included-allotment cost** (`is not None`), not “missing”. Monthly fee is a period economics line item, not stuffed onto the first session. Overage uses the overage rate (fallback `monthly_fee / allotment`).
+- **Display locale — currency + units** (PR #182): Settings **Display currency** (ECB catalog via PyPI `CurrencyConverter`) and **unit system** (`metric` / `uk` / `us`). UK: miles, mph, °C. US: miles, mph, °F. kWh stays kWh. Missing non-EUR rate does **not** fall back to 1.0 — UI stays on EUR until a rate exists. Wired across vehicle page, vehicle cards, Add Vehicle WLTP, and statistics dashboards. Climate control state stays °C internally; US display converts.
+- **CARTO Basemaps API key** (PR #181): CARTO now requires a key for public tiles. `NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY` (`.env.example`, `docker-compose.yml` `ivdrive-web` build-arg + runtime env) is appended as `?key=...` on every `basemaps.cartocdn.com` URL via a shared tile helper. Free key at https://carto.com/basemaps/apikey/ — no approval queue. CSP `img-src` already allows `https://*.basemaps.cartocdn.com` (v1.1.2.1 #163). Without the key, tiles 401 and the CARTO watermark shows on every map. `NEXT_PUBLIC_API_URL` is also passed as a Docker build-arg so it is inlined at `next build`.
+- **Reverse-geocode cache** (PR #182): `POST /api/v1/geo/reverse` is Valkey → Postgres → Nominatim → Photon (Komoot), ~1.1 m quantize, ~110 m nearby reuse for driveway GPS jitter, 90-day Valkey TTL, Nominatim cooldown + Photon fallback, inflight Future coalescing.
+- **Invite registration UX** (PR #182): register page accepts a pasted invite token (or a full invite URL); invite emails include the raw token as well as the button link.
+
+### Fixed
+- **Charging taper SoH sign** (PR #182): DC power drop (`(recent − earlier) / earlier`) was negated into a SoH **increase**. Power drop now lowers SoH (clamped ±5 points). Cached combined rows still include the old sign until recompute.
+- **Geo inflight hang on cancel** (PR #182): `CancelledError` is `BaseException`, not `Exception`. If the leader reverse-geocode request is cancelled, waiters on the same lat/lon Future are now resolved in `finally`.
+- **SoH method cache mix** (PR #182): per-method breakdown is loaded with the combined row’s `computed_at` so a partial older persist cannot mix into the dashboard.
+- **Login validation 500** (PR #182): `validation_exception_handler` now uses `jsonable_encoder` so Pydantic `ValueError` contexts (e.g. login) serialize instead of crashing the error handler.
+- **Legacy battery-health `desc` import** (PR #182): `/analytics/battery-health` imported `desc` without defining it (500 on the v2 cache path).
+
+### Changed
+- **Frontend runtime** (PR #182): Node **24.20.0** / npm **11.19.0** / Alpine **3.24.1**, multi-arch (`amd64` + `arm64`) image digest.
+- **Statistics shell** (PR #182): tabs grouped Daily vs Analysis; URL-per-tab routing; Battery SoH sits with daily checks.
+- **Local compose CORS**: `docker-compose.yml` `ivdrive-api` no longer interpolates `CORS_ORIGINS` (app still reads it from config / `.env`; production `docker-files/compose.yml` still passes it).
+- **New Python dependency**: `currencyconverter>=0.18.21` (ECB rates). Not the PyPI `units` package.
+
+### Database
+- `d6e7f8a9b0c1` (`a1b2c3d4e5f6_add_battery_health_analytics_table.py`) — `battery_health_analytics` (per-method + `combined` cache). File name still says `a1b2c3d4e5f6` but the **revision id is `d6e7f8a9b0c1`** to avoid colliding with `add_smart_polling_intervals`. `CREATE TABLE IF NOT EXISTS` is safe on DBs that already have the table. Revises `1924fb48a5b1`.
+- `e8a91c2d3f40_trip_gap_phantom_drain.py` — replaces `v_phantom_drain_stats` with the trip-gap definition (1–72 h parked, still odometer, no overlapping charge, hour-weighted including 0% nights).
+- `b473841e9399_add_user_charging_plans.py` — `user_charging_plans` + `charging_sessions.charging_plan_id`. Unrelated embeddings/SoH drift was **not** included in this migration.
+- `c5849a2e1b70_add_currencies_and_unit_system.py` — `currencies` (ECB `rate_per_eur`, `as_of`, `source`) + `users.unit_system` (default `metric`). **Head.**
+
+### Migration notes
+- `alembic upgrade head` from v1.1.3: `1924fb48a5b1` → `d6e7f8a9b0c1` → `e8a91c2d3f40` → `b473841e9399` → `c5849a2e1b70`.
+- After upgrade, ECB rates populate on first FX refresh; maps need a **web image rebuild** with `NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY` (Next inlines `NEXT_PUBLIC_*` at build time).
+- Recompute Battery SoH after deploy so taper sign and v2 methods replace any pre-fix combined cache.
+
+### Notes
+- New env var: `NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY` (required for maps; also a Docker **build-arg**). `NEXT_PUBLIC_API_URL` must be a build-arg as well.
+- No OCPI `charging_stations` revival. Currency/units are **not** inferred from `country_code`.
+- Settings calibration fields (ICE L/100km, etc.) stay labelled in stored units on purpose.
 
 ## [v1.1.3] - 2026-07-08
 Major authentication architecture overhaul and frontend fetching modernization. Resolves persistent API anti-bot rejection issues and transient backend server errors. The authentication state machine has been hardened to securely maintain and refresh sessions, supported by a newly introduced frontend query layer and user-facing connection state UI.
