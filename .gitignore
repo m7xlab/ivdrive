@@ -19,6 +19,7 @@ secrets/
 
 # ---- Local-only docs / helper scripts (never shipped) -------------------
 _local_docs/
+_local_docs/**
 _deprecated_scripts/
 .claudemem
 .claude/
