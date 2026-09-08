@@ -371,7 +371,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   const visibleTrips = useMemo(() => {
 
-    if (dateRange) return displayTrips.slice(0, visibleCount);
+    if (dateRange) return displayTrips;
 
     return displayTrips.slice(0, visibleCount);
 
@@ -807,7 +807,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
-              {visibleCount < displayTrips.length && (
+              {!dateRange && selectedMonth !== null && visibleCount < displayTrips.length && (
 
                 <button type="button"
 

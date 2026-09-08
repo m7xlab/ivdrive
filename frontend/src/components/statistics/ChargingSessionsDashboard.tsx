@@ -140,11 +140,11 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
     if (!editingSession) return;
     const costDisplay = Number.parseFloat(editForm.actual_cost_eur);
     const energy = Number.parseFloat(editForm.energy_kwh);
-    const costEur = Number.isNaN(costDisplay) ? 0 : (toEur(costDisplay, 2) ?? 0);
+    const costEur = Number.isNaN(costDisplay) ? null : (toEur(costDisplay, 2) ?? null);
     try {
       await api.updateChargingSession(vehicleId, editingSession.id, {
         actual_cost_eur: costEur,
-        energy_kwh: Number.isNaN(energy) ? 0 : energy,
+        energy_kwh: Number.isNaN(energy) ? (editingSession.energy_kwh ?? null) : energy,
         provider_name: editForm.provider_name || "",
         charging_plan_id: editForm.charging_plan_id || null,
       });

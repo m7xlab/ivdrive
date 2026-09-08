@@ -36,8 +36,8 @@ router = APIRouter()
 
 
 class ChargingSessionUpdate(BaseModel):
-    actual_cost_eur: float
-    energy_kwh: float
+    actual_cost_eur: float | None = None
+    energy_kwh: float | None = None
     provider_name: str | None = None
     charging_plan_id: UUID | None = None
 
@@ -151,8 +151,10 @@ async def update_charging_session(
     if not session_obj:
         raise HTTPException(status_code=404, detail="Charging session not found")
         
-    session_obj.actual_cost_eur = payload.actual_cost_eur
-    session_obj.energy_kwh = payload.energy_kwh
+    if "actual_cost_eur" in payload.model_fields_set:
+        session_obj.actual_cost_eur = payload.actual_cost_eur
+    if payload.energy_kwh is not None:
+        session_obj.energy_kwh = payload.energy_kwh
     if payload.provider_name is not None:
         session_obj.provider_name = payload.provider_name
     if "charging_plan_id" in payload.model_fields_set:
