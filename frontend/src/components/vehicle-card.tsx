@@ -35,6 +35,8 @@ import {
 
 import { DataHealthBadge } from "@/components/vehicle/data-health-badge";
 
+import { useLocale } from "@/lib/locale";
+
 
 
 interface VehicleStatus {
@@ -296,6 +298,8 @@ export function VehicleCard({
 }: VehicleCardProps) {
 
   const router = useRouter();
+
+  const { formatDistance } = useLocale();
 
   const [deleting, setDeleting] = useState(false);
 
@@ -623,7 +627,7 @@ export function VehicleCard({
 
             <span className="text-sm font-semibold text-iv-text">
 
-              {range != null ? `${Math.round(range)}km` : "—"}
+              {range != null ? formatDistance(range) : "—"}
 
             </span>
 
@@ -643,7 +647,7 @@ export function VehicleCard({
 
             <span className="text-sm font-semibold text-iv-text">
 
-              {odometer != null ? `${odometer.toLocaleString()}km` : "—"}
+              {odometer != null ? formatDistance(odometer) : "—"}
 
             </span>
 

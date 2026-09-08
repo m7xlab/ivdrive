@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import { calculateStatisticsLimit } from "@/lib/periodLimit";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
+import { useLocale } from "@/lib/locale";
 
 export interface MileageKMDashboardProps {
   vehicleId: string;
@@ -68,6 +69,7 @@ function linearRegression(
 const FORECAST_DAYS = 90;
 
 export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardProps) {
+  const { formatDistance, distanceLabel, kmToDisplay } = useLocale();
   const [odometer, setOdometer] = useState<OdometerItem[]>([]);
   const [statsDaily, setStatsDaily] = useState<StatisticsRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -206,7 +208,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
   ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
   const forecastCaption = useUsageModel
-    ? `Forecast from average daily distance (${avgDailyKm.toFixed(1)} km/day over the last ${statsDaily.length} days); cyan dashed = next ${FORECAST_DAYS} days.`
+    ? `Forecast from average daily distance (${formatDistance(avgDailyKm, 1)}/day over the last ${statsDaily.length} days); cyan dashed = next ${FORECAST_DAYS} days.`
     : regression
       ? `Forecast: linear trend over the last ${points.length} readings (no daily stats yet); cyan dashed = next ${FORECAST_DAYS} days.`
       : null;
@@ -215,7 +217,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
     <div className="space-y-6">
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2">
-          <Gauge size={14} /> Mileage (km)
+          <Gauge size={14} /> Mileage ({distanceLabel})
         </h3>
         <div className="h-[320px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -237,7 +239,10 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
                 fontSize={11}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                tickFormatter={(v) => {
+                  const display = kmToDisplay(v);
+                  return display >= 1000 ? `${(display / 1000).toFixed(0)}k` : `${Math.round(display)}`;
+                }}
                 domain={["auto", "auto"]}
               />
               <Tooltip itemStyle={{ color: "var(--iv-text)" }}
@@ -250,7 +255,7 @@ export function MileageKMDashboard({ vehicleId, dateRange }: MileageKMDashboardP
                     <div className="rounded-lg bg-iv-charcoal border border-iv-border px-3 py-2 shadow-xl">
                       <p className="text-xs text-iv-muted">{p.label}</p>
                       <p className="text-sm font-semibold text-iv-text">
-                        {value != null ? value.toLocaleString() : "—"} km
+                        {value != null ? formatDistance(value) : "—"}
                         {isForecast ? (
                           <span className="ml-2 text-iv-cyan text-xs">(forecast)</span>
                         ) : null}

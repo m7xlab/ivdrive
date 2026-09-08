@@ -34,8 +34,10 @@ interface RouteEfficiencyResponse {
 }
 
 import { TimelineRange } from "./StatisticsShell";
+import { useLocale } from "@/lib/locale";
 
 export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
+  const { formatDistance, consumptionLabel, kwhPer100ToDisplay } = useLocale();
   const [data, setData] = useState<RouteEfficiencyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -86,7 +88,7 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
   const chartData = data.routes.slice(0, 15).map((r) => ({
     route: truncateRoute(r.route_key, 22),
     fullRoute: r.route_key.split("->").join(" → "),
-    avg: r.avg_kwh_100km,
+    avg: kwhPer100ToDisplay(r.avg_kwh_100km),
     score: r.efficiency_score,
     trips: r.trip_count,
     distance: r.total_distance_km,
@@ -108,7 +110,7 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
           <h3 className="text-lg font-bold text-iv-text">Route Efficiency Profiling</h3>
         </div>
         <p className="text-sm text-iv-text-muted mb-6">
-          Top {Math.min(data.routes.length, 20)} routes by trip frequency. Efficiency Score: 100 = best (lowest kWh/100km).
+          Top {Math.min(data.routes.length, 20)} routes by trip frequency. Efficiency Score: 100 = best (lowest {consumptionLabel}).
         </p>
 
         {/* Top 20 routes bar chart */}
@@ -116,7 +118,7 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 20, left: 140, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
-              <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: 'kWh/100km', position: 'insideBottom', style: { fill: 'var(--iv-muted)', fontSize: 11 } }} />
+              <XAxis type="number" className="text-iv-muted text-xs" domain={[0, "auto"]} label={{ value: consumptionLabel, position: 'insideBottom', style: { fill: 'var(--iv-muted)', fontSize: 11 } }} />
               <YAxis type="category" dataKey="route" className="text-iv-muted text-[10px]" width={130} tick={{ fontSize: 10 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px", color: "var(--iv-text)", fontSize: "11px" }}
@@ -124,7 +126,7 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
                 labelStyle={{ color: "var(--iv-text)", fontWeight: 600, fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" }}
                 formatter={(value: number, name: string) => [value, name]}
               />
-              <Bar dataKey="avg" name="Avg kWh/100km" radius={[0, 4, 4, 0]}>
+              <Bar dataKey="avg" name={`Avg ${consumptionLabel}`} radius={[0, 4, 4, 0]}>
                 {chartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={getBarColor(entry.score)} />
                 ))}
@@ -141,7 +143,7 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
                 <th className="text-left text-iv-text-muted p-2">Route</th>
                 <th className="text-center text-iv-text-muted p-2">Trips</th>
                 <th className="text-center text-iv-text-muted p-2">Distance</th>
-                <th className="text-center text-iv-text-muted p-2">Avg kWh/100km</th>
+                <th className="text-center text-iv-text-muted p-2">Avg {consumptionLabel}</th>
                 <th className="text-center text-iv-text-muted p-2">Range</th>
                 <th className="text-center text-iv-text-muted p-2">Score</th>
               </tr>
@@ -155,14 +157,14 @@ export function RouteEfficiencyDashboard({ vehicleId, dateRange }: { vehicleId: 
                     <span className="text-iv-cyan">{route.end_location.split(",")[0]}</span>
                   </td>
                   <td className="p-2 text-center text-iv-text">{route.trip_count}</td>
-                  <td className="p-2 text-center text-iv-text">{route.total_distance_km} km</td>
+                  <td className="p-2 text-center text-iv-text">{formatDistance(route.total_distance_km, 1)}</td>
                   <td className="p-2 text-center">
                     <span className="font-bold" style={{ color: getBarColor(route.efficiency_score) }}>
-                      {route.avg_kwh_100km}
+                      {kwhPer100ToDisplay(route.avg_kwh_100km).toFixed(1)}
                     </span>
                   </td>
                   <td className="p-2 text-center text-iv-text-muted">
-                    {route.min_kwh_100km} – {route.max_kwh_100km}
+                    {kwhPer100ToDisplay(route.min_kwh_100km).toFixed(1)} – {kwhPer100ToDisplay(route.max_kwh_100km).toFixed(1)}
                   </td>
                   <td className="p-2 text-center">
                     <span

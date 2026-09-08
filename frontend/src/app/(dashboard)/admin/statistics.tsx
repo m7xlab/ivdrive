@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Loader2, Users, Car, Globe2, AlertTriangle, Activity, MapPin, Zap } from "lucide-react";
+import { useConfirm, useToast } from "@/components/ui/feedback";
+import { Loader2, Users, Car, Globe2, AlertTriangle, Activity, MapPin, Zap, RefreshCw } from "lucide-react";
 
 function getFlagEmoji(countryCode: string) {
   if (!countryCode || countryCode === "Unknown" || countryCode.length !== 2) return "🌍";
@@ -24,9 +25,30 @@ interface AdminStats {
 }
 
 export function StatisticsDashboard() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hardRefreshing, setHardRefreshing] = useState(false);
+
+  const handleHardRefresh = async () => {
+    if (!(await confirm({
+      title: "Hard-refresh every vehicle?",
+      message: `Queue a sequential refresh for all ${stats?.total_vehicles ?? 0} vehicle(s). The collector will process one car after another — never concurrently. This can take several minutes after a Škoda outage.`,
+      confirmText: "Hard-Refresh",
+    }))) return;
+
+    setHardRefreshing(true);
+    try {
+      const res = await api.adminHardRefreshAllVehicles();
+      toast.success(res.message || `Queued ${res.queued} vehicle(s)`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Hard-refresh failed");
+    } finally {
+      setHardRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     async function load() {
@@ -91,7 +113,18 @@ export function StatisticsDashboard() {
         {/* Sync Health & Telemetry */}
         <div className="space-y-6">
           <div className="glass rounded-xl border border-iv-border p-6">
-            <h3 className="text-sm font-medium text-iv-muted mb-4 flex items-center gap-2"><Activity size={16} className="text-iv-muted" /> Connector Health</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2"><Activity size={16} className="text-iv-muted" /> Connector Health</h3>
+              <button
+                type="button"
+                onClick={handleHardRefresh}
+                disabled={hardRefreshing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-cyan/10 text-iv-cyan border border-iv-cyan/20 hover:bg-iv-cyan/20 transition-colors disabled:opacity-50"
+              >
+                {hardRefreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Hard-Refresh
+              </button>
+            </div>
             <div className="space-y-3">
               {stats.connector_status.map((item) => (
                 <div key={item.name} className="flex justify-between items-center border-b border-iv-border/50 pb-2 last:border-0 last:pb-0">

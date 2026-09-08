@@ -2,6 +2,9 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=24 <27"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -30,7 +33,7 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.2",
     "@types/leaflet": "^1.9.21",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
     "@vitejs/plugin-react": "^6.0.1",

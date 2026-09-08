@@ -1,10 +1,13 @@
-FROM node:22-alpine AS base
+# Node 24.20.0 / npm 11.19.0 / Alpine 3.24.1 — multi-arch index (amd64 + arm64).
+# Bump digest only after: docker buildx imagetools inspect node:24-alpine
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS base
 
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json* ./
-# We MUST use --legacy-peer-deps because Tremor doesn't officially support React 19 yet
+# react-leaflet@5 peers React 19; we are still on React 18. Drop this flag in the
+# React 19 upgrade (PLAN-frontend-version-upgrade-v1.md Phase 2). Not Tremor.
 RUN npm install --legacy-peer-deps
 
 FROM base AS builder

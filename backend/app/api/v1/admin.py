@@ -2,7 +2,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update, func
+from sqlalchemy import delete, select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -55,7 +55,7 @@ async def approve_invite(
     
     invite_link = f"{settings.app_base_url}/register?token={token}"
 
-    email_sent = send_invite_email(body.email, invite_link)
+    email_sent = send_invite_email(body.email, invite_link, token)
 
     return {
         "message": "Invite approved",
@@ -75,7 +75,7 @@ async def resend_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite request not found")
 
-    if invite.status not in ("approved", "pending"):
+    if invite.status not in ("approved", "pending", "rejected"):
         raise HTTPException(status_code=400, detail=f"Cannot resend invite with status '{invite.status}'")
 
     token = secrets.token_hex(32)
@@ -86,7 +86,7 @@ async def resend_invite(
     await db.commit()
 
     invite_link = f"{settings.app_base_url}/register?token={token}"
-    email_sent = send_invite_email(body.email, invite_link)
+    email_sent = send_invite_email(body.email, invite_link, token)
 
     return {
         "message": "Invite resent",
@@ -109,6 +109,19 @@ async def delete_invite(
 
     await db.delete(invite)
     await db.commit()
+
+
+@router.post("/invites/cleanup")
+async def cleanup_invites(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+):
+    """Remove used and rejected invites. Keep pending and approved."""
+    result = await db.execute(
+        delete(InviteRequest).where(InviteRequest.status.in_(("used", "rejected")))
+    )
+    await db.commit()
+    return {"deleted": result.rowcount or 0}
 
 
 @router.post("/invites/reject")
@@ -139,6 +152,10 @@ async def list_users(
 ):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
+    count_rows = await db.execute(
+        select(UserVehicle.user_id, func.count(UserVehicle.id)).group_by(UserVehicle.user_id)
+    )
+    vehicle_counts = {str(uid): n for uid, n in count_rows.all()}
     return [
         {
             "id": str(u.id),
@@ -147,6 +164,7 @@ async def list_users(
             "is_active": u.is_active,
             "is_superuser": u.is_superuser,
             "created_at": u.created_at.isoformat() if u.created_at else None,
+            "vehicle_count": vehicle_counts.get(str(u.id), 0),
         }
         for u in users
     ]
@@ -207,8 +225,7 @@ async def delete_user(
     await db.commit()
 
 
-from app.models.vehicle import UserVehicle
-from app.services.events import publish_vehicle_refresh
+from app.services.events import publish_vehicle_refresh, publish_vehicle_refresh_many
 
 
 @router.post("/users/{user_id}/refresh-vehicles", status_code=status.HTTP_202_ACCEPTED)
@@ -224,10 +241,39 @@ async def admin_refresh_user_vehicles(
     if not vehicles:
         return {"status": "no_vehicles", "message": "User has no vehicles to refresh."}
 
-    for vehicle in vehicles:
-        await publish_vehicle_refresh(str(vehicle.id))
+    counts = await publish_vehicle_refresh_many([str(v.id) for v in vehicles])
+    return {
+        "status": "queued",
+        "queued": counts["queued"],
+        "message": f"Queued refresh for {counts['queued']} vehicle(s) for user {user_id}.",
+    }
 
-    return {"status": "queued", "message": f"Queued refresh for {len(vehicles)} vehicle(s) for user {user_id}."}
+
+@router.post("/vehicles/refresh-all", status_code=status.HTTP_202_ACCEPTED)
+async def admin_refresh_all_vehicles(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+):
+    """Queue a sequential hard-refresh for every vehicle in the system.
+
+    Collector drains the queue one vehicle at a time — never concurrent.
+    """
+    result = await db.execute(select(UserVehicle.id).order_by(UserVehicle.user_id, UserVehicle.id))
+    vehicle_ids = [str(row[0]) for row in result.all()]
+
+    if not vehicle_ids:
+        return {"status": "no_vehicles", "queued": 0, "skipped": 0, "message": "No vehicles to refresh."}
+
+    counts = await publish_vehicle_refresh_many(vehicle_ids)
+    return {
+        "status": "queued",
+        "queued": counts["queued"],
+        "skipped": counts["skipped"],
+        "message": (
+            f"Queued sequential refresh for {counts['queued']} vehicle(s)"
+            + (f" ({counts['skipped']} already queued)." if counts["skipped"] else ".")
+        ),
+    }
 
 
 @router.post("/vehicles/{vehicle_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
@@ -312,26 +358,6 @@ async def delete_announcement(
         raise HTTPException(status_code=404, detail="Announcement not found")
     await db.delete(announcement)
     await db.commit()
-
-from app.models.vehicle import UserVehicle
-from app.services.events import publish_vehicle_refresh
-
-@router.post("/vehicles/{vehicle_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
-async def admin_refresh_vehicle(
-    vehicle_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(get_current_superuser),
-):
-    """(Admin) Trigger a one-time out-of-band full telemetry fetch for any vehicle."""
-    result = await db.execute(select(UserVehicle).where(UserVehicle.id == vehicle_id))
-    vehicle = result.scalar_one_or_none()
-    
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehicle not found")
-
-    await publish_vehicle_refresh(str(vehicle_id))
-    return {"status": "queued", "message": f"Manual refresh triggered for vehicle {vehicle_id}"}
-
 
 @router.get("/statistics")
 async def admin_statistics(

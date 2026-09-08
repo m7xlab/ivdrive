@@ -1,5 +1,7 @@
 from app.models.announcement import Announcement, UserAnnouncement
 from app.models.base import Base
+from app.models.charging_plan import UserChargingPlan
+from app.models.currency import Currency
 from app.models.chat_session import ChatMessage, ChatSession
 from app.models.geofence import Geofence
 from app.models.extraction_job import ExtractionJob
@@ -31,7 +33,9 @@ __all__ = [
     "AirConditioningState",
     "Base",
     "ChargingMessage",
+    "UserChargingPlan",
     "ChargingSession",
+    "Currency",
     "ChargingState",
     "ChatMessage",
     "ChatSession",

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Index, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Any
@@ -90,8 +90,12 @@ class ChargingSession(Base):
     actual_cost_eur: Mapped[float | None] = mapped_column(Float)
     provider_name: Mapped[str | None] = mapped_column(String(100))
     avg_temp_celsius: Mapped[float | None] = mapped_column(Float)
+    charging_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_charging_plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="charging_sessions")  # noqa: F821
+    charging_plan: Mapped["UserChargingPlan | None"] = relationship()  # noqa: F821
 
 
 class ChargingState(Base):
@@ -506,3 +510,38 @@ class CollectorRawResponse(Base):
 
 
 
+
+
+class BatteryHealthAnalytics(Base):
+    """Per-method SoH estimates + combined view, persisted for cache-first reads."""
+    __tablename__ = "battery_health_analytics"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_vehicle_id", "method", "computed_at",
+            name="uq_bha_vehicle_method_computed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    user_vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_vehicles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    method: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    soh_pct: Mapped[float] = mapped_column(nullable=False)
+    estimated_kwh: Mapped[float | None] = mapped_column()
+    sample_count: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[str | None] = mapped_column(String(10))
+    inputs_json: Mapped[Any | None] = mapped_column(JSONB)
+    extra_json: Mapped[Any | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user_vehicle: Mapped["UserVehicle"] = relationship()

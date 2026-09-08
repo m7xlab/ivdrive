@@ -285,6 +285,21 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async suggestChargingSessionCost(
+    id: string,
+    sessionId: string | number,
+    planId?: string | null,
+    energyKwh?: number | null
+  ) {
+    const params = new URLSearchParams();
+    if (planId) params.set("plan_id", planId);
+    if (energyKwh != null && Number.isFinite(energyKwh)) params.set("energy_kwh", String(energyKwh));
+    const qs = params.toString();
+    const url = `/api/v1/vehicles/${id}/analytics/charging-sessions/${sessionId}/suggest-cost${qs ? `?${qs}` : ""}`;
+    const res = await apiFetch(url);
+    return res.json();
+  },
+
   async getRouteEfficiency(id: string, fromDate?: string, toDate?: string) {
     const params = new URLSearchParams();
     if (fromDate) params.set("from_date", fromDate);
@@ -319,5 +334,27 @@ export const statisticsApi = {
     const qs = params.toString();
     const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/analytics/battery-health${qs ? `?${qs}` : ""}`);
     return res.json();
-  }
+  },
+
+  async getBatteryHealthAnalytics(vehicleId: string): Promise<{
+    user_vehicle_id: string;
+    soh_pct: number | null;
+    confidence: string;
+    estimated_kwh: number | null;
+    computed_at: string;
+    cached: boolean;
+    methods: Array<{
+      method: string;
+      soh_pct: number | null;
+      estimated_kwh: number | null;
+      sample_count: number;
+      confidence: string;
+      inputs: Record<string, unknown>;
+      extra: Record<string, unknown>;
+    }>;
+    anomalies: string[];
+  }> {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/battery-health-analytics`);
+    return res.json();
+  },
 };

@@ -5,6 +5,7 @@ import sys
 import secrets
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from app.api.v1 import auth, commands, admin, admin_ai, notifications, geo, chat
 from app.api.v1 import settings as settings_router
 from app.api.v1 import vehicles
 from app.api.v1 import analytics
+from app.api.v1 import battery_health
 from app.config import settings
 from app.services.cache import cache_get, cache_set, init_cache, close_cache
 import asyncio
@@ -30,7 +32,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             path = request.url.path
             if "overview" in path or "analytics" in path or "statistics" in path or "history" in path or "trips" in path or "charging" in path:
                 # Exclude live status
-                if "/status" not in path and "/pulse" not in path:
+                if "/status" not in path and "/pulse" not in path and "suggest-cost" not in path:
                     
                     # Extract user_id from cookie to scope cache keys securely
                     user_id = "anonymous"
@@ -194,6 +196,7 @@ app.include_router(vehicles.router, prefix="/api/v1/vehicles", tags=["vehicles"]
 app.include_router(commands.router, prefix="/api/v1/vehicles", tags=["commands"])
 app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(analytics.router, prefix="/api/v1/vehicles", tags=["analytics"])
+app.include_router(battery_health.router, prefix="/api/v1", tags=["battery_health"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(admin_ai.router, prefix="/api/v1/admin", tags=["admin"])
 from app.api.v1 import admin_battery  # noqa: E402
@@ -214,7 +217,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
-        content={"error": {"code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": exc.errors()}}
+        content=jsonable_encoder({"error": {"code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": exc.errors()}})
     )
 
 @app.exception_handler(Exception)

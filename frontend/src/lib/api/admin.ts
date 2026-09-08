@@ -27,6 +27,16 @@ export const adminApi = {
     return res.json();
   },
 
+  async adminHardRefreshAllVehicles(): Promise<{
+    status: string;
+    queued: number;
+    skipped?: number;
+    message: string;
+  }> {
+    const res = await apiFetch("/api/v1/admin/vehicles/refresh-all", { method: "POST" });
+    return res.json();
+  },
+
   async adminListUsers() {
     const res = await apiFetch("/api/v1/admin/users");
     return res.json();
@@ -61,6 +71,11 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ email }),
     });
+    return res.json();
+  },
+
+  async adminCleanupInvites(): Promise<{ deleted: number }> {
+    const res = await apiFetch("/api/v1/admin/invites/cleanup", { method: "POST" });
     return res.json();
   },
 
