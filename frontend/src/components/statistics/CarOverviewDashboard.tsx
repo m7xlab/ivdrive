@@ -237,6 +237,10 @@ export function CarOverviewDashboard({
   const [efficiencyData, setEfficiencyData] = useState<Array<{ time: string; efficiency_pct: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [vampireDrain, setVampireDrain] = useState<{
+    has_data: boolean;
+    sample_count: number;
+    zero_drop_count: number;
+    parked_hours: number;
     avg_drain_pct_per_day: number;
     drain_kwh_per_day: number;
     drain_kwh_per_week: number;
@@ -1281,17 +1285,19 @@ export function CarOverviewDashboard({
 
       {/* ── Vampire Drain ── */}
       <SectionDivider label="Vampire Drain" />
-      {vampireDrain && (
-        <div className="glass rounded-2xl border border-iv-border p-6">
-          <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
-            <Battery size={14} /> Vampire Drain (Parked Standby)
-          </h3>
-
+      <div className="glass rounded-2xl border border-iv-border p-6">
+        <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
+          <Battery size={14} /> Vampire Drain (Parked Standby)
+        </h3>
+        {vampireDrain == null ? (
+          <p className="text-sm text-iv-muted">Vampire drain will appear once parked samples are loaded.</p>
+        ) : vampireDrain.has_data ? (
+          <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {([
-              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(2)} %/hr`, color: "text-iv-yellow" },
-              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: `@ ${vampireDrain.electricity_price_eur_kwh}€/kWh`, color: "text-iv-text" },
+              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%`, sub: "per 24 h parked", color: "text-iv-yellow" },
+              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: "per 24 h parked", color: "text-iv-text" },
               { label: "Weekly Cost", value: `${vampireDrain.cost_per_week_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
               { label: "Monthly Cost", value: `${vampireDrain.cost_per_month_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },
             ] as const).map((item) => (
@@ -1306,7 +1312,7 @@ export function CarOverviewDashboard({
           {/* Cost breakdown */}
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
-              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Day</p>
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per 24 h parked</p>
               <p className="text-2xl font-bold text-iv-text">{vampireDrain.cost_per_day_eur.toFixed(2)} €</p>
               <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_day.toFixed(3)} kWh lost</p>
             </div>
@@ -1323,13 +1329,23 @@ export function CarOverviewDashboard({
           </div>
           <div className="mt-6 pt-4 border-t border-iv-border">
             <p className="text-sm text-iv-text-muted">
-              <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}% of your {vampireDrain.battery_capacity_kwh} kWh battery</span> is lost
-              per day to vampire drain (systems, standby, etc.).
-              Over a year, this costs approximately <span className="text-iv-yellow">{(vampireDrain.cost_per_month_eur * 12).toFixed(2)} €</span>.
+              While parked, <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}% of your {vampireDrain.battery_capacity_kwh} kWh battery</span> is lost
+              per 24 hours to standby systems.
+              Based on {vampireDrain.sample_count} parked interval{vampireDrain.sample_count === 1 ? "" : "s"}
+              {vampireDrain.zero_drop_count > 0 ? ` (${vampireDrain.zero_drop_count} with no displayed SoC drop)` : ""}
+              {` over ${vampireDrain.parked_hours} parked hours`}.
+              Electricity {vampireDrain.electricity_price_eur_kwh}€/kWh.
+              If parked around the clock for a year, this costs approximately <span className="text-iv-yellow">{(vampireDrain.cost_per_month_eur * 12).toFixed(2)} €</span>.
             </p>
           </div>
-        </div>
-      )}
+          </>
+        ) : (
+          <p className="text-sm text-iv-muted">
+            Not enough parked samples yet. Vampire drain is measured between trips
+            that stay still, with SoC at both ends and no charging in between.
+          </p>
+        )}
+      </div>
 
       {/* ── Period Summary ── */}
       {stats.length > 0 && (

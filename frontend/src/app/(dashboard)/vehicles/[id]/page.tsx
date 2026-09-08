@@ -353,6 +353,8 @@ interface AdvancedAnalytics {
   phantom_drain: {
 
     pct_per_day: number;
+    sample_count: number;
+    has_data: boolean;
 
   };
 
@@ -1944,7 +1946,7 @@ export default function VehicleDetailPage() {
 
           trip_types: { short_pct: 0, medium_pct: 0, long_pct: 0 },
 
-          phantom_drain: { pct_per_day: 1.2 },
+          phantom_drain: { pct_per_day: 0, sample_count: 0, has_data: false },
 
           energy_prices: { country_code: "LT", electricity_eur_kwh: 0.25, petrol_eur_l: 1.65 }
 
@@ -2296,17 +2298,27 @@ export default function VehicleDetailPage() {
 
                 <div className="flex items-baseline gap-2 mt-2">
 
-                  <span className="text-3xl font-bold text-iv-text">{analytics.phantom_drain.pct_per_day.toFixed(1)}</span>
-
-                  <span className="text-sm text-iv-muted">% / day</span>
+                  {analytics.phantom_drain?.has_data ? (
+                    <>
+                      <span className="text-3xl font-bold text-iv-text">{analytics.phantom_drain.pct_per_day.toFixed(1)}</span>
+                      <span className="text-sm text-iv-muted">% / 24 h parked</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-3xl font-bold text-iv-muted">—</span>
+                      <span className="text-sm text-iv-muted">not enough samples</span>
+                    </>
+                  )}
 
                 </div>
 
                 <div className="mt-3 text-[10px] text-iv-muted">Real-world standby loss</div>
 
-                <div className="mt-1 text-[10px] text-iv-green flex items-center gap-1">
+                <div className="mt-1 text-[10px] text-iv-muted flex items-center gap-1">
 
-                   <CheckCircle2 size={10} /> Calculation Active
+                   {analytics.phantom_drain?.has_data
+                     ? `${analytics.phantom_drain.sample_count ?? 0} parked intervals`
+                     : "Needs still parks with SoC at both trip ends"}
 
                 </div>
 

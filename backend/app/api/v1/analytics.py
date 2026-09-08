@@ -18,21 +18,12 @@ from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import PulseResponse
 from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.cache import invalidate_vehicle_cache
+from app.services.vampire_drain import vampire_drain_for_vehicle
 
 from pydantic import BaseModel
 
 router = APIRouter()
 
-# =============================================================================
-# Calibration & Engineering Constants
-# =============================================================================
-# Used by vampire drain analysis (get_vampire_drain). Edit here to tune thresholds.
-VAMPIRE_DRAIN_DEFAULTS = {
-    "min_parked_hours":    1.0,   # Ignore intervals shorter than this (not real vampire drain)
-    "max_parked_hours":   72.0,   # Ignore intervals longer than this (BMS sleep / abnormal)
-    "max_drain_rate_pct": 0.15,   # Max realistic vampire drain %/hr (exclude abnormal spikes)
-    "max_dsoc_pct":       15.0,   # Max expected SoC drop in one parked interval (exclude outliers)
-}
 
 class ChargingSessionUpdate(BaseModel):
     actual_cost_eur: float
@@ -804,14 +795,9 @@ async def get_advanced_analytics_overview(
     trip_res = await db.execute(trip_sql, {"vid": str(vehicle_id)})
     trip_row = trip_res.fetchone()
 
-    # 2. Phantom Drain
-    drain_sql = text("""
-        SELECT avg_drain_pct_per_day
-        FROM v_phantom_drain_stats
-        WHERE user_vehicle_id = :vid
-    """)
-    drain_res = await db.execute(drain_sql, {"vid": str(vehicle_id)})
-    drain_row = drain_res.fetchone()
+    stats = await vampire_drain_for_vehicle(db, vehicle_id)
+    drain_samples = stats.sample_count
+    drain_has_data = stats.has_data
 
     # 3. Energy Prices
     energy_price = None
@@ -877,7 +863,9 @@ async def get_advanced_analytics_overview(
             "long_pct": round(float(trip_row[2]) / float(trip_row[3]) * 100 if trip_row and trip_row[3] > 0 else 0, 1),
         },
         "phantom_drain": {
-            "pct_per_day": round(float(drain_row[0]), 2) if drain_row and drain_row[0] is not None else 0.0,
+            "pct_per_day": round(stats.avg_drain_pct_per_day, 2) if drain_has_data else 0.0,
+            "sample_count": drain_samples,
+            "has_data": drain_has_data,
         },
         "energy_prices": {
             "country_code": country_code,
@@ -1740,23 +1728,16 @@ async def get_vampire_drain(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Calculate average SoC loss per hour while parked, translate to kWh and EUR."""
-    await get_user_vehicle(user.id, vehicle_id, db)
+    """Hour-weighted SoC loss between trips while parked, as kWh and EUR.
 
-    from app.models.vehicle import UserVehicle
-    v_res = await db.execute(select(UserVehicle).where(UserVehicle.id == vehicle_id))
-    veh = v_res.scalar_one_or_none()
-    battery_kwh = 50.0  # Safe default for EVs if vehicle has no stored capacity
-    if veh:
-        cap = getattr(veh, "battery_capacity_kwh", None)
-        if cap and cap > 0:
-            battery_kwh = float(cap)
-
-    country_code = "LT"
-    if veh:
-        cc = getattr(veh, "country_code", None)
-        if cc:
-            country_code = str(cc)
+    Uses trip end_soc → next trip start_soc. Excludes odometer movement and
+    overlapping charging sessions. Includes 0% integer-SoC nights.
+    """
+    vehicle = await get_user_vehicle(user.id, vehicle_id, db)
+    battery_kwh = 50.0
+    if vehicle.battery_capacity_kwh and vehicle.battery_capacity_kwh > 0:
+        battery_kwh = float(vehicle.battery_capacity_kwh)
+    country_code = str(vehicle.country_code) if vehicle.country_code else "LT"
 
     from app.models.fuel_price import CountryEconomics
     elec_price = 0.0
@@ -1770,72 +1751,19 @@ async def get_vampire_drain(
     if eco and eco.electricity_price_kwh_eur:
         elec_price = float(eco.electricity_price_kwh_eur)
 
-    # Analyze vehicle_states for PARKED sessions to calculate SoC drain rate
-    stmt_vs = (
-        select(VehicleState)
-        .where(VehicleState.user_vehicle_id == vehicle_id)
-        .order_by(VehicleState.first_date)
-        .limit(500)
-    )
-    vs_res = await db.execute(stmt_vs)
-    vs_records = vs_res.scalars().all()
-
-    # Also get charging states for battery_pct
-    stmt_cs = (
-        select(ChargingState)
-        .where(ChargingState.user_vehicle_id == vehicle_id)
-        .where(ChargingState.battery_pct.is_not(None))
-        .order_by(ChargingState.first_date)
-        .limit(500)
-    )
-    cs_res = await db.execute(stmt_cs)
-    cs_records = cs_res.scalars().all()
-
-    # Build a time-series: (timestamp, battery_pct, state) from charging_states
-    soc_timeline: list[tuple[datetime, int, str]] = []
-    for rec in cs_records:
-        if rec.first_date and rec.battery_pct is not None:
-            soc_timeline.append((rec.first_date, int(rec.battery_pct), rec.state or ""))
-
-    # Calculate drain from SoC timeline: CONNECT_CABLE -> CONNECT_CABLE only
-    # Filter to realistic vampire drain: < 0.15%/hr, dsoc < 15%, dt 1-72h
-    soc_drain_rates: list[float] = []
-    for i in range(1, len(soc_timeline)):
-        t0, soc0, s0 = soc_timeline[i - 1]
-        t1, soc1, s1 = soc_timeline[i]
-        dt_h = (t1 - t0).total_seconds() / 3600.0
-        dsoc = float(soc0) - float(soc1)
-        # Only CONNECT_CABLE->CONNECT_CABLE transitions (plugged in, not driving)
-        # and realistic drain rates (< 0.15%/hr = ~3.6%/day max for real vampire drain)
-        if s0 == "CONNECT_CABLE" and s1 == "CONNECT_CABLE":
-            cfg = VAMPIRE_DRAIN_DEFAULTS
-            if cfg["min_parked_hours"] < dt_h < cfg["max_parked_hours"] and 0 < dsoc < cfg["max_dsoc_pct"]:
-                rate = dsoc / dt_h
-                if rate < cfg["max_drain_rate_pct"]:
-                    soc_drain_rates.append(rate)
-
-    avg_pct_per_hour = 0.0
-    if soc_drain_rates:
-        # Use median of realistic rates to avoid skew from long parked sessions
-        sorted_rates = sorted(soc_drain_rates)
-        mid = len(sorted_rates) // 2
-        median_rate = sorted_rates[mid] if len(sorted_rates) % 2 == 1 else (
-            sorted_rates[mid - 1] + sorted_rates[mid]
-        ) / 2
-        # Use median rather than mean to avoid skew from long-parked outliers
-        avg_pct_per_hour = median_rate
-
-    if avg_pct_per_hour <= 0:
-        avg_pct_per_hour = 0.0  # No assumed vampire drain when no data (HC-026/031)
-
-    drain_pct_per_day = avg_pct_per_hour * 24
-    drain_kwh_per_day = battery_kwh * drain_pct_per_day / 100
+    stats = await vampire_drain_for_vehicle(db, vehicle_id)
+    drain_kwh_per_day = battery_kwh * stats.avg_drain_pct_per_day / 100.0 if stats.has_data else 0.0
     drain_kwh_per_week = drain_kwh_per_day * 7
     drain_kwh_per_month = drain_kwh_per_day * 30
 
     return {
-        "avg_drain_pct_per_hour": round(avg_pct_per_hour, 4),
-        "avg_drain_pct_per_day": round(drain_pct_per_day, 2),
+        "has_data": stats.has_data,
+        "sample_count": stats.sample_count,
+        "zero_drop_count": stats.zero_drop_count,
+        "parked_hours": stats.parked_hours,
+        "method": "trip_gaps",
+        "avg_drain_pct_per_hour": round(stats.avg_drain_pct_per_hour, 4),
+        "avg_drain_pct_per_day": round(stats.avg_drain_pct_per_day, 2),
         "drain_kwh_per_day": round(drain_kwh_per_day, 3),
         "drain_kwh_per_week": round(drain_kwh_per_week, 3),
         "drain_kwh_per_month": round(drain_kwh_per_month, 3),
