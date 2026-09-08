@@ -145,6 +145,15 @@ def _clamp_soh(value: Optional[float]) -> Optional[float]:
     return round(max(SOH_CAP_LOWER, min(SOH_CAP_UPPER, value)), 2)
 
 
+def _taper_soh_adjustment(median_change_pct: float) -> float:
+    """Clamp median DC power change (%) to a SoH offset of ±5 points.
+
+    ``median_change_pct`` is (recent − earlier) / earlier × 100, so a power
+    drop is negative and must lower SoH — do not invert the sign.
+    """
+    return max(-5.0, min(5.0, median_change_pct))
+
+
 def _weighted_median(values_with_weights: List[Tuple[float, float]]) -> Optional[float]:
     if not values_with_weights:
         return None
@@ -344,7 +353,7 @@ async def estimate_charging_curve_taper(
     median_change = statistics.median(
         [v["change_pct"] for v in bucket_changes.values()]
     )
-    soh_adj = max(-5.0, min(5.0, -median_change))
+    soh_adj = _taper_soh_adjustment(median_change)
     soh_pct = _clamp_soh(100.0 + soh_adj)
 
     return MethodResult(

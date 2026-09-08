@@ -185,3 +185,28 @@ class TestConstants:
     def test_soc_calibration_values_sensible(self):
         assert 0 < SOC_CALIBRATION_OFFSET_PCT <= 5
         assert SOC_CALIBRATION_TRIGGER_PCT >= 90
+
+
+# ---------------------------------------------------------------------------
+# v2 charging taper: power drop must lower SoH (PR #182 Code Suggestion 1)
+# ---------------------------------------------------------------------------
+
+
+class TestTaperSohAdjustment:
+    def test_power_drop_lowers_soh(self):
+        from app.services.battery_health_v2 import _taper_soh_adjustment, _clamp_soh
+
+        adj = _taper_soh_adjustment(-3.0)
+        assert adj == -3.0
+        assert _clamp_soh(100.0 + adj) == 97.0
+
+    def test_power_rise_raises_soh(self):
+        from app.services.battery_health_v2 import _taper_soh_adjustment
+
+        assert _taper_soh_adjustment(2.0) == 2.0
+
+    def test_clamped_to_five_points(self):
+        from app.services.battery_health_v2 import _taper_soh_adjustment
+
+        assert _taper_soh_adjustment(-12.0) == -5.0
+        assert _taper_soh_adjustment(12.0) == 5.0

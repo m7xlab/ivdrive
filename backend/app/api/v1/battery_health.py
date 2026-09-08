@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -50,7 +50,9 @@ async def get_battery_health_analytics(
     if not force_recompute:
         cached_combined = await _latest_combined(db, vehicle_id)
         if cached_combined is not None:
-            methods = await _latest_methods(db, vehicle_id)
+            methods = await _latest_methods(
+                db, vehicle_id, cached_combined.computed_at
+            )
             return {
                 "user_vehicle_id": str(vehicle_id),
                 "soh_pct": cached_combined.soh_pct,
@@ -108,15 +110,14 @@ async def _latest_combined(
 
 
 async def _latest_methods(
-    db: AsyncSession, vehicle_id: UUID
+    db: AsyncSession, vehicle_id: UUID, computed_at: datetime
 ) -> List[BatteryHealthAnalytics]:
-    """Latest row per method (excluding the combined rollup)."""
+    """Method rows from the same persist run as the combined rollup."""
     rows = (await db.execute(
         select(BatteryHealthAnalytics)
         .where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
         .where(BatteryHealthAnalytics.method != "combined")
-        .distinct(BatteryHealthAnalytics.method)
-        .order_by(BatteryHealthAnalytics.method, desc(BatteryHealthAnalytics.computed_at))
+        .where(BatteryHealthAnalytics.computed_at == computed_at)
     )).scalars().all()
     return list(rows)
 

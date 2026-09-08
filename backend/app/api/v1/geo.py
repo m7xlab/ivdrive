@@ -332,5 +332,9 @@ async def reverse_geocode(
             fut.set_result(("Location", 8))
         return {"display_name": "Location", "retry_after_seconds": 8}
     finally:
+        # CancelledError is BaseException, not Exception. If the leader
+        # request is cancelled, waiters on this Future hang unless we resolve.
+        if not fut.done():
+            fut.set_result(("Location", 8))
         if _inflight.get(key) is fut:
             _inflight.pop(key, None)
