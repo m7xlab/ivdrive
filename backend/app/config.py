@@ -1,5 +1,8 @@
-from pydantic import model_validator, field_validator
-from pydantic_settings import BaseSettings
+import json
+from typing import Annotated
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -22,8 +25,29 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
-    # CORS — non-credential, safe to have defaults; override via CORS_ORIGINS env
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # CORS — Compose interpolation often strips JSON quotes from CORS_ORIGINS.
+    # NoDecode skips the env JSON parser; we accept JSON or [http://a,http://b].
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip().strip("\"'") for item in value if str(item).strip()]
+        if not isinstance(value, str):
+            return ["http://localhost:3000"]
+        text = value.strip()
+        if not text:
+            return ["http://localhost:3000"]
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass
+        if text.startswith("[") and text.endswith("]"):
+            text = text[1:-1]
+        return [part.strip().strip("\"'") for part in text.split(",") if part.strip()]
 
     # Cookies — Secure flag on auth cookies. Set False only for local HTTP dev.
     cookie_secure: bool = True

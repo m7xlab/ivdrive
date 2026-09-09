@@ -6,37 +6,43 @@ from typing import Any
 import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
 from app.constants.calibration import effective_vehicle_calibration as _calibration
 from app.database import get_db
-from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError
+from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError, BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import PulseResponse
+from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.cache import invalidate_vehicle_cache
+from app.services.vampire_drain import vampire_drain_for_vehicle
 
 from pydantic import BaseModel
 
+from app.models.charging_plan import UserChargingPlan
+from app.schemas.charging_plan import SuggestCostResponse
+from app.services.charging_plans import (
+    count_overlapping_periods,
+    current_subscription_usage,
+    included_allotment_kwh,
+    load_user_plans,
+    overage_rate_eur,
+    plan_costs_for_sessions,
+    suggest_cost_for_session,
+    window_for_fees,
+)
+
 router = APIRouter()
 
-# =============================================================================
-# Calibration & Engineering Constants
-# =============================================================================
-# Used by vampire drain analysis (get_vampire_drain). Edit here to tune thresholds.
-VAMPIRE_DRAIN_DEFAULTS = {
-    "min_parked_hours":    1.0,   # Ignore intervals shorter than this (not real vampire drain)
-    "max_parked_hours":   72.0,   # Ignore intervals longer than this (BMS sleep / abnormal)
-    "max_drain_rate_pct": 0.15,   # Max realistic vampire drain %/hr (exclude abnormal spikes)
-    "max_dsoc_pct":       15.0,   # Max expected SoC drop in one parked interval (exclude outliers)
-}
 
 class ChargingSessionUpdate(BaseModel):
-    actual_cost_eur: float
-    energy_kwh: float
+    actual_cost_eur: float | None = None
+    energy_kwh: float | None = None
     provider_name: str | None = None
+    charging_plan_id: UUID | None = None
 
 async def get_user_vehicle(user_id: UUID, vehicle_id: UUID, db: AsyncSession) -> UserVehicle:
     stmt = select(UserVehicle).where(UserVehicle.id == vehicle_id, UserVehicle.user_id == user_id)
@@ -107,7 +113,8 @@ async def get_charging_sessions(
     )
     result = await db.execute(stmt)
     sessions = result.scalars().all()
-    
+    plan_costs = await plan_costs_for_sessions(db, user.id, list(sessions))
+
     return [
         {
             "id": s.id,
@@ -115,11 +122,17 @@ async def get_charging_sessions(
             "session_end": s.session_end.isoformat() if s.session_end else None,
             "start_level": s.start_level,
             "end_level": s.end_level,
-            "energy_kwh": round(s.energy_kwh, 2) if s.energy_kwh else None,
-            "base_cost_eur": round(s.base_cost_eur, 2) if s.base_cost_eur else None,
-            "actual_cost_eur": round(s.actual_cost_eur, 2) if s.actual_cost_eur else None,
+            "energy_kwh": round(s.energy_kwh, 2) if s.energy_kwh is not None else None,
+            "base_cost_eur": round(s.base_cost_eur, 2) if s.base_cost_eur is not None else None,
+            "actual_cost_eur": round(s.actual_cost_eur, 2) if s.actual_cost_eur is not None else None,
             "provider_name": s.provider_name,
-            "avg_temp_celsius": round(s.avg_temp_celsius, 1) if s.avg_temp_celsius else None,
+            "avg_temp_celsius": round(s.avg_temp_celsius, 1) if s.avg_temp_celsius is not None else None,
+            "latitude": s.latitude,
+            "longitude": s.longitude,
+            "charging_plan_id": str(s.charging_plan_id) if s.charging_plan_id else None,
+            "plan_name": (plan_costs.get(s.id) or {}).get("plan_name"),
+            "plan_cost_eur": (plan_costs.get(s.id) or {}).get("plan_cost_eur"),
+            "cost_label": (plan_costs.get(s.id) or {}).get("cost_label"),
         }
         for s in sessions
     ]
@@ -145,10 +158,23 @@ async def update_charging_session(
     if not session_obj:
         raise HTTPException(status_code=404, detail="Charging session not found")
         
-    session_obj.actual_cost_eur = payload.actual_cost_eur
-    session_obj.energy_kwh = payload.energy_kwh
+    if "actual_cost_eur" in payload.model_fields_set:
+        session_obj.actual_cost_eur = payload.actual_cost_eur
+    if payload.energy_kwh is not None:
+        session_obj.energy_kwh = payload.energy_kwh
     if payload.provider_name is not None:
         session_obj.provider_name = payload.provider_name
+    if "charging_plan_id" in payload.model_fields_set:
+        if payload.charging_plan_id is not None:
+            plan_res = await db.execute(
+                select(UserChargingPlan).where(
+                    UserChargingPlan.id == payload.charging_plan_id,
+                    UserChargingPlan.user_id == user.id,
+                )
+            )
+            if plan_res.scalar_one_or_none() is None:
+                raise HTTPException(status_code=404, detail="Charging plan not found")
+        session_obj.charging_plan_id = payload.charging_plan_id
         
     await db.commit()
     # Bust the server-side Valkey cache so the edit is reflected immediately.
@@ -156,6 +182,79 @@ async def update_charging_session(
     # (X-Cache: HIT) for up to its 60s TTL.
     await invalidate_vehicle_cache(str(vehicle_id))
     return {"status": "success", "message": "Charging session updated"}
+
+
+@router.get(
+    "/{vehicle_id}/analytics/charging-sessions/{session_id}/suggest-cost",
+    response_model=SuggestCostResponse,
+)
+async def suggest_charging_session_cost(
+    vehicle_id: UUID,
+    session_id: int,
+    plan_id: UUID | None = Query(default=None),
+    energy_kwh: float | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Suggest a session cost from a charging plan (explicit picker or GPS geofence match)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+    stmt = select(ChargingSession).where(
+        ChargingSession.id == session_id,
+        ChargingSession.user_vehicle_id == vehicle_id,
+    )
+    result = await db.execute(stmt)
+    session_obj = result.scalar_one_or_none()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="Charging session not found")
+    suggestion = await suggest_cost_for_session(
+        db, user.id, session_obj, plan_id=plan_id, energy_kwh=energy_kwh
+    )
+    if suggestion["reason"] == "plan_not_found":
+        raise HTTPException(status_code=404, detail="Charging plan not found")
+    return suggestion
+
+
+class SubscriptionUsage(BaseModel):
+    plan_id: str
+    plan_name: str
+    plan_type: str
+    period_start: str | None = None
+    period_end: str | None = None
+    periodicity: str | None = None
+    allotment_kwh: float | None = None
+    used_kwh: float
+    remaining_kwh: float | None = None
+    used_pct: float | None = None
+    period_fee_eur: float | None = None
+    allocated_eur: float
+    remaining_fee_eur: float | None = None
+    included_rate_eur: float | None = None
+    overage_rate_eur: float | None = None
+    overage_kwh: float
+    overage_eur: float
+    sessions_count: int
+    walk_up_eur: float | None = None
+    saved_vs_public_eur: float | None = None
+
+
+class ChargingPlanUsageResponse(BaseModel):
+    plans: list[SubscriptionUsage]
+
+
+@router.get(
+    "/{vehicle_id}/analytics/charging-plan-usage",
+    response_model=ChargingPlanUsageResponse,
+)
+async def get_charging_plan_usage(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    as_of: date | None = None,
+):
+    """Current-period subscription usage (user-wide allotment, hidden when no subscriptions)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+    plans = await current_subscription_usage(db, user.id, as_of=as_of)
+    return ChargingPlanUsageResponse(plans=[SubscriptionUsage(**row) for row in plans])
 
 
 @router.get("/{vehicle_id}/analytics/pulse", response_model=PulseResponse)
@@ -227,18 +326,13 @@ async def get_battery_health(
     user: User = Depends(get_current_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
-    limit: int = Query(default=100, ge=1, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000),
 ):
-    """Return battery health metrics including HV system, cell voltages, and derived SoH.
+    """Return battery health metrics. Cache-first via battery_health_analytics
+    (v2 cache); live-compute via v2 service on miss. Response shape preserved for
+    backward compat with the legacy UI (skoda_soh_pct / derived_soh_pct / curve).
 
-    Provides two SoH values:
-    - skoda_soh_pct: raw hv_battery_soh from Skoda BMS (may be stale/cached)
-    - derived_soh_pct: our own estimate (prefers the cached battery_soh_estimates
-      table populated by the battery_scheduler; falls back to live computation
-      if no recent estimate exists)
-    - derived_capacity_kwh: our estimated current full capacity in kWh
-    - curve: monthly averaged SoH history (also reads from battery_soh_estimates
-      when available, falls back to live group-by)
+    Per the Sep 5/6 rebuild (commit history on feature/soh-soc-rebuild).
     """
     await get_user_vehicle(user.id, vehicle_id, db)
 
@@ -257,239 +351,78 @@ async def get_battery_health(
     vehicle_result = await db.execute(vehicle_stmt)
     factory_kwh = vehicle_result.scalar_one_or_none()
 
-    # Try cached aggregate from battery_soh_estimates first (preferred path —
-    # the scheduler keeps this fresh and uses the full SoH pipeline including
-    # charging-loss correction, SoC calibration, temperature correction, and
-    # outlier trim). Fall back to live computation if the cache is empty or stale.
-    cache_stmt = text("""
-        SELECT soh_pct, estimated_kwh, confidence, estimated_at, sample_count
-        FROM battery_soh_estimates
-        WHERE user_vehicle_id = :vehicle_id
-          AND method = 'aggregate'
-        ORDER BY estimated_at DESC
-        LIMIT 1
-    """)
-    cached = (await db.execute(cache_stmt, {"vehicle_id": str(vehicle_id)})).mappings().first()
-    cache_max_age = timedelta(days=7)  # refresh weekly
-    cache_is_fresh = (
-        cached is not None
-        and cached["estimated_at"] is not None
-        and (datetime.now(timezone.utc) - cached["estimated_at"]) < cache_max_age
-    )
-
-    if cache_is_fresh:
-        # Read curve from cache (monthly aggregates) too
-        curve_rows = (await db.execute(text("""
+    async def _build_curve_rows(vehicle_uuid: str) -> list[dict]:
+        rows = (await db.execute(text("""
             SELECT
-              TO_CHAR(DATE_TRUNC('month', estimated_at), 'YYYY-MM') AS month,
+              TO_CHAR(DATE_TRUNC('month', computed_at), 'YYYY-MM') AS month,
               ROUND(AVG(soh_pct)::numeric, 2) AS soh_pct,
               ROUND(AVG(estimated_kwh)::numeric, 2) AS estimated_kwh,
               COUNT(*)::int AS sample_count
-            FROM battery_soh_estimates
+            FROM battery_health_analytics
             WHERE user_vehicle_id = :vehicle_id
-              AND method = 'aggregate'
-              AND estimated_at >= NOW() - INTERVAL '12 months'
+              AND method = 'combined'
+              AND computed_at >= NOW() - INTERVAL '12 months'
             GROUP BY 1
             ORDER BY 1
-        """), {"vehicle_id": str(vehicle_id)})).fetchall()
-        curve_data = [
+        """), {"vehicle_id": vehicle_uuid})).fetchall()
+        return [
             {
                 "month": r.month,
                 "soh_pct": float(r.soh_pct),
                 "estimated_kwh": float(r.estimated_kwh) if r.estimated_kwh else None,
                 "sample_count": r.sample_count,
             }
-            for r in curve_rows
+            for r in rows
         ]
+
+    # Cache-first: latest 'combined' row from battery_health_analytics (v2 cache)
+    cache_max_age = timedelta(days=7)  # refresh weekly via scheduler
+    cached = (await db.execute(
+        select(BatteryHealthAnalytics)
+        .where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
+        .where(BatteryHealthAnalytics.method == "combined")
+        .order_by(desc(BatteryHealthAnalytics.computed_at))
+        .limit(1)
+    )).scalar_one_or_none()
+    cache_is_fresh = (
+        cached is not None
+        and cached.computed_at is not None
+        and (datetime.now(timezone.utc) - cached.computed_at) < cache_max_age
+    )
+
+    if cache_is_fresh:
+        curve_data = await _build_curve_rows(str(vehicle_id))
         return {
             "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
             "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
             "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": float(cached["soh_pct"]),
-            "derived_capacity_kwh": float(cached["estimated_kwh"]) if cached["estimated_kwh"] else None,
-            "derived_confidence": cached["confidence"],
-            "derived_estimated_at": cached["estimated_at"].isoformat() if cached["estimated_at"] else None,
-            "derived_sample_count": cached["sample_count"],
-            "derived_source": "battery_soh_estimates",
-            "total_soh_estimates": cached["sample_count"],
+            "derived_soh_pct": float(cached.soh_pct),
+            "derived_capacity_kwh": float(cached.estimated_kwh) if cached.estimated_kwh else None,
+            "derived_confidence": cached.confidence,
+            "derived_estimated_at": cached.computed_at.isoformat(),
+            "derived_sample_count": cached.sample_count,
+            "derived_source": "battery_health_analytics",
+            "total_soh_estimates": cached.sample_count,
             "curve": curve_data,
         }
 
-    # ---- Live-compute fallback (unchanged legacy path) ---------------------
-    # This path runs when the cache is empty or stale. Identical math to the
-    # original endpoint, kept for backward compatibility. The scheduler will
-    # populate the cache on the next run.
-    # Filter: ΔSOC 15-65% (avoid short charges and regen-heavy large charges)
-    # Cap: estimated capacity ≤ 103% of factory (excludes regen-inflated values)
-    soh_stmt = text("""
-        SELECT
-            session_start::date as charge_date,
-            start_level,
-            end_level,
-            energy_kwh,
-            ROUND((energy_kwh / ((end_level - start_level)/100.0))::numeric, 2) as estimated_kwh,
-            ROUND(((energy_kwh / ((end_level - start_level)/100.0)) / :factory_kwh * 100)::numeric, 1) as soh_pct,
-            (end_level - start_level) as delta_soc
-        FROM charging_sessions
-        WHERE user_vehicle_id = :vehicle_id
-          AND end_level IS NOT NULL AND start_level IS NOT NULL
-          AND energy_kwh IS NOT NULL AND energy_kwh > 0
-          AND (end_level - start_level) BETWEEN 15 AND 65
-        ORDER BY session_start DESC
-        LIMIT 50
-    """)
-    if not factory_kwh or factory_kwh <= 0:
-        return {
-            "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-            "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-            "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": None,
-            "derived_capacity_kwh": None,
-            "derived_source": "fallback_no_capacity",
-            "total_soh_estimates": 0,
-            "curve": [],
-        }
+    # ---- Live-compute fallback via v2 service ---------------------------
+    # Cache empty or stale. Run all 6 methods + persist, then build legacy response.
+    analytics = await compute_full_analytics(db, vehicle_id, 365)
+    await persist_analytics(db, analytics)
 
-    soh_result = await db.execute(soh_stmt, {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh})
-    soh_estimates = soh_result.fetchall()
-
-    curve_data = []
-    valid = []
-    latest_derived = None
-    latest_derived_kwh = None
-
-    if soh_estimates:
-        # v1.1.3 fix/soh-cap-100-percent: the 103% noise buffer was kept for filtering
-        # (rejects regen-inflated values that exceed 103% of factory), but the resulting
-        # percentage and capacity now clamp to factory. A real battery never has SoH > 100%.
-        limit_kwh = float(factory_kwh) * 1.03
-        valid = [r for r in soh_estimates if r.estimated_kwh and float(r.estimated_kwh) <= limit_kwh]
-        if valid:
-            from collections import defaultdict
-            by_month: dict[str, list[float]] = defaultdict(list)
-            for r in valid:
-                month = str(r.charge_date)[:7]
-                by_month[month].append(float(r.estimated_kwh))
-            for month in sorted(by_month.keys()):
-                vals = by_month[month]
-                avg_kwh = round(sum(vals) / len(vals), 2)
-                # v1.1.3 fix/soh-cap-100-percent: guard against ZeroDivisionError
-                # when factory_kwh is zero/anomalous, and clamp BOTH bounds to [0,100].
-                # PR Agent #168 finding — previous code only clamped the upper bound,
-                # letting negative values from cold-soak under-voltage pass through.
-                f_kwh = float(factory_kwh)
-                raw_pct = round((avg_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
-                curve_data.append({
-                    "month": month,
-                    "estimated_kwh": round(max(0.0, min(avg_kwh, f_kwh)), 2),
-                    "soh_pct": max(0.0, min(raw_pct, 100.0)),
-                    "sample_count": len(vals),
-                })
-
-    if valid:
-        raw_latest_kwh = float(valid[0].estimated_kwh)
-        # v1.1.3 fix/soh-cap-100-percent: same clamp + zero-division guard as above
-        # for the summary latest_derived values.
-        f_kwh = float(factory_kwh)
-        raw_latest_pct = round((raw_latest_kwh / f_kwh) * 100, 1) if f_kwh > 0 else 0.0
-        latest_derived_kwh = round(max(0.0, min(raw_latest_kwh, f_kwh)), 2)
-        latest_derived = max(0.0, min(raw_latest_pct, 100.0))
-
+    curve_data = await _build_curve_rows(str(vehicle_id))
     return {
         "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
         "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
         "factory_capacity_kwh": factory_kwh,
-        "derived_soh_pct": latest_derived,
-        "derived_capacity_kwh": latest_derived_kwh if latest_derived else None,
-        "derived_source": "fallback_live_compute",
-        "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
-        "curve": curve_data,
-    }
-
-    # Compute SoH estimates from charging sessions
-    # Filter: ΔSOC 15-65% (avoid short charges and regen-heavy large charges)
-    # Cap: estimated capacity ≤ 103% of factory (excludes regen-inflated values)
-    date_filter = ""
-    params = {"vehicle_id": str(vehicle_id), "factory_kwh": factory_kwh}
-    if from_date:
-        date_filter += " AND session_start >= :from_date"
-        params["from_date"] = from_date
-    if to_date:
-        date_filter += " AND session_start <= :to_date"
-        params["to_date"] = to_date
-
-    soh_stmt = text(f"""
-        SELECT 
-            session_start::date as charge_date,
-            start_level,
-            end_level,
-            energy_kwh,
-            ROUND((energy_kwh / ((end_level - start_level)/100.0))::numeric, 2) as estimated_kwh,
-            ROUND(((energy_kwh / ((end_level - start_level)/100.0)) / :factory_kwh * 100)::numeric, 1) as soh_pct,
-            (end_level - start_level) as delta_soc
-        FROM charging_sessions
-        WHERE user_vehicle_id = :vehicle_id
-          AND end_level IS NOT NULL AND start_level IS NOT NULL
-          AND energy_kwh IS NOT NULL AND energy_kwh > 0
-          AND (end_level - start_level) BETWEEN 15 AND 65
-          {date_filter}
-        ORDER BY session_start DESC
-        LIMIT 5000
-    """)
-    soh_result = await db.execute(soh_stmt, params)
-    soh_estimates = soh_result.fetchall()
-
-    # Build monthly averaged curve (last 6 months)
-    curve_data = []
-    valid = []
-    latest_derived = None
-    latest_derived_kwh = None
-
-    if not factory_kwh or factory_kwh <= 0:
-        return {
-            "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-            "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-            "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": None,
-            "derived_capacity_kwh": None,
-            "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
-            "curve": [],
-        }
-
-    if soh_estimates:
-        # Filter valid estimates (≤ 103% of factory — excludes regen noise)
-        limit_kwh = float(factory_kwh) * 1.03
-        valid = [r for r in soh_estimates if r.estimated_kwh and float(r.estimated_kwh) <= limit_kwh]
-        if valid:
-            # Group by month
-            from collections import defaultdict
-            by_month: dict[str, list[float]] = defaultdict(list)
-            for r in valid:
-                month = str(r.charge_date)[:7]  # "YYYY-MM"
-                by_month[month].append(float(r.estimated_kwh))
-            for month in sorted(by_month.keys()):
-                vals = by_month[month]
-                avg_kwh = round(sum(vals) / len(vals), 2)
-                soh_pct = round((avg_kwh / float(factory_kwh)) * 100, 1)
-                curve_data.append({
-                    "month": month,
-                    "estimated_kwh": avg_kwh,
-                    "soh_pct": soh_pct,
-                    "sample_count": len(vals),
-                })
-
-    # Latest derived SoH (most recent valid estimate)
-    if valid:
-        latest_derived = round((float(valid[0].estimated_kwh) / float(factory_kwh)) * 100, 1)
-        latest_derived_kwh = float(valid[0].estimated_kwh)
-
-    return {
-        "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
-        "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
-        "factory_capacity_kwh": factory_kwh,
-        "derived_soh_pct": latest_derived,
-        "derived_capacity_kwh": latest_derived_kwh if latest_derived else None,
-        "total_soh_estimates": len(soh_estimates) if soh_estimates else 0,
+        "derived_soh_pct": analytics.soh_pct,
+        "derived_capacity_kwh": analytics.estimated_kwh,
+        "derived_confidence": analytics.confidence,
+        "derived_estimated_at": analytics.computed_at.isoformat(),
+        "derived_sample_count": sum(m.sample_count for m in analytics.methods),
+        "derived_source": "v2_live_compute",
+        "total_soh_estimates": sum(m.sample_count for m in analytics.methods),
         "curve": curve_data,
     }
 
@@ -969,14 +902,9 @@ async def get_advanced_analytics_overview(
     trip_res = await db.execute(trip_sql, {"vid": str(vehicle_id)})
     trip_row = trip_res.fetchone()
 
-    # 2. Phantom Drain
-    drain_sql = text("""
-        SELECT avg_drain_pct_per_day
-        FROM v_phantom_drain_stats
-        WHERE user_vehicle_id = :vid
-    """)
-    drain_res = await db.execute(drain_sql, {"vid": str(vehicle_id)})
-    drain_row = drain_res.fetchone()
+    stats = await vampire_drain_for_vehicle(db, vehicle_id)
+    drain_samples = stats.sample_count
+    drain_has_data = stats.has_data
 
     # 3. Energy Prices
     energy_price = None
@@ -1042,7 +970,9 @@ async def get_advanced_analytics_overview(
             "long_pct": round(float(trip_row[2]) / float(trip_row[3]) * 100 if trip_row and trip_row[3] > 0 else 0, 1),
         },
         "phantom_drain": {
-            "pct_per_day": round(float(drain_row[0]), 2) if drain_row and drain_row[0] is not None else 0.0,
+            "pct_per_day": round(stats.avg_drain_pct_per_day, 2) if drain_has_data else 0.0,
+            "sample_count": drain_samples,
+            "has_data": drain_has_data,
         },
         "energy_prices": {
             "country_code": country_code,
@@ -1905,23 +1835,16 @@ async def get_vampire_drain(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Calculate average SoC loss per hour while parked, translate to kWh and EUR."""
-    await get_user_vehicle(user.id, vehicle_id, db)
+    """Hour-weighted SoC loss between trips while parked, as kWh and EUR.
 
-    from app.models.vehicle import UserVehicle
-    v_res = await db.execute(select(UserVehicle).where(UserVehicle.id == vehicle_id))
-    veh = v_res.scalar_one_or_none()
-    battery_kwh = 50.0  # Safe default for EVs if vehicle has no stored capacity
-    if veh:
-        cap = getattr(veh, "battery_capacity_kwh", None)
-        if cap and cap > 0:
-            battery_kwh = float(cap)
-
-    country_code = "LT"
-    if veh:
-        cc = getattr(veh, "country_code", None)
-        if cc:
-            country_code = str(cc)
+    Uses trip end_soc → next trip start_soc. Excludes odometer movement and
+    overlapping charging sessions. Includes 0% integer-SoC nights.
+    """
+    vehicle = await get_user_vehicle(user.id, vehicle_id, db)
+    battery_kwh = 50.0
+    if vehicle.battery_capacity_kwh and vehicle.battery_capacity_kwh > 0:
+        battery_kwh = float(vehicle.battery_capacity_kwh)
+    country_code = str(vehicle.country_code) if vehicle.country_code else "LT"
 
     from app.models.fuel_price import CountryEconomics
     elec_price = 0.0
@@ -1935,72 +1858,19 @@ async def get_vampire_drain(
     if eco and eco.electricity_price_kwh_eur:
         elec_price = float(eco.electricity_price_kwh_eur)
 
-    # Analyze vehicle_states for PARKED sessions to calculate SoC drain rate
-    stmt_vs = (
-        select(VehicleState)
-        .where(VehicleState.user_vehicle_id == vehicle_id)
-        .order_by(VehicleState.first_date)
-        .limit(500)
-    )
-    vs_res = await db.execute(stmt_vs)
-    vs_records = vs_res.scalars().all()
-
-    # Also get charging states for battery_pct
-    stmt_cs = (
-        select(ChargingState)
-        .where(ChargingState.user_vehicle_id == vehicle_id)
-        .where(ChargingState.battery_pct.is_not(None))
-        .order_by(ChargingState.first_date)
-        .limit(500)
-    )
-    cs_res = await db.execute(stmt_cs)
-    cs_records = cs_res.scalars().all()
-
-    # Build a time-series: (timestamp, battery_pct, state) from charging_states
-    soc_timeline: list[tuple[datetime, int, str]] = []
-    for rec in cs_records:
-        if rec.first_date and rec.battery_pct is not None:
-            soc_timeline.append((rec.first_date, int(rec.battery_pct), rec.state or ""))
-
-    # Calculate drain from SoC timeline: CONNECT_CABLE -> CONNECT_CABLE only
-    # Filter to realistic vampire drain: < 0.15%/hr, dsoc < 15%, dt 1-72h
-    soc_drain_rates: list[float] = []
-    for i in range(1, len(soc_timeline)):
-        t0, soc0, s0 = soc_timeline[i - 1]
-        t1, soc1, s1 = soc_timeline[i]
-        dt_h = (t1 - t0).total_seconds() / 3600.0
-        dsoc = float(soc0) - float(soc1)
-        # Only CONNECT_CABLE->CONNECT_CABLE transitions (plugged in, not driving)
-        # and realistic drain rates (< 0.15%/hr = ~3.6%/day max for real vampire drain)
-        if s0 == "CONNECT_CABLE" and s1 == "CONNECT_CABLE":
-            cfg = VAMPIRE_DRAIN_DEFAULTS
-            if cfg["min_parked_hours"] < dt_h < cfg["max_parked_hours"] and 0 < dsoc < cfg["max_dsoc_pct"]:
-                rate = dsoc / dt_h
-                if rate < cfg["max_drain_rate_pct"]:
-                    soc_drain_rates.append(rate)
-
-    avg_pct_per_hour = 0.0
-    if soc_drain_rates:
-        # Use median of realistic rates to avoid skew from long parked sessions
-        sorted_rates = sorted(soc_drain_rates)
-        mid = len(sorted_rates) // 2
-        median_rate = sorted_rates[mid] if len(sorted_rates) % 2 == 1 else (
-            sorted_rates[mid - 1] + sorted_rates[mid]
-        ) / 2
-        # Use median rather than mean to avoid skew from long-parked outliers
-        avg_pct_per_hour = median_rate
-
-    if avg_pct_per_hour <= 0:
-        avg_pct_per_hour = 0.0  # No assumed vampire drain when no data (HC-026/031)
-
-    drain_pct_per_day = avg_pct_per_hour * 24
-    drain_kwh_per_day = battery_kwh * drain_pct_per_day / 100
+    stats = await vampire_drain_for_vehicle(db, vehicle_id)
+    drain_kwh_per_day = battery_kwh * stats.avg_drain_pct_per_day / 100.0 if stats.has_data else 0.0
     drain_kwh_per_week = drain_kwh_per_day * 7
     drain_kwh_per_month = drain_kwh_per_day * 30
 
     return {
-        "avg_drain_pct_per_hour": round(avg_pct_per_hour, 4),
-        "avg_drain_pct_per_day": round(drain_pct_per_day, 2),
+        "has_data": stats.has_data,
+        "sample_count": stats.sample_count,
+        "zero_drop_count": stats.zero_drop_count,
+        "parked_hours": stats.parked_hours,
+        "method": "trip_gaps",
+        "avg_drain_pct_per_hour": round(stats.avg_drain_pct_per_hour, 4),
+        "avg_drain_pct_per_day": round(stats.avg_drain_pct_per_day, 2),
         "drain_kwh_per_day": round(drain_kwh_per_day, 3),
         "drain_kwh_per_week": round(drain_kwh_per_week, 3),
         "drain_kwh_per_month": round(drain_kwh_per_month, 3),
@@ -2024,6 +1894,26 @@ class ChargingEconomicsSession(BaseModel):
     paid_eur: float | None              # what user actually paid
     markup_eur: float | None            # DC provider extra charge
     provider_name: str | None
+    charging_plan_id: str | None = None
+    plan_type: str | None = None
+    plan_name: str | None = None
+    plan_cost_eur: float | None = None
+
+
+class ChargingEconomicsTypeTotals(BaseModel):
+    sessions_count: int
+    total_kwh: float
+    total_paid: float
+
+
+class ChargingEconomicsPlanTotals(BaseModel):
+    plan_id: str | None = None
+    plan_name: str
+    plan_type: str
+    sessions_count: int
+    total_kwh: float
+    total_paid: float
+
 
 class ChargingEconomicsResponse(BaseModel):
     sessions: list[ChargingEconomicsSession]
@@ -2033,6 +1923,12 @@ class ChargingEconomicsResponse(BaseModel):
     total_markup_eur: float
     electricity_price_eur_kwh: float
     country_code: str
+    by_type: dict[str, ChargingEconomicsTypeTotals]
+    by_plan: list[ChargingEconomicsPlanTotals] = []
+    subscription_usage: list[SubscriptionUsage] = []
+    subscription_fees_eur: float
+    subscription_savings_eur: float
+    total_cost_with_fees_eur: float
 
 
 @router.get("/{vehicle_id}/analytics/charging-economics", response_model=ChargingEconomicsResponse)
@@ -2050,6 +1946,11 @@ async def get_charging_economics(
     - Markup          : paid − base grid cost                    (DC provider's extra fee)
 
     Uses CountryEconomics.electricity_price_kwh_eur as the home-equivalent price.
+
+    Included-kWh subscriptions allocate period_fee / allotment onto each session.
+    subscription_fees_eur is only the period fee for discounted-rate subscriptions
+    (no allotment), so the fee is not double-counted.
+    subscription_savings_eur = (kWh × public walk-up/overage rate) − allocated plan cost.
     """
     vehicle = await get_user_vehicle(user.id, vehicle_id, db)
     country_code = str(vehicle.country_code) if vehicle.country_code else "LT"
@@ -2077,22 +1978,45 @@ async def get_charging_economics(
     if from_date:
         stmt = stmt.where(ChargingSession.session_start >= from_date)
     if to_date:
-        stmt = stmt.where(ChargingSession.session_start <= to_date)
+        stmt = stmt.where(ChargingSession.session_start < to_date + timedelta(days=1))
 
     stmt = stmt.order_by(ChargingSession.session_start.desc())
     res = await db.execute(stmt)
     sessions = res.scalars().all()
 
+    plans = await load_user_plans(db, user.id)
+    plans_by_id = {p.id: p for p in plans}
+    plan_costs = await plan_costs_for_sessions(db, user.id, list(sessions), plans=plans)
+
     rows: list[ChargingEconomicsSession] = []
     total_energy = 0.0
     total_base = 0.0
     total_paid = 0.0
+    type_buckets: dict[str, dict[str, float]] = {
+        key: {"sessions_count": 0, "total_kwh": 0.0, "total_paid": 0.0}
+        for key in ("subscription", "home", "public", "unknown")
+    }
+    plan_buckets: dict[str, dict[str, Any]] = {}
+    sub_allocated = 0.0
+    sub_counterfactual = 0.0
 
     for s in sessions:
         energy = s.energy_kwh or 0.0
-        paid = float(s.actual_cost_eur if s.actual_cost_eur is not None else (s.base_cost_eur or 0.0))
+        alloc = plan_costs.get(s.id) or {}
+        plan = plans_by_id.get(s.charging_plan_id) if s.charging_plan_id else None
+        if alloc.get("plan_cost_eur") is not None:
+            paid = float(alloc["plan_cost_eur"])
+        elif s.actual_cost_eur is not None:
+            paid = float(s.actual_cost_eur)
+        else:
+            paid = float(s.base_cost_eur or 0.0)
         base_cost = energy * elec_price
         markup = paid - base_cost
+        plan_type = plan.plan_type if plan else "unknown"
+        if plan_type not in type_buckets:
+            plan_type = "unknown"
+        plan_name = alloc.get("plan_name") or (plan.name if plan else "Untagged")
+        plan_key = str(s.charging_plan_id) if s.charging_plan_id else "untagged"
 
         rows.append(ChargingEconomicsSession(
             session_id=s.id,
@@ -2103,10 +2027,77 @@ async def get_charging_economics(
             paid_eur=round(paid, 2),
             markup_eur=round(markup, 2),
             provider_name=s.provider_name,
+            charging_plan_id=str(s.charging_plan_id) if s.charging_plan_id else None,
+            plan_type=plan_type if plan else None,
+            plan_name=plan_name if plan else None,
+            plan_cost_eur=alloc.get("plan_cost_eur"),
         ))
         total_energy += energy
         total_base += base_cost
         total_paid += paid
+        type_buckets[plan_type]["sessions_count"] += 1
+        type_buckets[plan_type]["total_kwh"] += energy
+        type_buckets[plan_type]["total_paid"] += paid
+        bucket = plan_buckets.setdefault(
+            plan_key,
+            {
+                "plan_id": str(s.charging_plan_id) if s.charging_plan_id else None,
+                "plan_name": plan_name,
+                "plan_type": plan_type,
+                "sessions_count": 0,
+                "total_kwh": 0.0,
+                "total_paid": 0.0,
+            },
+        )
+        bucket["sessions_count"] += 1
+        bucket["total_kwh"] += energy
+        bucket["total_paid"] += paid
+
+        if plan and plan.plan_type == "subscription" and included_allotment_kwh(plan) is not None:
+            sub_allocated += paid
+            rate = overage_rate_eur(plan)
+            if rate is not None:
+                sub_counterfactual += energy * rate
+
+    fee_start, fee_end = window_for_fees(from_date, to_date)
+    used_plan_ids = {s.charging_plan_id for s in sessions if s.charging_plan_id}
+    subscription_fees = 0.0
+    for plan in plans:
+        if plan.id not in used_plan_ids:
+            continue
+        if plan.plan_type != "subscription" or plan.monthly_fee_eur is None or plan.subscription_start_date is None:
+            continue
+        if included_allotment_kwh(plan) is not None:
+            continue
+        periods = count_overlapping_periods(
+            plan.subscription_start_date,
+            plan.periodicity,
+            fee_start,
+            fee_end,
+        )
+        subscription_fees += float(plan.monthly_fee_eur) * periods
+
+    savings = max(0.0, sub_counterfactual - sub_allocated)
+    by_type = {
+        key: ChargingEconomicsTypeTotals(
+            sessions_count=int(vals["sessions_count"]),
+            total_kwh=round(vals["total_kwh"], 2),
+            total_paid=round(vals["total_paid"], 2),
+        )
+        for key, vals in type_buckets.items()
+    }
+    by_plan = [
+        ChargingEconomicsPlanTotals(
+            plan_id=vals["plan_id"],
+            plan_name=vals["plan_name"],
+            plan_type=vals["plan_type"],
+            sessions_count=int(vals["sessions_count"]),
+            total_kwh=round(vals["total_kwh"], 2),
+            total_paid=round(vals["total_paid"], 2),
+        )
+        for vals in plan_buckets.values()
+    ]
+    usage_rows = await current_subscription_usage(db, user.id)
 
     return ChargingEconomicsResponse(
         sessions=rows,
@@ -2116,6 +2107,12 @@ async def get_charging_economics(
         total_markup_eur=round(total_paid - total_base, 2),
         electricity_price_eur_kwh=round(elec_price, 4),
         country_code=country_code,
+        by_type=by_type,
+        by_plan=by_plan,
+        subscription_usage=[SubscriptionUsage(**row) for row in usage_rows],
+        subscription_fees_eur=round(subscription_fees, 2),
+        subscription_savings_eur=round(savings, 2),
+        total_cost_with_fees_eur=round(total_paid + subscription_fees, 2),
     )
 
 

@@ -108,7 +108,11 @@ export const authApi = {
     return res.json();
   },
 
-  async updateMe(data: { display_name?: string }) {
+  async updateMe(data: {
+    display_name?: string;
+    default_currency?: string;
+    unit_system?: "metric" | "uk" | "us" | "imperial";
+  }) {
     const res = await apiFetch("/api/v1/auth/me", {
       method: "PUT",
       body: JSON.stringify(data),

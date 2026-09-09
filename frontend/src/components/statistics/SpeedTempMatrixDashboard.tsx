@@ -53,9 +53,12 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
+import { useLocale } from "@/lib/locale";
+
 export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: DateRangeValue }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const { consumptionLabel, kwhPer100ToDisplay } = useLocale();
 
   useEffect(() => {
     if (!vehicleId) return;
@@ -101,7 +104,7 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
     .filter((g) => g.avg_kwh_100km !== null)
     .map((g) => ({
       name: `${g.speed_label} / ${g.temp_label}`,
-      avg_kwh_100km: g.avg_kwh_100km,
+      avg_kwh_100km: g.avg_kwh_100km != null ? kwhPer100ToDisplay(g.avg_kwh_100km) : null,
       trip_count: g.trip_count,
       speed: g.speed_category,
       temp: g.temp_category,
@@ -150,7 +153,7 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
           <h3 className="text-lg font-bold text-iv-text">Ideal Cruising Speed Matrix</h3>
         </div>
         <p className="text-sm text-iv-text-muted mb-6">
-          Average consumption (kWh/100km) by Speed Category × Temperature. Green = best efficiency.
+          Average consumption ({consumptionLabel}) by Speed Category × Temperature. Green = best efficiency.
         </p>
 
         {/* Heatmap-style grid as colored bars — wrapped in ErrorBoundary to prevent blank panels */}
@@ -160,13 +163,13 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
               <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 80 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
                 <XAxis dataKey="name" className="text-iv-muted text-xs" angle={-45} textAnchor="end" interval={0} height={70} />
-                <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+                <YAxis className="text-iv-muted text-xs" label={{ value: consumptionLabel, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
                 <Tooltip
                   contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
-                  formatter={(value: number, name: string, props: any) => [`${value} kWh/100km (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
+                  formatter={(value: number, name: string, props: any) => [`${value} ${consumptionLabel} (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
                 />
-                <Bar dataKey="avg_kwh_100km" name="kWh/100km" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="avg_kwh_100km" name={consumptionLabel} radius={[4, 4, 0, 0]}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={getColor(entry.avg_kwh_100km ?? 0)} />
                   ))}
@@ -202,13 +205,14 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
                   <td className="text-iv-text-muted p-2 font-medium">{sc}</td>
                   {(data.matrix_values[si] ?? []).map((val, ti) => {
                     const count = (data.trip_counts[si] ?? [])[ti] ?? 0;
+                    const displayVal = val != null ? kwhPer100ToDisplay(val) : null;
                     return (
                       <td key={ti} className="text-center p-2">
                         <span
                           className="inline-block px-2 py-1 rounded text-xs font-bold"
-                          style={{ backgroundColor: val ? getColor(val) + "33" : "transparent", color: val ? getColor(val) : "var(--iv-muted)" }}
+                          style={{ backgroundColor: displayVal != null ? getColor(displayVal) + "33" : "transparent", color: displayVal != null ? getColor(displayVal) : "var(--iv-muted)" }}
                         >
-                          {val ? `${val}` : "—"}
+                          {displayVal != null ? displayVal.toFixed(1) : "—"}
                         </span>
                         {count > 0 && <span className="block text-[10px] text-iv-text-muted">{count} trips</span>}
                       </td>

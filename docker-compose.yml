@@ -14,7 +14,6 @@ services:
       VALKEY_URL: "valkey://:${VALKEY_PASSWORD}@valkey:6379/0"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
-      CORS_ORIGINS: "${CORS_ORIGINS}"
       STATISTICS_QUERY_DEBUG: "${STATISTICS_QUERY_DEBUG:-false}"
       SERVICE_REGISTRATION: "${SERVICE_REGISTRATION:-open}"
       SMTP_HOST: "${SMTP_HOST:-}"
@@ -52,8 +51,16 @@ services:
     image: ivdrive-ivdrive-web:latest
     build:
       context: ./frontend
+      args:
+        # NEXT_PUBLIC_* vars are inlined by `next build` at build time and must
+        # be declared here so the value is available during the builder stage in
+        # frontend/Dockerfile. Mirrored under `environment:` below for any
+        # server-side reads in the running container.
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
+        NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY: "${NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY:-}"
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
+      NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY: "${NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY:-}"
       SITE_ANALYTICS_URL: "${SITE_ANALYTICS_URL:-}"
       SITE_ANALYTICS_KEY: "${SITE_ANALYTICS_KEY:-}"
     networks:

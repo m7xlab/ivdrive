@@ -32,6 +32,8 @@ import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, M
 import { cn } from "@/lib/cn";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
+import { useLocale } from "@/lib/locale";
+import { distanceLabel, kmhToMph, kmToMiles, kwhPer100kmToDisplay, speedLabel, tempLabel, usesFahrenheit, usesMiles, cToF } from "@/lib/units";
 
 export type StateToggleId = "online" | "climatization" | "charging" | "driving";
 
@@ -156,7 +158,7 @@ function toISO(d: Date) {
 }
 
 
-function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, label: string, color: string, unit: string, decimals?: number }[] }) {
+function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, label: string, color: string, unit: string, decimals?: number, convert?: (n: number) => number }[] }) {
   if (!data || data.length === 0) return null;
   return (
     <div className="w-full mt-4 bg-iv-charcoal/50 rounded border border-iv-border text-[11px] font-mono">
@@ -167,13 +169,14 @@ function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, l
         <div className="text-right">Max</div>
         <div className="text-right">Min</div>
       </div>
-      {dataKeys.map(({key, label, color, unit, decimals = 1}) => {
+      {dataKeys.map(({key, label, color, unit, decimals = 1, convert}) => {
          const valid = data.filter(d => d[key] != null).map(d => Number(d[key]));
          if (valid.length === 0) return null;
-         const mean = valid.reduce((a,b)=>a+b,0)/valid.length;
-         const last = valid[valid.length-1];
-         const max = Math.max(...valid);
-         const min = Math.min(...valid);
+         const toDisplay = (n: number) => (convert ? convert(n) : n);
+         const mean = toDisplay(valid.reduce((a,b)=>a+b,0)/valid.length);
+         const last = toDisplay(valid[valid.length-1]);
+         const max = toDisplay(Math.max(...valid));
+         const min = toDisplay(Math.min(...valid));
          return (
            <React.Fragment key={key}>
              {/* Desktop: Grid Row */}
@@ -226,6 +229,7 @@ export function CarOverviewDashboard({
   dateRange,
   stats = [],
 }: CarOverviewDashboardProps) {
+  const { formatDistance, formatSpeed, formatTemp, formatMoneyFromEur, formatConsumption, unitSystem, consumptionLabel } = useLocale();
   const [globalToggles, setGlobalToggles] = useState<Record<StateToggleId, boolean>>(() => loadGlobalToggles());
   const [battery, setBattery] = useState<BatteryPoint[]>([]);
   const [range, setRange] = useState<RangePoint[]>([]);
@@ -237,6 +241,10 @@ export function CarOverviewDashboard({
   const [efficiencyData, setEfficiencyData] = useState<Array<{ time: string; efficiency_pct: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [vampireDrain, setVampireDrain] = useState<{
+    has_data: boolean;
+    sample_count: number;
+    zero_drop_count: number;
+    parked_hours: number;
     avg_drain_pct_per_day: number;
     drain_kwh_per_day: number;
     drain_kwh_per_week: number;
@@ -595,10 +603,10 @@ export function CarOverviewDashboard({
               <p className="text-sm text-iv-text-muted flex items-center gap-2 mb-3">
                 <MapPin className="w-4 h-4 text-iv-cyan" /> Est. Full Range
               </p>
-              <p className="text-3xl font-bold text-iv-text">{pulse.remaining_range_km}<span className="text-lg font-normal text-iv-text-muted">km</span></p>
+              <p className="text-3xl font-bold text-iv-text">{formatDistance(pulse.remaining_range_km)}</p>
               {pulse.battery_pct > 0 && (
                 <p className="text-xs text-iv-text-muted mt-4">
-                  Calculated Max: <span className="text-iv-text">{Math.round((pulse.remaining_range_km / pulse.battery_pct) * 100)} km</span>
+                  Calculated Max: <span className="text-iv-text">{formatDistance((pulse.remaining_range_km / pulse.battery_pct) * 100)}</span>
                 </p>
               )}
             </div>
@@ -627,7 +635,7 @@ export function CarOverviewDashboard({
                 <Cloud className="w-4 h-4 text-amber-500" /> Local Weather
               </p>
               <p className="text-3xl font-bold text-iv-text">
-                {pulse.temperature_celsius !== null ? `${pulse.temperature_celsius}°` : "--"}
+                {pulse.temperature_celsius !== null ? formatTemp(pulse.temperature_celsius) : "--"}
               </p>
               <p className="text-xs text-iv-text-muted mt-4">Ambient Temp</p>
             </div>
@@ -715,7 +723,7 @@ export function CarOverviewDashboard({
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v) => `${v} km`}
+                  tickFormatter={(v) => formatDistance(v)}
                 />
                 {levelsRangeData.some((d) => d.outside_temp != null) && (
                   <YAxis
@@ -725,7 +733,7 @@ export function CarOverviewDashboard({
                     fontSize={10}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(v) => `${v}°C`}
+                    tickFormatter={(v) => formatTemp(v)}
                   />
                 )}
                 <Tooltip itemStyle={{ color: "var(--iv-text)" }}
@@ -738,7 +746,7 @@ export function CarOverviewDashboard({
                         </p>
                         {payload.map((p) => (
                           <p key={p.dataKey} className="text-sm font-semibold text-iv-text">
-                            {p.name}: {p.value != null ? (p.dataKey === "level" ? `${Number(p.value).toFixed(1)}%` : p.dataKey === "outside_temp" || p.dataKey === "battery_temp" ? `${p.value}°C` : `${Number(p.value).toFixed(0)} km`) : "—"}
+                            {p.name}: {p.value != null ? (p.dataKey === "level" ? `${Number(p.value).toFixed(1)}%` : p.dataKey === "outside_temp" || p.dataKey === "battery_temp" ? formatTemp(Number(p.value)) : formatDistance(Number(p.value))) : "—"}
                           </p>
                         ))}
                       </div>
@@ -801,15 +809,15 @@ export function CarOverviewDashboard({
           </div>
           <StatTable data={levelsRangeData} dataKeys={[
             { key: "level", label: "Level %", color: "#00D4FF", unit: "%", decimals: 0 },
-            { key: "range_km", label: "Range", color: "#4BA82E", unit: "km", decimals: 0 },
-            { key: "outside_temp", label: "Outside Temperature", color: "#f59e0b", unit: "°C", decimals: 1 },
-            { key: "battery_temp", label: "Battery Temperature", color: "#e11d48", unit: "°C", decimals: 1 }
+            { key: "range_km", label: "Range", color: "#4BA82E", unit: distanceLabel(unitSystem), decimals: 0, convert: (v: number) => usesMiles(unitSystem) ? kmToMiles(v) : v },
+            { key: "outside_temp", label: "Outside Temperature", color: "#f59e0b", unit: tempLabel(unitSystem), decimals: 1, convert: (v: number) => usesFahrenheit(unitSystem) ? cToF(v) : v },
+            { key: "battery_temp", label: "Battery Temperature", color: "#e11d48", unit: tempLabel(unitSystem), decimals: 1, convert: (v: number) => usesFahrenheit(unitSystem) ? cToF(v) : v }
           ]} />
           {(avgKmPerPct != null || useStep) && (
             <p className="text-xs text-iv-muted mt-3">
               {useStep && <span>Step-style (first/last date per segment). </span>}
               {avgKmPerPct != null && (
-                <span>Avg km/% (range per SoC): {avgKmPerPct.toFixed(1)} km/% — trend of how range drops with level.</span>
+                <span>Avg {distanceLabel(unitSystem)}/% (range per SoC): {formatDistance(avgKmPerPct)}/% — trend of how range drops with level.</span>
               )}
             </p>
           )}
@@ -871,7 +879,7 @@ export function CarOverviewDashboard({
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v) => `${v} km`}
+                  tickFormatter={(v) => formatDistance(v)}
                 />
                 <YAxis
                   yAxisId="cons"
@@ -880,7 +888,7 @@ export function CarOverviewDashboard({
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v) => `${v} kWh`}
+                  tickFormatter={(v) => `${kwhPer100kmToDisplay(v, unitSystem).toFixed(1)} ${consumptionLabel}`}
                 />
                 <Tooltip itemStyle={{ color: "var(--iv-text)" }}
                   content={({ active, payload, label }) => {
@@ -892,7 +900,7 @@ export function CarOverviewDashboard({
                         </p>
                         {payload.map((p) => (
                           <p key={p.dataKey} className="text-sm font-semibold text-iv-text">
-                            {p.name}: {p.value != null ? (p.dataKey === "consumption" ? `${Number(p.value).toFixed(1)} kWh/100km` : `${Number(p.value).toFixed(0)} km`) : "—"}
+                            {p.name}: {p.value != null ? (p.dataKey === "consumption" ? formatConsumption(Number(p.value)) : formatDistance(Number(p.value))) : "—"}
                           </p>
                         ))}
                       </div>
@@ -938,15 +946,15 @@ export function CarOverviewDashboard({
             </ResponsiveContainer>
           </div>
           <StatTable data={rangeAt100ChartData.length > 0 ? rangeAt100ChartData.map(d => ({ ...d, wltp: wltpKm ?? undefined })) : [{wltp: wltpKm ?? undefined}]} dataKeys={[
-            { key: "range_estimated_full", label: "Range at 100% primary", color: "#4BA82E", unit: "km", decimals: 0 },
-            { key: "consumption", label: "Electric Consumption primary", color: "#f59e0b", unit: "kWh/100km", decimals: 2 },
-            { key: "wltp", label: "WLTP primary", color: "#4BA82E", unit: "km", decimals: 0 }
+            { key: "range_estimated_full", label: "Range at 100% primary", color: "#4BA82E", unit: distanceLabel(unitSystem), decimals: 0, convert: (v: number) => usesMiles(unitSystem) ? kmToMiles(v) : v },
+            { key: "consumption", label: "Electric Consumption primary", color: "#f59e0b", unit: consumptionLabel, decimals: 2, convert: (v: number) => kwhPer100kmToDisplay(v, unitSystem) },
+            { key: "wltp", label: "WLTP primary", color: "#4BA82E", unit: distanceLabel(unitSystem), decimals: 0, convert: (v: number) => usesMiles(unitSystem) ? kmToMiles(v) : v }
           ]} />
           </>
         ) : (
           <div className="h-[200px] flex flex-col items-center justify-center gap-1 text-iv-muted text-sm border border-dashed border-iv-border rounded-lg">
             <p>Range at 100% and WLTP will appear as the collector stores drive data.</p>
-            <p className="text-xs">Electric consumption (kWh/100km) will be added when derived from drive data.</p>
+            <p className="text-xs">Electric consumption ({consumptionLabel}) will be added when derived from drive data.</p>
           </div>
         )}
       </div>
@@ -1105,7 +1113,7 @@ export function CarOverviewDashboard({
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v) => `${v} km/h`}
+                  tickFormatter={(v) => formatSpeed(v)}
                 />
                 {(chargingChartData.some((d) => d.outside_temp != null || d.battery_temp != null)) && (
                   <YAxis
@@ -1115,7 +1123,7 @@ export function CarOverviewDashboard({
                     fontSize={10}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(v) => `${v}°C`}
+                    tickFormatter={(v) => formatTemp(v)}
                   />
                 )}
                 <Tooltip itemStyle={{ color: "var(--iv-text)" }}
@@ -1128,7 +1136,7 @@ export function CarOverviewDashboard({
                         </p>
                         {payload.map((p) => (
                           <p key={p.dataKey} className="text-sm font-semibold text-iv-text">
-                            {p.name}: {p.value != null ? (p.dataKey === "power" ? `${p.value} kW` : p.dataKey === "rate" ? `${p.value} km/h` : `${p.value}°C`) : "—"}
+                            {p.name}: {p.value != null ? (p.dataKey === "power" ? `${p.value} kW` : p.dataKey === "rate" ? formatSpeed(Number(p.value)) : formatTemp(Number(p.value))) : "—"}
                           </p>
                         ))}
                       </div>
@@ -1161,9 +1169,9 @@ export function CarOverviewDashboard({
           </div>
           <StatTable data={chargingChartData} dataKeys={[
             { key: "power", label: "Charging Power", color: "#00D4FF", unit: "kW", decimals: 1 },
-            { key: "rate", label: "Charging Rate", color: "#4BA82E", unit: "km/h", decimals: 0 },
-            { key: "outside_temp", label: "Outside Temperature", color: "#f59e0b", unit: "°C", decimals: 1 },
-            { key: "battery_temp", label: "Battery Temperature", color: "#e11d48", unit: "°C", decimals: 1 }
+            { key: "rate", label: "Charging Rate", color: "#4BA82E", unit: speedLabel(unitSystem), decimals: 0, convert: (v: number) => usesMiles(unitSystem) ? kmhToMph(v) : v },
+            { key: "outside_temp", label: "Outside Temperature", color: "#f59e0b", unit: tempLabel(unitSystem), decimals: 1, convert: (v: number) => usesFahrenheit(unitSystem) ? cToF(v) : v },
+            { key: "battery_temp", label: "Battery Temperature", color: "#e11d48", unit: tempLabel(unitSystem), decimals: 1, convert: (v: number) => usesFahrenheit(unitSystem) ? cToF(v) : v }
           ]} />
         </div>
       )}
@@ -1240,22 +1248,22 @@ export function CarOverviewDashboard({
               <LineChart 
                 data={climatePenalty.by_temperature.map(row => ({
                   temperature: row.temperature,
-                  HEATING: row.states.HEATING?.avg_kwh_100km ?? null,
-                  COOLING: row.states.COOLING?.avg_kwh_100km ?? null,
-                  OFF: row.states.OFF?.avg_kwh_100km ?? null,
+                  HEATING: row.states.HEATING?.avg_kwh_100km != null ? kwhPer100kmToDisplay(row.states.HEATING.avg_kwh_100km, unitSystem) : null,
+                  COOLING: row.states.COOLING?.avg_kwh_100km != null ? kwhPer100kmToDisplay(row.states.COOLING.avg_kwh_100km, unitSystem) : null,
+                  OFF: row.states.OFF?.avg_kwh_100km != null ? kwhPer100kmToDisplay(row.states.OFF.avg_kwh_100km, unitSystem) : null,
                 }))} 
                 margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
               >
                 <XAxis
                   dataKey="temperature"
-                  tickFormatter={(v) => `${v}°C`}
+                  tickFormatter={(v) => formatTemp(v)}
                   stroke="#8b8fa3"
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
                 />
                 <YAxis
-                  tickFormatter={(v) => `${v}`}
+                  tickFormatter={(v) => `${Number(v).toFixed(1)} ${consumptionLabel}`}
                   stroke="#8b8fa3"
                   fontSize={11}
                   tickLine={false}
@@ -1264,7 +1272,7 @@ export function CarOverviewDashboard({
                 />
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--iv-border)" opacity={0.5} />
                 <Tooltip
-                  labelFormatter={(label) => `${label}°C`}
+                  labelFormatter={(label) => formatTemp(Number(label))}
                   contentStyle={{ backgroundColor: "#1C1C2E", borderColor: "#2a2d42", borderRadius: "12px", color: "#fff" }}
                 />
                 <Legend wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
@@ -1281,19 +1289,21 @@ export function CarOverviewDashboard({
 
       {/* ── Vampire Drain ── */}
       <SectionDivider label="Vampire Drain" />
-      {vampireDrain && (
-        <div className="glass rounded-2xl border border-iv-border p-6">
-          <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
-            <Battery size={14} /> Vampire Drain (Parked Standby)
-          </h3>
-
+      <div className="glass rounded-2xl border border-iv-border p-6">
+        <h3 className="text-sm font-medium text-iv-muted flex items-center gap-2 mb-4">
+          <Battery size={14} /> Vampire Drain (Parked Standby)
+        </h3>
+        {vampireDrain == null ? (
+          <p className="text-sm text-iv-muted">Vampire drain will appear once parked samples are loaded.</p>
+        ) : vampireDrain.has_data ? (
+          <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {([
-              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%/day`, sub: `${(vampireDrain.avg_drain_pct_per_day / 24).toFixed(2)} %/hr`, color: "text-iv-yellow" },
-              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: `@ ${vampireDrain.electricity_price_eur_kwh}€/kWh`, color: "text-iv-text" },
-              { label: "Weekly Cost", value: `${vampireDrain.cost_per_week_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
-              { label: "Monthly Cost", value: `${vampireDrain.cost_per_month_eur.toFixed(2)} €`, sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },
+              { label: "Drain Rate", value: `${vampireDrain.avg_drain_pct_per_day.toFixed(2)}%`, sub: "per 24 h parked", color: "text-iv-yellow" },
+              { label: "Daily Loss", value: `${vampireDrain.drain_kwh_per_day.toFixed(3)} kWh`, sub: "per 24 h parked", color: "text-iv-text" },
+              { label: "Weekly Cost", value: formatMoneyFromEur(vampireDrain.cost_per_week_eur), sub: `${vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost`, color: "text-iv-text" },
+              { label: "Monthly Cost", value: formatMoneyFromEur(vampireDrain.cost_per_month_eur), sub: `${vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost`, color: "text-iv-red" },
             ] as const).map((item) => (
               <div key={item.label} className="glass rounded-xl border border-iv-border p-4 text-center">
                 <p className="text-xs text-iv-text-muted uppercase tracking-wider">{item.label}</p>
@@ -1306,30 +1316,40 @@ export function CarOverviewDashboard({
           {/* Cost breakdown */}
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
-              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Day</p>
-              <p className="text-2xl font-bold text-iv-text">{vampireDrain.cost_per_day_eur.toFixed(2)} €</p>
+              <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per 24 h parked</p>
+              <p className="text-2xl font-bold text-iv-text">{formatMoneyFromEur(vampireDrain.cost_per_day_eur)}</p>
               <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_day.toFixed(3)} kWh lost</p>
             </div>
             <div>
               <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Week</p>
-              <p className="text-2xl font-bold text-iv-cyan">{vampireDrain.cost_per_week_eur.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-iv-cyan">{formatMoneyFromEur(vampireDrain.cost_per_week_eur)}</p>
               <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_week.toFixed(2)} kWh lost</p>
             </div>
             <div>
               <p className="text-xs text-iv-text-muted uppercase tracking-wider mb-1">Per Month</p>
-              <p className="text-2xl font-bold text-iv-red">{vampireDrain.cost_per_month_eur.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-iv-red">{formatMoneyFromEur(vampireDrain.cost_per_month_eur)}</p>
               <p className="text-xs text-iv-muted mt-1">{vampireDrain.drain_kwh_per_month.toFixed(2)} kWh lost</p>
             </div>
           </div>
           <div className="mt-6 pt-4 border-t border-iv-border">
             <p className="text-sm text-iv-text-muted">
-              <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}% of your {vampireDrain.battery_capacity_kwh} kWh battery</span> is lost
-              per day to vampire drain (systems, standby, etc.).
-              Over a year, this costs approximately <span className="text-iv-yellow">{(vampireDrain.cost_per_month_eur * 12).toFixed(2)} €</span>.
+              While parked, <span className="font-bold text-iv-text">{vampireDrain.avg_drain_pct_per_day.toFixed(2)}% of your {vampireDrain.battery_capacity_kwh} kWh battery</span> is lost
+              per 24 hours to standby systems.
+              Based on {vampireDrain.sample_count} parked interval{vampireDrain.sample_count === 1 ? "" : "s"}
+              {vampireDrain.zero_drop_count > 0 ? ` (${vampireDrain.zero_drop_count} with no displayed SoC drop)` : ""}
+              {` over ${vampireDrain.parked_hours} parked hours`}.
+              Electricity {formatMoneyFromEur(vampireDrain.electricity_price_eur_kwh, 4)}/kWh.
+              If parked around the clock for a year, this costs approximately <span className="text-iv-yellow">{formatMoneyFromEur(vampireDrain.cost_per_month_eur * 12)}</span>.
             </p>
           </div>
-        </div>
-      )}
+          </>
+        ) : (
+          <p className="text-sm text-iv-muted">
+            Not enough parked samples yet. Vampire drain is measured between trips
+            that stay still, with SoC at both ends and no charging in between.
+          </p>
+        )}
+      </div>
 
       {/* ── Period Summary ── */}
       {stats.length > 0 && (
@@ -1355,7 +1375,7 @@ export function CarOverviewDashboard({
                     <tr key={i} className="border-b border-iv-border/50 hover:bg-iv-surface/50">
                       <td className="px-4 py-3 text-iv-text">{new Date(s.period).toLocaleDateString()}</td>
                       <td className="px-4 py-3 text-iv-green font-medium">{s.drives_count}</td>
-                      <td className="px-4 py-3 text-iv-text">{s.total_distance_km.toFixed(1)} km</td>
+                      <td className="px-4 py-3 text-iv-text">{formatDistance(s.total_distance_km)}</td>
                       <td className="px-4 py-3 text-iv-cyan font-medium">{s.charging_sessions_count}</td>
                       <td className="px-4 py-3 text-iv-text">{s.total_energy_kwh.toFixed(1)} kWh</td>
                       <td className="px-4 py-3 text-iv-muted">{s.avg_energy_per_session_kwh.toFixed(1)} kWh</td>

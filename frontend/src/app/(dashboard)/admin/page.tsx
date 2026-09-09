@@ -47,6 +47,7 @@ import {
   Trash2,
 
   Send,
+  Eraser,
 
   Bell,
 
@@ -107,6 +108,8 @@ interface AdminUser {
   is_superuser: boolean;
 
   created_at: string | null;
+
+  vehicle_count: number;
 
 }
 
@@ -660,6 +663,20 @@ export default function AdminPage() {
 
       }))) return;
 
+    } else if (inv.status === "used") {
+
+      if (!(await confirm({
+
+        title: "Delete used invite?",
+
+        message: `${inv.email} already registered. This only removes the used invite row.`,
+
+        confirmText: "Delete",
+
+        variant: "danger",
+
+      }))) return;
+
     } else {
 
       if (!(await confirm({
@@ -702,7 +719,69 @@ export default function AdminPage() {
 
 
 
+  const handleCleanupInvites = async () => {
+
+    const stale = invites.filter((i) => i.status === "used" || i.status === "rejected");
+
+    if (stale.length === 0) {
+
+      showToast("Nothing to clean — no used or rejected invites");
+
+      return;
+
+    }
+
+    if (!(await confirm({
+
+      title: "Clean up invites?",
+
+      message: `Delete ${stale.length} used and rejected invite${stale.length === 1 ? "" : "s"}? Approved and pending invites stay.`,
+
+      confirmText: "Clean up",
+
+      variant: "danger",
+
+    }))) return;
+
+    setActionLoading("cleanup-invites");
+
+    try {
+
+      const res = await api.adminCleanupInvites();
+
+      showToast(`Removed ${res.deleted} used/rejected invite${res.deleted === 1 ? "" : "s"}`);
+
+      await fetchData();
+
+    } catch (e: unknown) {
+
+      showToast(e instanceof Error ? e.message : "Cleanup failed", "err");
+
+    } finally {
+
+      setActionLoading(null);
+
+    }
+
+  };
+
+
+
   const handleResendInvite = async (inv: InviteRequest) => {
+
+    if (inv.status === "rejected") {
+
+      if (!(await confirm({
+
+        title: "Re-invite this email?",
+
+        message: `${inv.email} was rejected. This approves them again and sends a new invite link.`,
+
+        confirmText: "Re-invite",
+
+      }))) return;
+
+    }
 
     setActionLoading(`resend-${inv.id}`);
 
@@ -968,6 +1047,8 @@ export default function AdminPage() {
 
           onResend={handleResendInvite}
 
+          onCleanup={handleCleanupInvites}
+
         />
 
       ) : tab === "users" ? (
@@ -1044,6 +1125,8 @@ function InvitesTable({
 
   onResend,
 
+  onCleanup,
+
 }: {
 
   invites: InviteRequest[];
@@ -1058,6 +1141,8 @@ function InvitesTable({
 
   onResend: (inv: InviteRequest) => void;
 
+  onCleanup: () => void;
+
 }) {
 
   const [sortAsc, setSortAsc] = useState(false);
@@ -1069,6 +1154,8 @@ function InvitesTable({
     return sortAsc ? diff : -diff;
 
   });
+
+  const staleCount = invites.filter((i) => i.status === "used" || i.status === "rejected").length;
 
 
 
@@ -1091,6 +1178,36 @@ function InvitesTable({
 
 
   return (
+
+    <div className="space-y-3">
+
+      <div className="flex items-center justify-end">
+
+        <button type="button"
+
+          onClick={onCleanup}
+
+          disabled={!!actionLoading || staleCount === 0}
+
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-surface text-iv-muted border border-iv-border hover:border-iv-danger/40 hover:text-iv-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+
+        >
+
+          {actionLoading === "cleanup-invites" ? (
+
+            <Loader2 className="w-3 h-3 animate-spin" />
+
+          ) : (
+
+            <Eraser className="w-3 h-3" />
+
+          )}
+
+          Clean up used & rejected{staleCount > 0 ? ` (${staleCount})` : ""}
+
+        </button>
+
+      </div>
 
     <div className="glass rounded-xl border border-iv-border overflow-hidden">
 
@@ -1224,7 +1341,7 @@ function InvitesTable({
 
                     )}
 
-                    {inv.status === "approved" && (
+                    {(inv.status === "approved" || inv.status === "rejected") && (
 
                       <button type="button"
 
@@ -1246,15 +1363,13 @@ function InvitesTable({
 
                         )}
 
-                        Resend
+                        {inv.status === "rejected" ? "Re-invite" : "Resend"}
 
                       </button>
 
                     )}
 
-                    {(inv.status === "approved" || inv.status === "pending") && (
-
-                      <button type="button"
+                    <button type="button"
 
                         onClick={() => onDelete(inv)}
 
@@ -1278,14 +1393,6 @@ function InvitesTable({
 
                       </button>
 
-                    )}
-
-                    {inv.status !== "pending" && inv.status !== "approved" && (
-
-                      <span className="text-xs text-iv-muted/50">—</span>
-
-                    )}
-
                   </div>
 
                 </td>
@@ -1299,6 +1406,8 @@ function InvitesTable({
         </table>
 
       </div>
+
+    </div>
 
     </div>
 
@@ -1684,6 +1793,12 @@ function UsersTable({
 
               <th className="text-left px-5 py-3 text-xs font-semibold text-iv-muted uppercase tracking-wider">
 
+                Vehicle
+
+              </th>
+
+              <th className="text-left px-5 py-3 text-xs font-semibold text-iv-muted uppercase tracking-wider">
+
                 Role
 
               </th>
@@ -1740,6 +1855,32 @@ function UsersTable({
 
                 <td className="px-5 py-3.5">
 
+                  {(u.vehicle_count ?? 0) > 0 ? (
+
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-iv-green/10 border border-iv-green/20 text-iv-green">
+
+                      <Car className="w-3 h-3" />
+
+                      {u.vehicle_count === 1 ? "1 car" : `${u.vehicle_count} cars`}
+
+                    </span>
+
+                  ) : (
+
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-iv-warning/10 border border-iv-warning/20 text-iv-warning">
+
+                      <Car className="w-3 h-3" />
+
+                      No vehicle
+
+                    </span>
+
+                  )}
+
+                </td>
+
+                <td className="px-5 py-3.5">
+
                   {u.is_superuser ? (
 
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 border border-purple-500/20 text-purple-400">
@@ -1784,7 +1925,9 @@ function UsersTable({
 
                         onClick={() => onRefresh(u.id)}
 
-                        disabled={!!actionLoading}
+                        disabled={!!actionLoading || (u.vehicle_count ?? 0) === 0}
+
+                        title={(u.vehicle_count ?? 0) === 0 ? "No vehicle to refresh" : "Refresh vehicles"}
 
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-iv-cyan/10 text-iv-cyan border border-iv-cyan/20 hover:bg-iv-cyan/20 transition-colors disabled:opacity-50"
 

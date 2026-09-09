@@ -1,471 +1,250 @@
 "use client";
 
-
-
-import { useState, useEffect, useRef, useCallback } from "react";
-
+import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as Tabs from "@radix-ui/react-tabs";
-
 import { subDays, startOfDay, endOfDay } from "date-fns";
-
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
-
 import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangePicker";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
-
-
-
 import { CarOverviewDashboard } from "./CarOverviewDashboard";
-
-
-
 import { TripsDashboard } from "./TripsDashboard";
-
 import { MovementDashboard } from "./MovementDashboard";
-
 import { DrivingStatisticsDashboard } from "./DrivingStatisticsDashboard";
-
 import { ChargingStatisticsDashboard } from "./ChargingStatisticsDashboard";
-
 import { MileageKMDashboard } from "./MileageKMDashboard";
-
 import { ChargingCurveDashboard } from "./ChargingCurveDashboard";
-
 import { HVACIsolationDashboard } from "./HVACIsolationDashboard";
-
 import { ClimatePenaltyDashboard } from "./ClimatePenaltyDashboard";
-
 import { ChargingCurveIntegralsDashboard } from "./ChargingCurveIntegralsDashboard";
-
 import { ElevationPenaltyDashboard } from "./ElevationPenaltyDashboard";
-
 import { SpeedTempMatrixDashboard } from "./SpeedTempMatrixDashboard";
-
 import { BatterySoHDashboard } from "./BatterySoHDashboard";
-
 import { IceTcoDashboard } from "./IceTcoDashboard";
-
 import { RouteEfficiencyDashboard } from "./RouteEfficiencyDashboard";
-
 import { PredictiveSocDashboard } from "./PredictiveSocDashboard";
 
-
-
-
-
 export interface TimelineRange {
-
   from: Date;
-
   to: Date;
-
 }
 
+type TabDef = { id: string; label: string; icon: string };
 
+const TAB_GROUPS: { id: string; label: string; hint: string; tabs: TabDef[] }[] = [
+  {
+    id: "daily",
+    label: "Daily",
+    hint: "What you check after a drive",
+    tabs: [
+      { id: "car-overview", label: "Car Overview", icon: "📊" },
+      { id: "trips", label: "Trips", icon: "🗺️" },
+      { id: "movement", label: "Movement", icon: "🚗" },
+      { id: "driving-stats", label: "Driving Stats", icon: "📈" },
+      { id: "charging-stats", label: "Charging Stats", icon: "🔌" },
+      { id: "mileage", label: "Mileage", icon: "📍" },
+      { id: "battery-soh", label: "Battery SoH", icon: "🔋" },
+      { id: "predictive-soc", label: "Arrival SoC", icon: "🎯" },
+    ],
+  },
+  {
+    id: "analysis",
+    label: "Analysis",
+    hint: "Deeper breakdowns",
+    tabs: [
+      { id: "charging-curve", label: "Charging Curve", icon: "📉" },
+      { id: "charging-curve-integrals", label: "Curve Int.", icon: "🔋" },
+      { id: "hvac-isolation", label: "HVAC Isolation", icon: "🌡️" },
+      { id: "climate-penalty", label: "Climate Penalty", icon: "❄️" },
+      { id: "elevation-penalty", label: "Elevation", icon: "⛰️" },
+      { id: "speed-temp-matrix", label: "Speed × Temp", icon: "🌡️" },
+      { id: "ice-tco", label: "ICE vs EV", icon: "⛽" },
+      { id: "route-efficiency", label: "Route Efficiency", icon: "🛣️" },
+    ],
+  },
+];
 
-const TABS = [
+const ALL_TABS = TAB_GROUPS.flatMap((g) => g.tabs);
 
-  { id: "car-overview",        label: "Car Overview",       icon: "📊" },
+function isKnownTab(tab: string | undefined): tab is string {
+  return !!tab && ALL_TABS.some((t) => t.id === tab);
+}
 
-  { id: "trips",               label: "Trips",              icon: "🗺️" },
-
-  { id: "movement",            label: "Movement",           icon: "🚗" },
-
-  { id: "driving-stats",       label: "Driving Stats",       icon: "📈" },
-
-  { id: "charging-stats",      label: "Charging Stats",     icon: "🔌" },
-
-  { id: "charging-curve",      label: "Charging Curve",     icon: "📉" },
-
-  { id: "hvac-isolation",      label: "HVAC Isolation",     icon: "🌡️" },
-
-  { id: "climate-penalty",     label: "Climate Penalty",   icon: "❄️" },
-
-  { id: "charging-curve-integrals", label: "Curve Int.",    icon: "🔋" },
-
-  { id: "elevation-penalty",   label: "Elevation",         icon: "⛰️" },
-
-  { id: "speed-temp-matrix",   label: "Speed × Temp",       icon: "🌡️" },
-
-  { id: "ice-tco",             label: "ICE vs EV",           icon: "⛽" },
-
-  { id: "route-efficiency",    label: "Route Efficiency",   icon: "🛣️" },
-
-  { id: "predictive-soc",      label: "Arrival SoC",         icon: "🎯" },
-
-  { id: "mileage",             label: "Mileage",             icon: "📍" },
-
-  { id: "battery-soh",         label: "Battery SoH",        icon: "🔋" },
-
-] as const;
-
-
-
-const TAB_MIN_WIDTH = 120; // px, min width per tab button
-
-const TAB_GAP = 8;         // px gap between tabs
-
-
-
-export function StatisticsShell({ vehicleId }: { vehicleId: string }) {
-
-  const [activeTab, setActiveTab] = useState<string>("car-overview");
-
+export function StatisticsShell({
+  vehicleId,
+  initialTab,
+}: {
+  vehicleId: string;
+  initialTab?: string;
+}) {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<string>(
+    isKnownTab(initialTab) ? initialTab : "car-overview",
+  );
   const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-
-
   useEffect(() => {
-
     const now = new Date();
-
     setDateRange({ from: startOfDay(subDays(now, 7)), to: endOfDay(now) });
-
   }, []);
 
+  useEffect(() => {
+    if (isKnownTab(initialTab)) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
-
-  const scrollIntoView = useCallback((tabId: string) => {
-
-    const el = scrollRef.current;
-
-    if (!el) return;
-
-    const idx = TABS.findIndex(t => t.id === tabId);
-
-    if (idx < 0) return;
-
-    const tabWidth = TAB_MIN_WIDTH + TAB_GAP;
-
-    const scrollTarget = idx * tabWidth - el.clientWidth / 2 + tabWidth / 2;
-
-    el.scrollTo({ left: Math.max(0, scrollTarget), behavior: "smooth" });
-
-  }, []);
-
-
-
-  const navigate = useCallback((dir: -1 | 1) => {
-
-    const idx = TABS.findIndex(t => t.id === activeTab);
-
-    const next = Math.max(0, Math.min(TABS.length - 1, idx + dir));
-
-    setActiveTab(TABS[next].id);
-
-  }, [activeTab]);
-
-
+  const selectTab = useCallback(
+    (tabId: string) => {
+      if (!isKnownTab(tabId) || tabId === activeTab) return;
+      setActiveTab(tabId);
+      router.replace(`/vehicles/${vehicleId}/statistics/${tabId}`, { scroll: false });
+    },
+    [activeTab, router, vehicleId],
+  );
 
   useEffect(() => {
-
-    // When activeTab changes externally (click), scroll it into view
-
-    scrollIntoView(activeTab);
-
-  }, [activeTab, scrollIntoView]);
-
-
-
-  // Keyboard left/right navigation
-
-  useEffect(() => {
-
     const handler = (e: KeyboardEvent) => {
-
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (e.key === "ArrowRight") navigate(1);
-
-      if (e.key === "ArrowLeft")  navigate(-1);
-
+      const idx = ALL_TABS.findIndex((t) => t.id === activeTab);
+      if (e.key === "ArrowRight" && idx < ALL_TABS.length - 1) selectTab(ALL_TABS[idx + 1].id);
+      if (e.key === "ArrowLeft" && idx > 0) selectTab(ALL_TABS[idx - 1].id);
     };
-
     window.addEventListener("keydown", handler);
-
     return () => window.removeEventListener("keydown", handler);
+  }, [activeTab, selectTab]);
 
-  }, [navigate]);
-
-
+  const activeLabel = useMemo(
+    () => ALL_TABS.find((t) => t.id === activeTab)?.label ?? "Advanced",
+    [activeTab],
+  );
 
   if (!dateRange) {
-
     return (
-
-      <div className="space-y-6">
-
+      <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden">
         <div className="flex items-center justify-center py-24">
-
           <div className="text-iv-muted text-sm">Loading period…</div>
-
         </div>
-
       </div>
-
     );
-
   }
-
-
 
   const range: TimelineRange = { from: dateRange.from, to: dateRange.to };
 
-  const activeIdx = TABS.findIndex(t => t.id === activeTab);
-
-
-
   return (
-
-    <div className="space-y-6">
-
-      {/* ── Tab Navigation Card ── */}
-
-      <div className="glass rounded-2xl border border-iv-border p-3">
-
-        <div className="flex items-center gap-2">
-
-          {/* Left arrow */}
-
-          <button type="button"
-
-            onClick={() => navigate(-1)}
-
-            disabled={activeIdx === 0}
-
-            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-iv-border text-iv-muted hover:text-iv-text hover:bg-iv-charcoal transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-
-            aria-label="Previous tab"
-
-          >
-
-            <ChevronLeft size={18} />
-
-          </button>
-
-
-
-          {/* Tab strip */}
-
-          <div
-
-            ref={scrollRef}
-
-            className="flex flex-1 gap-2 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory"
-
-            style={{ paddingBottom: "2px" }}
-
-          >
-
-            {TABS.map((t, i) => (
-
-              <button type="button"
-
-                key={t.id}
-
-                onClick={() => setActiveTab(t.id)}
-
-                className={cn(
-
-                  "shrink-0 snap-start rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-all flex items-center gap-2 border",
-
-                  activeTab === t.id
-
-                    ? "bg-iv-charcoal text-iv-cyan border-iv-border shadow-sm"
-
-                    : "bg-iv-surface text-iv-text-muted border-transparent hover:border-iv-border/60 hover:text-iv-text"
-
-                )}
-
-                style={{ minWidth: `${TAB_MIN_WIDTH}px` }}
-
-              >
-
-                <span className="text-base">{t.icon}</span>
-
-                <span>{t.label}</span>
-
-              </button>
-
-            ))}
-
-          </div>
-
-
-
-          {/* Right arrow */}
-
-          <button type="button"
-
-            onClick={() => navigate(1)}
-
-            disabled={activeIdx === TABS.length - 1}
-
-            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-iv-border text-iv-muted hover:text-iv-text hover:bg-iv-charcoal transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-
-            aria-label="Next tab"
-
-          >
-
-            <ChevronRight size={18} />
-
-          </button>
-
+    <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href={`/vehicles/${vehicleId}`}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-iv-border bg-iv-surface text-iv-muted transition-colors hover:text-iv-text hover:border-iv-green/40"
+          aria-label="Back to vehicle"
+        >
+          <ArrowLeft size={18} />
+        </Link>
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-iv-muted">Advanced statistics</p>
+          <h1 className="text-lg font-semibold text-iv-text truncate">{activeLabel}</h1>
         </div>
-
-
-
-        {/* Dot indicators */}
-
-        <div className="flex justify-center gap-1.5 mt-2">
-
-          {TABS.map((t, i) => (
-
-            <button type="button"
-
-              key={t.id}
-
-              onClick={() => { setActiveTab(t.id); scrollIntoView(t.id); }}
-
-              className={cn(
-
-                "rounded-full transition-all",
-
-                activeTab === t.id ? "w-5 h-2 bg-iv-cyan" : "w-2 h-2 bg-iv-border hover:bg-iv-text-muted"
-
-              )}
-
-              aria-label={`Go to ${t.label}`}
-
-            />
-
-          ))}
-
-        </div>
-
       </div>
 
-
-
-      {/* Period picker */}
+      <div className="glass rounded-2xl border border-iv-border p-3 sm:p-4 space-y-4">
+        {TAB_GROUPS.map((group) => (
+          <div key={group.id}>
+            <div className="mb-2 flex items-baseline gap-2 px-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-iv-muted">
+                {group.label}
+              </p>
+              <p className="hidden sm:block text-[10px] text-iv-muted/60">{group.hint}</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.tabs.map((t) => {
+                const selected = activeTab === t.id;
+                return (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => selectTab(t.id)}
+                    aria-current={selected ? "page" : undefined}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium border transition-colors",
+                      selected
+                        ? "bg-iv-cyan/12 text-iv-cyan border-iv-cyan/35"
+                        : "bg-iv-surface text-iv-muted border-transparent hover:border-iv-border hover:text-iv-text",
+                    )}
+                  >
+                    <span className="text-sm leading-none" aria-hidden>
+                      {t.icon}
+                    </span>
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
 
       <div className="flex items-center gap-3">
-
         <span className="text-xs font-medium text-iv-text-muted uppercase tracking-wider whitespace-nowrap hidden sm:inline-block">
-
           Period
-
         </span>
-
         <DateRangePicker value={dateRange} onChange={setDateRange} />
-
       </div>
 
-
-
-      {/* ── Content ── */}
-
       <div className="animate-in fade-in duration-300">
-
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-
+        <Tabs.Root value={activeTab} onValueChange={selectTab}>
           <Tabs.Content value="car-overview">
-
             <CarOverviewDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
-
-
           <Tabs.Content value="trips">
-
             <TripsDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="movement">
-
             <MovementDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="driving-stats">
-
             <DrivingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="charging-stats">
-
             <ChargingStatisticsDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="charging-curve">
-
             <ChargingCurveDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="hvac-isolation">
-
             <HVACIsolationDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="climate-penalty">
-
             <ClimatePenaltyDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="charging-curve-integrals">
-
             <ChargingCurveIntegralsDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="elevation-penalty">
             <ElevationPenaltyDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
-
           <Tabs.Content value="speed-temp-matrix">
-
             <SpeedTempMatrixDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="ice-tco">
             <IceTcoDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
-
           <Tabs.Content value="route-efficiency">
             <RouteEfficiencyDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
-
           <Tabs.Content value="predictive-soc">
             <PredictiveSocDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
-
           <Tabs.Content value="mileage">
-
             <MileageKMDashboard vehicleId={vehicleId} dateRange={range} />
-
           </Tabs.Content>
-
           <Tabs.Content value="battery-soh">
             <BatterySoHDashboard vehicleId={vehicleId} dateRange={dateRange} />
           </Tabs.Content>
-
         </Tabs.Root>
-
       </div>
-
     </div>
-
   );
-
 }

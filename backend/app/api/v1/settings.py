@@ -8,10 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
 from app.models.geofence import Geofence
+from app.models.charging_plan import UserChargingPlan
 from app.models.user import User
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.schemas.geofence import GeofenceCreate, GeofenceResponse, GeofenceUpdate
+from app.schemas.charging_plan import ChargingPlanCreate, ChargingPlanResponse, ChargingPlanUpdate
+from app.schemas.fx import CurrencyResponse
+from app.services.fx import list_currencies
 from app.services.export import ExportService
+from app.services.charging_plans import (
+    invalidate_user_vehicle_caches,
+    validate_plan_fields,
+)
 from app.tasks.extraction import process_data_extraction
 from app.services.storage import StorageProvider
 
@@ -86,6 +94,17 @@ async def get_download_link(
         "password": job.password,
         "expires_at": job.expires_at
     }
+
+# ── Locale / FX ─────────────────────────────────────────────────────────────
+
+@router.get("/currencies", response_model=list[CurrencyResponse])
+async def get_currencies(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """All ECB currencies vs EUR. Not filtered by user country or region."""
+    return await list_currencies(db)
+
 
 # ── Geofences ───────────────────────────────────────────────────────────────
 
@@ -165,3 +184,122 @@ async def delete_geofence(
         raise HTTPException(status_code=404, detail="Geofence not found")
     await db.delete(geofence)
     await db.flush()
+
+
+async def _ensure_geofence_owned(
+    geofence_id: uuid.UUID | None, user_id: uuid.UUID, db: AsyncSession
+) -> None:
+    if geofence_id is None:
+        return
+    result = await db.execute(
+        select(Geofence).where(Geofence.id == geofence_id, Geofence.user_id == user_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Geofence not found")
+
+
+def _plan_validation_error(plan: UserChargingPlan) -> None:
+    err = validate_plan_fields(
+        plan.plan_type,
+        monthly_fee_eur=float(plan.monthly_fee_eur) if plan.monthly_fee_eur is not None else None,
+        kwh_allotment=float(plan.kwh_allotment) if plan.kwh_allotment is not None else None,
+        price_per_kwh_eur=float(plan.price_per_kwh_eur) if plan.price_per_kwh_eur is not None else None,
+        subscription_start_date=plan.subscription_start_date,
+        periodicity=plan.periodicity,
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+
+# ── Charging plans ──────────────────────────────────────────────────────────
+
+@router.get("/charging-plans", response_model=list[ChargingPlanResponse])
+async def list_charging_plans(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(UserChargingPlan).where(UserChargingPlan.user_id == user.id)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/charging-plans",
+    response_model=ChargingPlanResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_charging_plan(
+    body: ChargingPlanCreate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_geofence_owned(body.geofence_id, user.id, db)
+    plan = UserChargingPlan(
+        user_id=user.id,
+        name=body.name,
+        plan_type=body.plan_type,
+        periodicity=body.periodicity,
+        subscription_start_date=body.subscription_start_date,
+        monthly_fee_eur=body.monthly_fee_eur,
+        kwh_allotment=body.kwh_allotment,
+        overage_price_per_kwh_eur=body.overage_price_per_kwh_eur,
+        price_per_kwh_eur=body.price_per_kwh_eur,
+        geofence_id=body.geofence_id,
+        notes=body.notes,
+    )
+    _plan_validation_error(plan)
+    db.add(plan)
+    await db.flush()
+    await invalidate_user_vehicle_caches(db, user.id)
+    return plan
+
+
+@router.put("/charging-plans/{plan_id}", response_model=ChargingPlanResponse)
+async def update_charging_plan(
+    plan_id: uuid.UUID,
+    body: ChargingPlanUpdate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(UserChargingPlan).where(
+            UserChargingPlan.id == plan_id, UserChargingPlan.user_id == user.id
+        )
+    )
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Charging plan not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if "geofence_id" in update_data:
+        await _ensure_geofence_owned(update_data["geofence_id"], user.id, db)
+    for field, value in update_data.items():
+        setattr(plan, field, value)
+    _plan_validation_error(plan)
+    await db.flush()
+    await invalidate_user_vehicle_caches(db, user.id)
+    return plan
+
+
+@router.delete(
+    "/charging-plans/{plan_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_charging_plan(
+    plan_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(UserChargingPlan).where(
+            UserChargingPlan.id == plan_id, UserChargingPlan.user_id == user.id
+        )
+    )
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Charging plan not found")
+    await db.delete(plan)
+    await db.flush()
+    await invalidate_user_vehicle_caches(db, user.id)
+

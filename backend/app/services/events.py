@@ -72,9 +72,30 @@ async def publish_vehicle_refresh(vehicle_id: str) -> None:
     Uses RPUSH instead of pub/sub so the request survives listener crashes
     and is processed within ~5 seconds by the collector's queue-drain job.
     """
+    await publish_vehicle_refresh_many([vehicle_id])
+
+
+async def publish_vehicle_refresh_many(vehicle_ids: list[str]) -> dict[str, int]:
+    """Queue unique vehicle IDs that are not already waiting in the refresh list.
+
+    The collector drains ``ivdrive:manual_refresh`` one vehicle at a time.
+    Deduping prevents a double-clicked Hard-Refresh from stacking the same cars.
+    """
+    if not vehicle_ids:
+        return {"queued": 0, "skipped": 0}
+
     client = await get_valkey_client()
     try:
-        await client.rpush("ivdrive:manual_refresh", vehicle_id)
-        logger.info("Queued manual refresh for vehicle %s", vehicle_id)
+        existing = set(await client.lrange("ivdrive:manual_refresh", 0, -1))
+        to_add = [vid for vid in vehicle_ids if vid not in existing]
+        skipped = len(vehicle_ids) - len(to_add)
+        if to_add:
+            await client.rpush("ivdrive:manual_refresh", *to_add)
+        logger.info(
+            "Queued %d vehicle(s) for sequential refresh (%d already queued)",
+            len(to_add),
+            skipped,
+        )
+        return {"queued": len(to_add), "skipped": skipped}
     finally:
         await client.aclose()

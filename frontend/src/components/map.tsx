@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, ZoomControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useTheme } from "next-themes";
+import { getCartoTileUrl } from "@/lib/map-utils";
 
 // Fix for default Leaflet markers in Next.js/Webpack
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -31,11 +32,9 @@ export default function LocationMap({ latitude, longitude }: MapProps) {
 
   const isDark = resolvedTheme === "dark";
 
-  // CartoDB tiles are free to use without API keys and look very modern, 
-  // similar to Mapbox or stylized maps.
-  const tileUrl = isDark
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts) so all four map components stay in sync.
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="absolute inset-0 w-full h-full z-0 bg-[var(--iv-charcoal)]">

@@ -32,6 +32,12 @@ class User(TimestampMixin, Base):
     # AI Premium gating
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     ai_tier: Mapped[str] = mapped_column(String(20), default="free", nullable=False, server_default="free")
+    default_currency: Mapped[str] = mapped_column(
+        String(3), default="EUR", nullable=False, server_default="EUR"
+    )
+    unit_system: Mapped[str] = mapped_column(
+        String(16), default="metric", nullable=False, server_default="metric"
+    )
 
     vehicles: Mapped[list["UserVehicle"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
@@ -41,5 +47,8 @@ class User(TimestampMixin, Base):
     )
 
     geofences: Mapped[list["Geofence"]] = relationship(  # noqa: F821
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+    )
+    charging_plans: Mapped[list["UserChargingPlan"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )

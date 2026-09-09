@@ -21,7 +21,10 @@ interface HVACCostResponse {
   summary: string;
 }
 
+import { useLocale } from "@/lib/locale";
+
 function HVACCostCardInner({ vehicleId }: { vehicleId: string }) {
+  const { formatTemp, consumptionLabel, kwhPer100ToDisplay } = useLocale();
   const [data, setData] = useState<HVACCostResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -75,9 +78,9 @@ function HVACCostCardInner({ vehicleId }: { vehicleId: string }) {
         <ThermometerSnowflake size={16} className="text-iv-cyan" /> HVAC Cost
       </h3>
       <div className="flex items-baseline gap-2 mt-2">
-        <span className="text-3xl font-bold text-iv-cyan">~{cost.toFixed(1)}</span>
-        <span className="text-sm text-iv-muted">kWh/100km</span>
-        <span className="text-sm text-iv-muted">at {temp.toFixed(0)}°C</span>
+        <span className="text-3xl font-bold text-iv-cyan">~{kwhPer100ToDisplay(cost).toFixed(1)}</span>
+        <span className="text-sm text-iv-muted">{consumptionLabel}</span>
+        <span className="text-sm text-iv-muted">at {formatTemp(temp)}</span>
       </div>
       <div className="mt-3 flex flex-col gap-1 text-xs">
         <div className="flex justify-between">

@@ -5,6 +5,7 @@ import { MapPin, Loader2, Zap } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
 import { useTheme } from "next-themes";
+import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface VisitedDashboardProps {
@@ -142,8 +143,9 @@ function VisitedMap({ locations }: VisitedMapProps) {
     lonSum / locations.length,
   ];
 
-  const tileUrl =
-    isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts).
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="absolute inset-0 z-0">

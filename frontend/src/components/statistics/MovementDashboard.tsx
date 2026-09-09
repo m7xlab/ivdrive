@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css";
 import { api } from "@/lib/api";
 import { useTheme } from "next-themes";
 import { formatSmartDuration } from "@/lib/format";
+import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
 
 export interface MovementDashboardProps {
@@ -409,10 +410,9 @@ function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; 
   const center: [number, number] = [latSum / locations.length, lonSum / locations.length];
   const maxMs = Math.max(...stayEvents.map((s) => s.durationMs), 1);
 
-  // Tile URLs matching app theme
-  const tileUrl = isDark
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  // Tile URLs matching app theme. CARTO Basemaps API key wiring lives in
+  // getCartoTileUrl() (frontend/src/lib/map-utils.ts).
+  const tileUrl = getCartoTileUrl(isDark);
 
   return (
     <div className="glass rounded-xl overflow-hidden">

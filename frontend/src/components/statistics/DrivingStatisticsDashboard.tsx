@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
 import { calculateStatisticsLimit } from "@/lib/periodLimit";
+import { useLocale } from "@/lib/locale";
 
 export interface DrivingStatisticsDashboardProps {
   vehicleId: string;
@@ -58,6 +59,7 @@ export function DrivingStatisticsDashboard({
   dateRange,
   period = "day",
 }: DrivingStatisticsDashboardProps) {
+  const { formatDistance } = useLocale();
   const [rows, setRows] = useState<StatisticsRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,7 +114,7 @@ export function DrivingStatisticsDashboard({
   const latestStats = [
     {
       label: "Distance",
-      value: `${latestData.total_distance_km.toFixed(1)} km`,
+      value: formatDistance(latestData.total_distance_km, 1),
       subValue: `${latestData.drives_count} drives`,
       icon: Route,
       color: "cyan",
@@ -191,7 +193,7 @@ export function DrivingStatisticsDashboard({
                         </div>
                         <div className="flex flex-col items-start min-w-0">
                             <p className="text-xs text-iv-muted">Distance</p>
-                            <p className="text-sm font-medium text-iv-text">{item.total_distance_km.toFixed(1)} km</p>
+                            <p className="text-sm font-medium text-iv-text">{formatDistance(item.total_distance_km, 1)}</p>
                         </div>
                         <div className="flex flex-col items-start min-w-0">
                             <p className="text-xs text-iv-muted">Energy Used</p>

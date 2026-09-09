@@ -4,7 +4,7 @@
 
 
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 import { format, parseISO, getYear, getMonth } from "date-fns";
 
@@ -15,10 +15,13 @@ import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { useTheme } from "next-themes";
 import { TripElevationCard } from "./TripElevationCard";
+import { getCartoTileUrl } from "@/lib/map-utils";
 
 import "leaflet/dist/leaflet.css";
 
 import { formatSmartDuration } from "@/lib/format";
+
+import { useLocale } from "@/lib/locale";
 
 
 
@@ -216,7 +219,12 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   const [visibleCount, setVisibleCount] = useState(10);
   const { resolvedTheme } = useTheme();
+  const { formatDistance, formatConsumption, consumptionLabel, kwhPer100ToDisplay } = useLocale();
   const isDark = resolvedTheme === "dark";
+
+  // CARTO Basemaps tile URL + API key wiring lives in getCartoTileUrl()
+  // (frontend/src/lib/map-utils.ts).
+  const tripsTileUrl = getCartoTileUrl(isDark);
 
 
 
@@ -226,13 +234,11 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
     try {
 
-      const data = await api.reverseGeocode(lat, lon);
-
-      return data.display_name || "Location";
+      return await api.reverseGeocode(lat, lon);
 
     } catch {
 
-      return "Location";
+      return { display_name: "Location", retry_after_seconds: 8 };
 
     }
 
@@ -240,13 +246,16 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
+  const locationsRef = useRef(locations);
+  locationsRef.current = locations;
+
   const getLocationName = (lat: number | null | undefined, lon: number | null | undefined) => {
 
     if (lat == null || lon == null) return "Location";
 
-    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    const key = api.coordKey(lat, lon);
 
-    return locations.get(key) || "Location";
+    return locations.get(key) || api.peekReverseGeocode(lat, lon) || "Location";
 
   };
 
@@ -398,23 +407,29 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
-  // Lazy geocoding
+  // Lazy geocoding — "Location" is a miss, not a final name. Retry until cached.
 
   useEffect(() => {
 
     let isMounted = true;
 
-    const newLocations = new Map(locations);
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    let changed = false;
+    const resolved = new Map(locationsRef.current);
 
 
 
     const resolve = async () => {
 
+      let changed = false;
+
+      let retryMs = 0;
+
+
+
       for (const trip of visibleTrips) {
 
-        if (!isMounted) break;
+        if (!isMounted) return;
 
         const coords = [
 
@@ -428,35 +443,41 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
           if (lat == null || lon == null) continue;
 
-          const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+          const key = api.coordKey(lat, lon);
 
-          
+          if (resolved.has(key)) continue;
 
-          if (!newLocations.has(key)) {
 
-            // Check session storage first to avoid API calls on refresh
 
-            const cached = sessionStorage.getItem(`geo_${key}`);
+          const cached = api.peekReverseGeocode(lat, lon);
 
-            if (cached) {
+          if (cached) {
 
-              newLocations.set(key, cached);
+            resolved.set(key, cached);
 
-              changed = true;
+            changed = true;
 
-            } else {
+            continue;
 
-              const name = await fetchLocationName(lat, lon);
+          }
 
-              if (!isMounted) break;
 
-              newLocations.set(key, name);
 
-              sessionStorage.setItem(`geo_${key}`, name);
+          const data = await fetchLocationName(lat, lon);
 
-              changed = true;
+          if (!isMounted) return;
 
-            }
+          const name = data.display_name;
+
+          if (name && name !== "Location" && name !== "Unknown Location") {
+
+            resolved.set(key, name);
+
+            changed = true;
+
+          } else {
+
+            retryMs = Math.max(retryMs, (data.retry_after_seconds ?? 8) * 1000);
 
           }
 
@@ -464,17 +485,25 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
       }
 
-      if (isMounted && changed) setLocations(newLocations);
+      if (isMounted && changed) setLocations(new Map(resolved));
+
+      if (isMounted && retryMs > 0) {
+
+        timer = setTimeout(resolve, retryMs);
+
+      }
 
     };
 
     resolve();
 
-    
+
 
     return () => {
 
       isMounted = false;
+
+      if (timer) clearTimeout(timer);
 
     };
 
@@ -534,7 +563,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
               <p className="text-[10px] font-bold text-iv-muted uppercase mb-1">Total Distance</p>
 
-              <p className="text-2xl font-bold text-iv-text">{summary.totalDistance.toFixed(1)} km</p>
+              <p className="text-2xl font-bold text-iv-text">{formatDistance(summary.totalDistance, 1)}</p>
 
             </div>
 
@@ -550,9 +579,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
               <p className="text-[10px] font-bold text-iv-cyan uppercase mb-1 tracking-wider">Avg. Efficiency</p>
 
-              <p className="text-2xl font-bold text-iv-cyan">{summary.avgEfficiency > 0 ? summary.avgEfficiency.toFixed(2) : '—'}</p>
+              <p className="text-2xl font-bold text-iv-cyan">{summary.avgEfficiency > 0 ? kwhPer100ToDisplay(summary.avgEfficiency).toFixed(2) : '—'}</p>
 
-              {summary.avgEfficiency > 0 && <p className="text-[10px] text-iv-muted mt-1">kWh/100km</p>}
+              {summary.avgEfficiency > 0 && <p className="text-[10px] text-iv-muted mt-1">{consumptionLabel}</p>}
 
             </div>
 
@@ -649,7 +678,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
               <TileLayer
 
                 attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url={isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
+                url={tripsTileUrl}
               />
 
               {displayTrips.map(trip => {
@@ -750,9 +779,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
                       <div className="text-right shrink-0">
 
-                        <p className="text-xs font-bold text-iv-text">{trip.distance_km?.toFixed(1) ?? "0.0"} km</p>
+                        <p className="text-xs font-bold text-iv-text">{formatDistance(trip.distance_km, 1)}</p>
 
-                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km?.toFixed(1) ?? "—"} kWh/100</p>
+                        <p className="text-[9px] text-iv-cyan font-medium">{trip.efficiency_kwh_100km != null ? formatConsumption(trip.efficiency_kwh_100km) : "—"}</p>
 
                         {expandedTripId === trip.trip_id && (
 

@@ -69,4 +69,45 @@ export const settingsApi = {
     });
     return res.json();
   },
+
+  async getCurrencies(): Promise<
+    Array<{
+      code: string;
+      name: string;
+      symbol: string;
+      rate_per_eur: number;
+      as_of: string;
+      source: string;
+    }>
+  > {
+    const res = await apiFetch("/api/v1/settings/currencies");
+    return res.json();
+  },
+
+  async getChargingPlans() {
+    const res = await apiFetch("/api/v1/settings/charging-plans");
+    return res.json();
+  },
+
+  async createChargingPlan(data: Record<string, unknown>) {
+    const res = await apiFetch("/api/v1/settings/charging-plans", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  async updateChargingPlan(id: string, data: Record<string, unknown>) {
+    const res = await apiFetch(`/api/v1/settings/charging-plans/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  async deleteChargingPlan(id: string) {
+    await apiFetch(`/api/v1/settings/charging-plans/${id}`, {
+      method: "DELETE",
+    });
+  },
 };

@@ -39,8 +39,10 @@ interface ElevationPenaltyResponse {
 }
 
 import { TimelineRange } from "./StatisticsShell";
+import { useLocale } from "@/lib/locale";
 
 export function ElevationPenaltyDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange: TimelineRange }) {
+  const { consumptionLabel, kwhPer100ToDisplay } = useLocale();
   const [data, setData] = useState<ElevationPenaltyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -84,8 +86,8 @@ export function ElevationPenaltyDashboard({ vehicleId, dateRange }: { vehicleId:
   const chartData = data.trips.map((t) => ({
     date: t.start_date ? new Date(t.start_date).toLocaleDateString() : "?",
     distance: t.distance_km,
-    uphill: t.uphill_kwh_per_100km,
-    downhill: t.downhill_kwh_per_100km,
+    uphill: kwhPer100ToDisplay(t.uphill_kwh_per_100km),
+    downhill: kwhPer100ToDisplay(t.downhill_kwh_per_100km),
     net: t.net_energy_kwh,
     elev_change: t.elevation_change_m,
   }));
@@ -117,7 +119,7 @@ export function ElevationPenaltyDashboard({ vehicleId, dateRange }: { vehicleId:
             <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-iv-border" />
               <XAxis dataKey="date" className="text-iv-muted text-xs" />
-              <YAxis className="text-iv-muted text-xs" label={{ value: 'kWh/100km', angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
+              <YAxis className="text-iv-muted text-xs" label={{ value: consumptionLabel, angle: -90, position: 'insideLeft', style: { fill: 'var(--iv-muted)' } }} />
               <Tooltip
                 contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                 itemStyle={{ color: "var(--iv-text)" }}

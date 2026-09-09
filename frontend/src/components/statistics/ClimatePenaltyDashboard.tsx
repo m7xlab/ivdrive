@@ -37,6 +37,9 @@ interface ClimatePenaltyResponse {
   summary: string;
 }
 
+import { useLocale } from "@/lib/locale";
+import { cToF } from "@/lib/units";
+
 export function ClimatePenaltyDashboard({
   vehicleId,
   dateRange,
@@ -44,6 +47,7 @@ export function ClimatePenaltyDashboard({
   vehicleId: string;
   dateRange?: { from: Date; to: Date };
 }) {
+  const { formatConsumption, consumptionLabel, kwhPer100ToDisplay, usesFahrenheit } = useLocale();
   const [data, setData] = useState<ClimatePenaltyResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -82,14 +86,14 @@ export function ClimatePenaltyDashboard({
   }
 
   const fmt = (v: number | null | undefined) =>
-    v === null || v === undefined ? "—" : `${v.toFixed(1)} kWh/100km`;
+    v === null || v === undefined ? "—" : formatConsumption(v);
 
   // Chart: consumption vs temperature, separate lines per state
   const chartData = data.by_temperature.map((row) => ({
-    temperature: row.temperature,
-    HEATING: row.states.HEATING?.avg_kwh_100km ?? null,
-    COOLING: row.states.COOLING?.avg_kwh_100km ?? null,
-    OFF: row.states.OFF?.avg_kwh_100km ?? null,
+    temperature: usesFahrenheit ? Math.round(cToF(row.temperature)) : row.temperature,
+    HEATING: row.states.HEATING?.avg_kwh_100km != null ? kwhPer100ToDisplay(row.states.HEATING.avg_kwh_100km) : null,
+    COOLING: row.states.COOLING?.avg_kwh_100km != null ? kwhPer100ToDisplay(row.states.COOLING.avg_kwh_100km) : null,
+    OFF: row.states.OFF?.avg_kwh_100km != null ? kwhPer100ToDisplay(row.states.OFF.avg_kwh_100km) : null,
   }));
 
   const totalTrips = data.trips_heating + data.trips_cooling + data.trips_off;
@@ -156,11 +160,11 @@ export function ClimatePenaltyDashboard({
                 <XAxis
                   dataKey="temperature"
                   tick={{ fontSize: 12, fill: "var(--iv-text-muted)" }}
-                  label={{ value: "Outside °C", position: "insideBottom", offset: -2, style: { fill: "var(--iv-text-muted)", fontSize: 12 } }}
+                  label={{ value: usesFahrenheit ? "Outside °F" : "Outside °C", position: "insideBottom", offset: -2, style: { fill: "var(--iv-text-muted)", fontSize: 12 } }}
                 />
                 <YAxis
                   tick={{ fontSize: 12, fill: "var(--iv-text-muted)" }}
-                  label={{ value: "kWh/100km", angle: -90, position: "insideLeft", style: { fill: "var(--iv-text-muted)", fontSize: 12 } }}
+                  label={{ value: consumptionLabel, angle: -90, position: "insideLeft", style: { fill: "var(--iv-text-muted)", fontSize: 12 } }}
                 />
                 <Tooltip
                   contentStyle={{
