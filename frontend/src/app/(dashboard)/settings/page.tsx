@@ -2223,7 +2223,11 @@ export default function SettingsPage() {
                     <p className="text-xs text-iv-muted capitalize">
                       {plan.plan_type}
                       {plan.plan_type === "subscription" && plan.monthly_fee_eur != null ? ` · ${formatMoneyFromEur(plan.monthly_fee_eur)}/period` : ""}
-                      {plan.kwh_allotment != null ? ` · ${plan.kwh_allotment} kWh` : ""}
+                      {plan.kwh_allotment != null ? ` · ${plan.kwh_allotment} kWh included` : ""}
+                      {plan.plan_type === "subscription" && plan.monthly_fee_eur != null && plan.kwh_allotment
+                        ? ` · ${formatMoneyFromEur(plan.monthly_fee_eur / plan.kwh_allotment, 3)}/kWh included`
+                        : ""}
+                      {plan.overage_price_per_kwh_eur != null ? ` · walk-up ${formatMoneyFromEur(plan.overage_price_per_kwh_eur, 3)}/kWh` : ""}
                       {plan.price_per_kwh_eur != null ? ` · ${formatMoneyFromEur(plan.price_per_kwh_eur, 4)}/kWh` : ""}
                     </p>
                   </div>
@@ -2282,13 +2286,27 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <label htmlFor="cp-allotment" className="block text-xs font-medium text-iv-muted mb-1.5">Included kWh (optional)</label>
-                      <input id="cp-allotment" type="number" step="0.01" min="0" value={planForm.kwh_allotment} onChange={(e) => setPlanForm({ ...planForm, kwh_allotment: e.target.value })} className={inputClasses} placeholder="250" />
+                      <input id="cp-allotment" type="number" step="0.01" min="0" value={planForm.kwh_allotment} onChange={(e) => setPlanForm({ ...planForm, kwh_allotment: e.target.value })} className={inputClasses} placeholder="300" />
                     </div>
                   </div>
+                  {(() => {
+                    const fee = Number.parseFloat(planForm.monthly_fee_eur);
+                    const allotment = Number.parseFloat(planForm.kwh_allotment);
+                    const feeEur = toEur(fee);
+                    if (feeEur == null || !Number.isFinite(allotment) || allotment <= 0) return null;
+                    return (
+                      <p className="text-xs text-iv-cyan">
+                        Included rate {formatMoneyFromEur(feeEur / allotment, 3)}/kWh (period fee ÷ included kWh). Each charge uses this slice automatically.
+                      </p>
+                    );
+                  })()}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <label htmlFor="cp-overage" className="block text-xs font-medium text-iv-muted mb-1.5">Overage {currency}/kWh</label>
-                      <input id="cp-overage" type="number" step="0.0001" min="0" value={planForm.overage_price_per_kwh_eur} onChange={(e) => setPlanForm({ ...planForm, overage_price_per_kwh_eur: e.target.value })} className={inputClasses} placeholder="0.31" />
+                      <label htmlFor="cp-overage" className="block text-xs font-medium text-iv-muted mb-1.5">Public walk-up rate ({currency}/kWh)</label>
+                      <input id="cp-overage" type="number" step="0.0001" min="0" value={planForm.overage_price_per_kwh_eur} onChange={(e) => setPlanForm({ ...planForm, overage_price_per_kwh_eur: e.target.value })} className={inputClasses} placeholder="0.59" />
+                      <p className="mt-1 text-[11px] leading-4 text-iv-muted">
+                        Used after the included kWh is gone, and to show savings vs paying as a guest. If the network has several speeds, enter the highest rate you want as the conservative figure.
+                      </p>
                     </div>
                     <div>
                       <label htmlFor="cp-sub-rate" className="block text-xs font-medium text-iv-muted mb-1.5">Discounted {currency}/kWh</label>

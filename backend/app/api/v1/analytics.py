@@ -26,8 +26,11 @@ from app.models.charging_plan import UserChargingPlan
 from app.schemas.charging_plan import SuggestCostResponse
 from app.services.charging_plans import (
     count_overlapping_periods,
+    current_subscription_usage,
+    included_allotment_kwh,
     load_user_plans,
     overage_rate_eur,
+    plan_costs_for_sessions,
     suggest_cost_for_session,
     window_for_fees,
 )
@@ -110,7 +113,8 @@ async def get_charging_sessions(
     )
     result = await db.execute(stmt)
     sessions = result.scalars().all()
-    
+    plan_costs = await plan_costs_for_sessions(db, user.id, list(sessions))
+
     return [
         {
             "id": s.id,
@@ -126,6 +130,9 @@ async def get_charging_sessions(
             "latitude": s.latitude,
             "longitude": s.longitude,
             "charging_plan_id": str(s.charging_plan_id) if s.charging_plan_id else None,
+            "plan_name": (plan_costs.get(s.id) or {}).get("plan_name"),
+            "plan_cost_eur": (plan_costs.get(s.id) or {}).get("plan_cost_eur"),
+            "cost_label": (plan_costs.get(s.id) or {}).get("cost_label"),
         }
         for s in sessions
     ]
@@ -205,6 +212,49 @@ async def suggest_charging_session_cost(
     if suggestion["reason"] == "plan_not_found":
         raise HTTPException(status_code=404, detail="Charging plan not found")
     return suggestion
+
+
+class SubscriptionUsage(BaseModel):
+    plan_id: str
+    plan_name: str
+    plan_type: str
+    period_start: str | None = None
+    period_end: str | None = None
+    periodicity: str | None = None
+    allotment_kwh: float | None = None
+    used_kwh: float
+    remaining_kwh: float | None = None
+    used_pct: float | None = None
+    period_fee_eur: float | None = None
+    allocated_eur: float
+    remaining_fee_eur: float | None = None
+    included_rate_eur: float | None = None
+    overage_rate_eur: float | None = None
+    overage_kwh: float
+    overage_eur: float
+    sessions_count: int
+    walk_up_eur: float | None = None
+    saved_vs_public_eur: float | None = None
+
+
+class ChargingPlanUsageResponse(BaseModel):
+    plans: list[SubscriptionUsage]
+
+
+@router.get(
+    "/{vehicle_id}/analytics/charging-plan-usage",
+    response_model=ChargingPlanUsageResponse,
+)
+async def get_charging_plan_usage(
+    vehicle_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    as_of: date | None = None,
+):
+    """Current-period subscription usage (user-wide allotment, hidden when no subscriptions)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+    plans = await current_subscription_usage(db, user.id, as_of=as_of)
+    return ChargingPlanUsageResponse(plans=[SubscriptionUsage(**row) for row in plans])
 
 
 @router.get("/{vehicle_id}/analytics/pulse", response_model=PulseResponse)
@@ -1846,9 +1896,20 @@ class ChargingEconomicsSession(BaseModel):
     provider_name: str | None
     charging_plan_id: str | None = None
     plan_type: str | None = None
+    plan_name: str | None = None
+    plan_cost_eur: float | None = None
 
 
 class ChargingEconomicsTypeTotals(BaseModel):
+    sessions_count: int
+    total_kwh: float
+    total_paid: float
+
+
+class ChargingEconomicsPlanTotals(BaseModel):
+    plan_id: str | None = None
+    plan_name: str
+    plan_type: str
     sessions_count: int
     total_kwh: float
     total_paid: float
@@ -1863,6 +1924,8 @@ class ChargingEconomicsResponse(BaseModel):
     electricity_price_eur_kwh: float
     country_code: str
     by_type: dict[str, ChargingEconomicsTypeTotals]
+    by_plan: list[ChargingEconomicsPlanTotals] = []
+    subscription_usage: list[SubscriptionUsage] = []
     subscription_fees_eur: float
     subscription_savings_eur: float
     total_cost_with_fees_eur: float
@@ -1884,10 +1947,10 @@ async def get_charging_economics(
 
     Uses CountryEconomics.electricity_price_kwh_eur as the home-equivalent price.
 
-    Subscription fees are period line items, not stuffed onto the first session:
-    subscription_fees_eur = monthly_fee × billing periods overlapping the date window.
-    subscription_savings_eur = (kWh on included-kWh plans × comparison rate)
-        − (session paid on those plans + fees). Comparison rate is overage_price_per_kwh_eur.
+    Included-kWh subscriptions allocate period_fee / allotment onto each session.
+    subscription_fees_eur is only the period fee for discounted-rate subscriptions
+    (no allotment), so the fee is not double-counted.
+    subscription_savings_eur = (kWh × public walk-up/overage rate) − allocated plan cost.
     """
     vehicle = await get_user_vehicle(user.id, vehicle_id, db)
     country_code = str(vehicle.country_code) if vehicle.country_code else "LT"
@@ -1923,6 +1986,7 @@ async def get_charging_economics(
 
     plans = await load_user_plans(db, user.id)
     plans_by_id = {p.id: p for p in plans}
+    plan_costs = await plan_costs_for_sessions(db, user.id, list(sessions), plans=plans)
 
     rows: list[ChargingEconomicsSession] = []
     total_energy = 0.0
@@ -1932,19 +1996,27 @@ async def get_charging_economics(
         key: {"sessions_count": 0, "total_kwh": 0.0, "total_paid": 0.0}
         for key in ("subscription", "home", "public", "unknown")
     }
-    sub_kwh = 0.0
-    sub_paid = 0.0
+    plan_buckets: dict[str, dict[str, Any]] = {}
+    sub_allocated = 0.0
     sub_counterfactual = 0.0
 
     for s in sessions:
         energy = s.energy_kwh or 0.0
-        paid = float(s.actual_cost_eur if s.actual_cost_eur is not None else (s.base_cost_eur or 0.0))
+        alloc = plan_costs.get(s.id) or {}
+        plan = plans_by_id.get(s.charging_plan_id) if s.charging_plan_id else None
+        if alloc.get("plan_cost_eur") is not None:
+            paid = float(alloc["plan_cost_eur"])
+        elif s.actual_cost_eur is not None:
+            paid = float(s.actual_cost_eur)
+        else:
+            paid = float(s.base_cost_eur or 0.0)
         base_cost = energy * elec_price
         markup = paid - base_cost
-        plan = plans_by_id.get(s.charging_plan_id) if s.charging_plan_id else None
         plan_type = plan.plan_type if plan else "unknown"
         if plan_type not in type_buckets:
             plan_type = "unknown"
+        plan_name = alloc.get("plan_name") or (plan.name if plan else "Untagged")
+        plan_key = str(s.charging_plan_id) if s.charging_plan_id else "untagged"
 
         rows.append(ChargingEconomicsSession(
             session_id=s.id,
@@ -1957,6 +2029,8 @@ async def get_charging_economics(
             provider_name=s.provider_name,
             charging_plan_id=str(s.charging_plan_id) if s.charging_plan_id else None,
             plan_type=plan_type if plan else None,
+            plan_name=plan_name if plan else None,
+            plan_cost_eur=alloc.get("plan_cost_eur"),
         ))
         total_energy += energy
         total_base += base_cost
@@ -1964,10 +2038,23 @@ async def get_charging_economics(
         type_buckets[plan_type]["sessions_count"] += 1
         type_buckets[plan_type]["total_kwh"] += energy
         type_buckets[plan_type]["total_paid"] += paid
+        bucket = plan_buckets.setdefault(
+            plan_key,
+            {
+                "plan_id": str(s.charging_plan_id) if s.charging_plan_id else None,
+                "plan_name": plan_name,
+                "plan_type": plan_type,
+                "sessions_count": 0,
+                "total_kwh": 0.0,
+                "total_paid": 0.0,
+            },
+        )
+        bucket["sessions_count"] += 1
+        bucket["total_kwh"] += energy
+        bucket["total_paid"] += paid
 
-        if plan and plan.plan_type == "subscription" and plan.kwh_allotment is not None:
-            sub_kwh += energy
-            sub_paid += paid
+        if plan and plan.plan_type == "subscription" and included_allotment_kwh(plan) is not None:
+            sub_allocated += paid
             rate = overage_rate_eur(plan)
             if rate is not None:
                 sub_counterfactual += energy * rate
@@ -1980,6 +2067,8 @@ async def get_charging_economics(
             continue
         if plan.plan_type != "subscription" or plan.monthly_fee_eur is None or plan.subscription_start_date is None:
             continue
+        if included_allotment_kwh(plan) is not None:
+            continue
         periods = count_overlapping_periods(
             plan.subscription_start_date,
             plan.periodicity,
@@ -1988,7 +2077,7 @@ async def get_charging_economics(
         )
         subscription_fees += float(plan.monthly_fee_eur) * periods
 
-    savings = max(0.0, sub_counterfactual - (sub_paid + subscription_fees))
+    savings = max(0.0, sub_counterfactual - sub_allocated)
     by_type = {
         key: ChargingEconomicsTypeTotals(
             sessions_count=int(vals["sessions_count"]),
@@ -1997,6 +2086,18 @@ async def get_charging_economics(
         )
         for key, vals in type_buckets.items()
     }
+    by_plan = [
+        ChargingEconomicsPlanTotals(
+            plan_id=vals["plan_id"],
+            plan_name=vals["plan_name"],
+            plan_type=vals["plan_type"],
+            sessions_count=int(vals["sessions_count"]),
+            total_kwh=round(vals["total_kwh"], 2),
+            total_paid=round(vals["total_paid"], 2),
+        )
+        for vals in plan_buckets.values()
+    ]
+    usage_rows = await current_subscription_usage(db, user.id)
 
     return ChargingEconomicsResponse(
         sessions=rows,
@@ -2007,6 +2108,8 @@ async def get_charging_economics(
         electricity_price_eur_kwh=round(elec_price, 4),
         country_code=country_code,
         by_type=by_type,
+        by_plan=by_plan,
+        subscription_usage=[SubscriptionUsage(**row) for row in usage_rows],
         subscription_fees_eur=round(subscription_fees, 2),
         subscription_savings_eur=round(savings, 2),
         total_cost_with_fees_eur=round(total_paid + subscription_fees, 2),

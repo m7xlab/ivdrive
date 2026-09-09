@@ -138,7 +138,7 @@ import dynamic from "next/dynamic";
 
 import { CarOverviewDashboard } from "@/components/statistics/CarOverviewDashboard";
 
-import { ChargingSessionsDashboard } from "@/components/statistics/ChargingSessionsDashboard";
+import { VehicleChargingPanel } from "@/components/statistics/VehicleChargingPanel";
 
 import { ChargingStatisticsDashboard } from "@/components/statistics/ChargingStatisticsDashboard";
 
@@ -1860,49 +1860,19 @@ export default function VehicleDetailPage() {
 
       {tab === "charging" && (
 
-        <div className="space-y-4">
+        <VehicleChargingPanel
 
-          {/* Current charging info */}
+          vehicleId={vehicleId}
 
-          {status.latest_charging_state && (
+          chargingState={status.latest_charging_state}
 
-            <div className="glass rounded-xl p-5">
+          chargingPowerKw={status.charging_power_kw}
 
-              <h3 className="text-sm font-medium text-iv-muted mb-3">Current Charging Status</h3>
+          remainingChargeTimeMin={status.remaining_charge_time_min}
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          targetSoc={status.target_soc}
 
-                <div>
-
-                  <p className="text-xs text-iv-muted">State</p>
-
-                  <p className={`text-sm font-semibold ${status.latest_charging_state === "CHARGING" ? "text-iv-green" : "text-iv-text"}`}>
-
-                    {formatChargingState(status.latest_charging_state)}
-
-                  </p>
-
-                </div>
-
-                <div><p className="text-xs text-iv-muted">Power</p><p className="text-sm font-semibold text-iv-text">{status.charging_power_kw != null ? `${status.charging_power_kw} kW` : "—"}</p></div>
-
-                <div><p className="text-xs text-iv-muted">Time Remaining</p><p className="text-sm font-semibold text-iv-text">{status.remaining_charge_time_min != null ? `${status.remaining_charge_time_min} min` : "—"}</p></div>
-
-                <div><p className="text-xs text-iv-muted">Target SoC</p><p className="text-sm font-semibold text-iv-cyan">{status.target_soc != null ? `${status.target_soc}%` : "—"}</p></div>
-
-              </div>
-
-            </div>
-
-          )}
-
-
-
-          {/* Sessions */}
-
-          <ChargingSessionsDashboard vehicleId={vehicleId} />
-
-        </div>
+        />
 
       )}
 

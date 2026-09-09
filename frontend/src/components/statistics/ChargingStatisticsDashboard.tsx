@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { format, parseISO } from "date-fns";
-import { BarChart3, Loader2, Zap, Battery, Banknote, PieChart } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart as RePieChart, Pie, Cell, Legend } from "recharts";
+import { BarChart3, Loader2, Zap, Battery, Banknote, PieChart, CreditCard } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart as RePieChart, Pie, Cell } from "recharts";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import type { TimelineRange } from "./StatisticsShell";
@@ -36,14 +36,33 @@ interface Economics {
   subscription_savings_eur: number;
   total_cost_with_fees_eur: number;
   by_type: Record<string, TypeTotals>;
+  by_plan?: Array<{
+    plan_id: string | null;
+    plan_name: string;
+    plan_type: string;
+    sessions_count: number;
+    total_kwh: number;
+    total_paid: number;
+  }>;
+  subscription_usage?: Array<{
+    plan_id: string;
+    plan_name: string;
+    allotment_kwh: number | null;
+    used_kwh: number;
+    remaining_kwh: number | null;
+    used_pct: number | null;
+    allocated_eur: number;
+    remaining_fee_eur: number | null;
+    period_fee_eur: number | null;
+    overage_kwh: number;
+    saved_vs_public_eur: number | null;
+    included_rate_eur: number | null;
+    overage_rate_eur: number | null;
+    sessions_count: number;
+  }>;
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  subscription: "var(--iv-green)",
-  home: "var(--iv-cyan)",
-  public: "#f59e0b",
-  unknown: "var(--iv-muted)",
-};
+const PLAN_COLORS = ["var(--iv-green)", "var(--iv-cyan)", "#f59e0b", "#818cf8", "#fb7185", "var(--iv-muted)"];
 
 function localYmd(d: Date): string {
   const y = d.getFullYear();
@@ -118,11 +137,17 @@ export function ChargingStatisticsDashboard({
       };
     });
 
-  const pieData = economics
-    ? Object.entries(economics.by_type || {})
-        .filter(([, v]) => v && v.total_kwh > 0)
-        .map(([key, v]) => ({ name: key, value: v.total_kwh, paid: v.total_paid }))
-    : [];
+  const pieData = economics?.by_plan?.length
+    ? economics.by_plan
+        .filter((v) => v && v.total_kwh > 0)
+        .map((v) => ({ name: v.plan_name, value: v.total_kwh, paid: v.total_paid }))
+    : economics
+      ? Object.entries(economics.by_type || {})
+          .filter(([, v]) => v && v.total_kwh > 0)
+          .map(([key, v]) => ({ name: key, value: v.total_kwh, paid: v.total_paid }))
+      : [];
+  const pieTotal = pieData.reduce((sum, row) => sum + row.value, 0);
+  const usage = economics?.subscription_usage ?? [];
 
   if (loading) {
     return (
@@ -135,7 +160,7 @@ export function ChargingStatisticsDashboard({
   return (
     <div className="space-y-6">
       <p className="text-sm text-iv-muted">
-        Aggregate charging data by period. Session energy, plus cost breakdown when receipts or charging plans are set.
+        Session energy, named charging-plan usage, and savings versus the public walk-up rate.
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -164,12 +189,12 @@ export function ChargingStatisticsDashboard({
             <Banknote className="h-6 w-6 text-iv-green" />
           </div>
           <div>
-            <p className="text-xs font-medium text-iv-muted">Paid + fees</p>
+            <p className="text-xs font-medium text-iv-muted">Plan cost</p>
             <p className="text-2xl font-bold text-iv-text">
               {formatMoneyFromEur(economics?.total_cost_with_fees_eur ?? economics?.total_paid_eur)}
             </p>
             <p className="text-xs text-iv-muted">
-              fees {formatMoneyFromEur(economics?.subscription_fees_eur ?? 0)}
+              allocated this range
             </p>
           </div>
         </div>
@@ -182,7 +207,7 @@ export function ChargingStatisticsDashboard({
             <p className="text-2xl font-bold text-iv-text">
               {formatMoneyFromEur(economics?.subscription_savings_eur ?? 0)}
             </p>
-            <p className="text-xs text-iv-muted">vs à-la-carte overage rate</p>
+            <p className="text-xs text-iv-muted">vs public walk-up rate</p>
           </div>
         </div>
       </div>
@@ -191,23 +216,127 @@ export function ChargingStatisticsDashboard({
         <div className="overflow-hidden rounded-lg border border-iv-border bg-iv-surface">
           <div className="flex items-center gap-2 border-b border-iv-border px-4 py-3">
             <PieChart className="h-5 w-5 text-iv-muted" />
-            <h3 className="font-medium">Energy by plan type</h3>
+            <h3 className="font-medium">Energy by charging plan</h3>
           </div>
-          <div className="p-4">
-            <ResponsiveContainer width="100%" height={240}>
-              <RePieChart>
-                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} label>
-                  {pieData.map((entry) => (
-                    <Cell key={entry.name} fill={TYPE_COLORS[entry.name] || TYPE_COLORS.unknown} />
-                  ))}
-                </Pie>
-                <Legend />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
-                  formatter={(value: number, name: string) => [`${value.toFixed(1)} kWh`, name]}
-                />
-              </RePieChart>
-            </ResponsiveContainer>
+          <div className="grid items-center gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+            <div className="relative mx-auto w-full max-w-[320px]">
+              <ResponsiveContainer width="100%" height={260}>
+                <RePieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={72}
+                    outerRadius={104}
+                    paddingAngle={2}
+                    stroke="var(--iv-surface)"
+                    strokeWidth={2}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={entry.name} fill={PLAN_COLORS[index % PLAN_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
+                    formatter={(value: number, name: string) => [`${value.toFixed(1)} kWh`, name]}
+                  />
+                </RePieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <p className="text-2xl font-semibold tabular-nums text-iv-text">{pieTotal.toFixed(1)}</p>
+                <p className="text-xs uppercase tracking-wide text-iv-muted">kWh total</p>
+              </div>
+            </div>
+            <ul className="space-y-3">
+              {pieData.map((entry, index) => {
+                const share = pieTotal > 0 ? (entry.value / pieTotal) * 100 : 0;
+                return (
+                  <li key={entry.name} className="flex items-start justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: PLAN_COLORS[index % PLAN_COLORS.length] }}
+                        aria-hidden
+                      />
+                      <span className="truncate text-sm text-iv-text">{entry.name}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm font-semibold tabular-nums text-iv-text">
+                        {entry.value.toFixed(1)} kWh
+                      </span>
+                      <span className="text-xs tabular-nums text-iv-muted">{share.toFixed(0)}%</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {usage.length > 0 && (
+        <div className="overflow-hidden rounded-lg border border-iv-border bg-iv-surface">
+          <div className="flex items-center gap-2 border-b border-iv-border px-4 py-3">
+            <CreditCard className="h-5 w-5 text-iv-muted" />
+            <h3 className="font-medium">Subscription usage (current billing period)</h3>
+          </div>
+          <div className="space-y-4 p-4">
+            {usage.map((plan) => {
+              const pct = plan.used_pct ?? 0;
+              return (
+                <div key={plan.plan_id}>
+                  <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <p className="font-medium text-iv-text">{plan.plan_name}</p>
+                    <p className="text-xs text-iv-muted">
+                      {plan.sessions_count} session{plan.sessions_count === 1 ? "" : "s"} this period
+                    </p>
+                  </div>
+                  {plan.allotment_kwh != null ? (
+                    <>
+                      <div className="h-2 overflow-hidden rounded-full bg-iv-border">
+                        <div
+                          className="h-full rounded-full bg-iv-green"
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                        <p className="text-iv-muted">
+                          Used <span className="font-medium text-iv-text">{plan.used_kwh.toFixed(2)} kWh</span>
+                        </p>
+                        <p className="text-iv-muted">
+                          Left <span className="font-medium text-iv-text">{plan.remaining_kwh?.toFixed(2) ?? "—"} kWh</span>
+                        </p>
+                        <p className="text-iv-muted">
+                          On plan <span className="font-medium text-iv-text">{formatMoneyFromEur(plan.allocated_eur)}</span>
+                        </p>
+                        <p className="text-iv-muted">
+                          Fee left <span className="font-medium text-iv-text">{formatMoneyFromEur(plan.remaining_fee_eur)}</span>
+                        </p>
+                      </div>
+                      {plan.overage_kwh > 0 && (
+                        <p className="mt-1 text-xs text-amber-400">
+                          {plan.overage_kwh.toFixed(2)} kWh over included at the public walk-up rate
+                        </p>
+                      )}
+                      {plan.saved_vs_public_eur != null && plan.overage_rate_eur != null && (
+                        <p className="mt-1 text-xs text-iv-cyan">
+                          Saved {formatMoneyFromEur(plan.saved_vs_public_eur)} vs public walk-up
+                          {plan.included_rate_eur != null
+                            ? ` (${formatMoneyFromEur(plan.included_rate_eur, 3)}/kWh included)`
+                            : ""}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-iv-muted">
+                      {plan.used_kwh.toFixed(2)} kWh · {formatMoneyFromEur(plan.allocated_eur)} on plan
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

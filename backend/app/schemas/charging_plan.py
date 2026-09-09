@@ -67,7 +67,13 @@ class SuggestCostResponse(BaseModel):
     plan_type: str | None = None
     suggested_provider_name: str | None = None
     suggested_cost_eur: float | None = None
+    suggested_paid_eur: float | None = None
     reason: str
     remaining_kwh: float | None = None
+    remaining_after_kwh: float | None = None
+    remaining_fee_eur: float | None = None
     allotment_kwh: float | None = None
+    included_rate_eur: float | None = None
+    overage_rate_eur: float | None = None
+    period_fee_eur: float | None = None
     matched_by: str | None = None

@@ -19,26 +19,44 @@ interface SuggestCost {
   plan_type: string | null;
   suggested_provider_name: string | null;
   suggested_cost_eur: number | null;
+  suggested_paid_eur: number | null;
   reason: string;
   remaining_kwh: number | null;
+  remaining_after_kwh: number | null;
+  remaining_fee_eur: number | null;
   allotment_kwh: number | null;
+  included_rate_eur: number | null;
+  overage_rate_eur: number | null;
+  period_fee_eur: number | null;
   matched_by: string | null;
 }
 
-function suggestionNote(s: SuggestCost | null): string | null {
+function suggestionNote(
+  s: SuggestCost | null,
+  formatMoneyFromEur: (amount: number | null | undefined, places?: number) => string
+): string | null {
   if (!s?.plan_name) return null;
-  if (s.reason === "within_allotment") {
-    const left = s.remaining_kwh != null ? ` · ${s.remaining_kwh} kWh remaining` : "";
-    return `Suggested from ${s.plan_name} (within allotment${left})`;
+  if (s.reason === "within_allotment" || s.reason === "mixed") {
+    const allocated = s.suggested_cost_eur != null ? formatMoneyFromEur(s.suggested_cost_eur) : null;
+    const leftKwh = s.remaining_after_kwh != null ? `${s.remaining_after_kwh} kWh left` : null;
+    const leftFee = s.remaining_fee_eur != null ? `${formatMoneyFromEur(s.remaining_fee_eur)} of the period fee left` : null;
+    const bits = [allocated ? `${allocated} on ${s.plan_name}` : s.plan_name, leftKwh, leftFee].filter(Boolean);
+    return `${bits.join(" · ")}. Leave paid at 0 if you did not pay at the charger.`;
   }
-  if (s.reason === "overage") return `Suggested from ${s.plan_name} (overage)`;
+  if (s.reason === "overage") return `${s.plan_name}: included kWh is used. Public walk-up applies to this charge.`;
   if (s.reason === "per_kwh") return `Suggested from ${s.plan_name} (per kWh)`;
   if (s.reason === "before_start") return `${s.plan_name} does not apply before its start date`;
   if (s.matched_by === "geofence") return `Matched ${s.plan_name} by location`;
   return `Suggested from ${s.plan_name}`;
 }
 
-export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) {
+export function ChargingSessionsDashboard({
+  vehicleId,
+  onChanged,
+}: {
+  vehicleId: string;
+  onChanged?: () => void;
+}) {
   const { currency, fromEur, toEur, formatMoneyFromEur } = useLocale();
   const [sessions, setSessions] = useState<any[]>([]);
   const [plans, setPlans] = useState<ChargingPlan[]>([]);
@@ -74,14 +92,19 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
 
   const applySuggestion = (s: SuggestCost, session: any, overwriteCost: boolean) => {
     setSuggestion(s);
+    const leaveUnpaid =
+      s.reason === "within_allotment" ||
+      s.reason === "mixed" ||
+      s.suggested_paid_eur == null ||
+      s.suggested_paid_eur <= 0;
+    const fillPaid = overwriteCost && !leaveUnpaid;
     setEditForm((prev) => ({
       ...prev,
       charging_plan_id: s.plan_id || prev.charging_plan_id,
       provider_name: s.suggested_provider_name || prev.provider_name || session.provider_name || "",
-      actual_cost_eur:
-        overwriteCost && s.suggested_cost_eur != null
-          ? String(fromEur(s.suggested_cost_eur) ?? "")
-          : prev.actual_cost_eur,
+      actual_cost_eur: overwriteCost
+        ? (fillPaid ? String(fromEur(s.suggested_paid_eur) ?? "") : "")
+        : prev.actual_cost_eur,
     }));
   };
 
@@ -121,16 +144,19 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
       setSuggestion(null);
       return;
     }
+    const sessionId = editingSession.id;
     try {
       const formKwh = Number.parseFloat(editForm.energy_kwh);
       const s = await api.suggestChargingSessionCost(
         vehicleId,
-        editingSession.id,
+        sessionId,
         planId,
         Number.isFinite(formKwh) ? formKwh : undefined
       );
+      if (editingIdRef.current !== sessionId) return;
       applySuggestion(s, editingSession, editingSession.actual_cost_eur == null);
     } catch {
+      if (editingIdRef.current !== sessionId) return;
       setSuggestion(null);
     }
   };
@@ -149,7 +175,8 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
         charging_plan_id: editForm.charging_plan_id || null,
       });
       setEditingSession(null);
-      fetchSessions();
+      await fetchSessions();
+      onChanged?.();
     } catch (err) {
       console.error("Update failed", err);
     }
@@ -162,8 +189,20 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
   return (
     <div className="space-y-4">
       {sessions.map((session) => {
-        const hasPaid = session.actual_cost_eur != null;
-        const displayCost = hasPaid ? session.actual_cost_eur : session.base_cost_eur;
+        const hasPlanCost = session.plan_cost_eur != null;
+        const hasPaid = session.actual_cost_eur != null && Number(session.actual_cost_eur) > 0;
+        const displayCost = hasPlanCost
+          ? session.plan_cost_eur
+          : hasPaid
+            ? session.actual_cost_eur
+            : session.base_cost_eur;
+        const costLabel = hasPlanCost
+          ? (session.cost_label || "On plan")
+          : hasPaid
+            ? "Paid"
+            : displayCost != null
+              ? "Est. Base"
+              : "";
         return (
           <div key={session.id} className="glass rounded-xl p-4 sm:p-5 hover:bg-iv-surface/50 transition-colors border border-iv-border">
             <div className="flex items-center justify-between">
@@ -204,7 +243,7 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
                     <Banknote className="h-4 w-4 text-emerald-500" />
                     {displayCost != null ? formatMoneyFromEur(displayCost) : "--"}
                   </p>
-                  <p className="text-sm text-iv-text-muted">{hasPaid ? "Paid" : "Est. Base"}</p>
+                  <p className="text-sm text-iv-text-muted">{costLabel}</p>
                 </div>
               </div>
             </div>
@@ -238,8 +277,8 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
                 {selectedPlan && (
                   <p className="mt-1 text-xs text-iv-text-muted capitalize">{selectedPlan.plan_type}</p>
                 )}
-                {suggestionNote(suggestion) && (
-                  <p className="mt-1 text-xs text-iv-cyan">{suggestionNote(suggestion)}</p>
+                {suggestionNote(suggestion, formatMoneyFromEur) && (
+                  <p className="mt-1 text-xs text-iv-cyan">{suggestionNote(suggestion, formatMoneyFromEur)}</p>
                 )}
                 <Link href="/settings" className="mt-1 inline-block text-xs text-iv-cyan hover:underline">
                   Add plan in Settings
@@ -265,6 +304,9 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
                     step="0.01"
                     value={editForm.energy_kwh}
                     onChange={(e) => setEditForm({ ...editForm, energy_kwh: e.target.value })}
+                    onBlur={() => {
+                      if (editForm.charging_plan_id) onPlanChange(editForm.charging_plan_id);
+                    }}
                     className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
                     placeholder="29.83"
                   />
@@ -283,6 +325,13 @@ export function ChargingSessionsDashboard({ vehicleId }: { vehicleId: string }) 
                   />
                 </div>
               </div>
+              {suggestion?.suggested_cost_eur != null &&
+                (suggestion.reason === "within_allotment" || suggestion.reason === "mixed") && (
+                <p className="text-sm text-iv-text">
+                  On plan: <span className="font-semibold tabular-nums">{formatMoneyFromEur(suggestion.suggested_cost_eur)}</span>
+                  <span className="text-iv-text-muted"> (counted from the subscription, not as paid at the charger)</span>
+                </p>
+              )}
               <div className="mt-6 flex justify-end gap-3">
                 <button type="button" onClick={() => setEditingSession(null)} className="px-4 py-2 rounded-xl text-sm font-medium text-iv-text bg-iv-surface hover:bg-iv-border transition-colors">
                   Cancel
