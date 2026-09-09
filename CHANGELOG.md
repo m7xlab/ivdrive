@@ -13,6 +13,7 @@ Major feature release on top of v1.1.3: six-method Battery SoH v2 (weighted-medi
 - **Invite registration UX** (PR #182): register page accepts a pasted invite token (or a full invite URL); invite emails include the raw token as well as the button link.
 
 ### Fixed
+- **Hub `ivdrive-web` login CSP**: the multi-arch workflow baked `NEXT_PUBLIC_API_URL=http://localhost:8000` into the browser bundle, so production login hit the visitor’s machine and was blocked by `connect-src 'self'`. Hub `m7xlab/ivdrive-web:v1.1.14` is rebuilt with an empty URL (same-origin `/api` via Next rewrites). **CARTO tile key**: `getCartoTileUrl` appended a literal `?key=***}` instead of the env value — maps 401’d even when the key was baked.
 - **Charging taper SoH sign** (PR #182): DC power drop (`(recent − earlier) / earlier`) was negated into a SoH **increase**. Power drop now lowers SoH (clamped ±5 points). Cached combined rows still include the old sign until recompute.
 - **Geo inflight hang on cancel** (PR #182): `CancelledError` is `BaseException`, not `Exception`. If the leader reverse-geocode request is cancelled, waiters on the same lat/lon Future are now resolved in `finally`.
 - **SoH method cache mix** (PR #182): per-method breakdown is loaded with the combined row’s `computed_at` so a partial older persist cannot mix into the dashboard.
