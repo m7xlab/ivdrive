@@ -1,6 +1,9 @@
 # Build iVDrive Docker images for linux/amd64 and linux/arm64, push to Docker Hub.
-# Runs only when a new tag (and release) is pushed. Requires secrets: DOCKERHUB_ACCESS_KEY
-# (and DOCKERHUB_USERNAME if not m7xlab). Images: m7xlab/ivdrive-api, m7xlab/ivdrive-collector, m7xlab/ivdrive-web
+# Runs when a v* tag is pushed (api + collector + web, also retags :latest).
+# workflow_dispatch can rebuild a tag; default is web-only so a login/CSP hotfix
+# cannot overwrite production api/collector. Requires secrets: DOCKERHUB_ACCESS_KEY
+# and NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY (inlined into the web bundle). Never bake
+# NEXT_PUBLIC_API_URL to http://localhost:8000 — production CSP is connect-src 'self'.
 
 name: Build multi-arch images
 
@@ -9,6 +12,22 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Registry tag to push (v1.1.14 or latest)
+        required: false
+        default: latest
+      services:
+        description: Images to rebuild
+        type: choice
+        options:
+          - web
+          - all
+        default: web
+      update_latest:
+        description: Also retag :latest
+        type: boolean
+        default: false
 
 env:
   COMPOSE_PROJECT_NAME: ivdrive
@@ -21,11 +40,25 @@ jobs:
     steps:
       - name: Set image tag
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RAW_TAG: ${{ github.event.inputs.image_tag }}
+          UPDATE_LATEST: ${{ github.event.inputs.update_latest }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="${RAW_TAG:-latest}"
           else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          case "$TAG" in
+            latest|v[0-9]*) ;;
+            *) echo "Refusing image tag: $TAG" >&2; exit 1 ;;
+          esac
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] || [ "$TAG" = "latest" ] || [ "$UPDATE_LATEST" = "true" ]; then
+            echo "push_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
@@ -40,6 +73,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_ACCESS_KEY }}
 
       - name: Build and push API image
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.services == 'all'
         uses: docker/build-push-action@v6
         with:
           context: ./backend
@@ -49,9 +83,10 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-api:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-api:latest
+            ${{ steps.meta.outputs.push_latest == 'true' && format('{0}/{1}/ivdrive-api:latest', env.REGISTRY, env.IMAGE_NAMESPACE) || format('{0}/{1}/ivdrive-api:{2}', env.REGISTRY, env.IMAGE_NAMESPACE, steps.meta.outputs.tag) }}
 
       - name: Build and push Collector image
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.services == 'all'
         uses: docker/build-push-action@v6
         with:
           context: ./backend
@@ -61,8 +96,21 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-collector:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-collector:latest
+            ${{ steps.meta.outputs.push_latest == 'true' && format('{0}/{1}/ivdrive-collector:latest', env.REGISTRY, env.IMAGE_NAMESPACE) || format('{0}/{1}/ivdrive-collector:{2}', env.REGISTRY, env.IMAGE_NAMESPACE, steps.meta.outputs.tag) }}
 
+      - name: Require CARTO basemap key
+        env:
+          CARTO_KEY: ${{ secrets.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY }}
+        run: |
+          if [ -z "$CARTO_KEY" ]; then
+            echo "Set repo secret NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY before building the web image." >&2
+            exit 1
+          fi
+
+      # NEXT_PUBLIC_* is inlined by `next build`. Leave NEXT_PUBLIC_API_URL empty so
+      # the browser uses same-origin `/api/*` (Next rewrites to ivdrive-api). Baking
+      # http://localhost:8000 makes production login hit the visitor's machine and
+      # CSP connect-src 'self' blocks it. CARTO key is client-side by design.
       - name: Build and push Web image
         uses: docker/build-push-action@v6
         with:
@@ -71,7 +119,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            NEXT_PUBLIC_API_URL=http://localhost:8000
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY=${{ secrets.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-web:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/ivdrive-web:latest
+            ${{ steps.meta.outputs.push_latest == 'true' && format('{0}/{1}/ivdrive-web:latest', env.REGISTRY, env.IMAGE_NAMESPACE) || format('{0}/{1}/ivdrive-web:{2}', env.REGISTRY, env.IMAGE_NAMESPACE, steps.meta.outputs.tag) }}

@@ -16,11 +16,11 @@
  * Returns a tile URL suitable for Leaflet `TileLayer.url`.
  *
  * @param isDark - whether to use the dark theme variant
- * @returns the tile URL with optional `?key=***` query param appended
+ * @returns the tile URL with optional `?key=` query param appended
  */
 export function getCartoTileUrl(isDark: boolean): string {
   const key = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_API_KEY;
   const theme = isDark ? "dark_all" : "light_all";
-  const keySuffix = key ? `?key=***}` : "";
+  const keySuffix = key ? `?key=${key}` : "";
   return `https://{s}.basemaps.cartocdn.com/${theme}/{z}/{x}/{y}{r}.png${keySuffix}`;
 }
