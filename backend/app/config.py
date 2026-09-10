@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     default_active_interval_seconds: int = 300
     collector_debug: bool = False
     collect_raw_data: bool = False
+    # Parked-path experiment (v1.1.14.1): log + persist get_charging / driving-range
+    # probes without switching to Active. Off by default. Does not change sleep rules.
+    collect_parked_probes: bool = False
     skoda_client_debug: bool = False
 
     # Embedding worker — drains ai_embeddings_queue and stores into ai_embeddings.

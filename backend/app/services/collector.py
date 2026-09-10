@@ -29,6 +29,44 @@ from app.services.skoda_auth import SkodaAuthClient
 logger = logging.getLogger(__name__)
 
 
+def _to_raw(obj) -> dict | None:
+    """Serialize a Skoda client response for collector_raw_responses JSONB."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj
+    try:
+        return obj.model_dump(mode="json")
+    except Exception:
+        logger.debug("Could not JSON-serialize parked/raw payload of type %s", type(obj).__name__)
+        return None
+
+
+def _charging_probe_fields(charging) -> dict:
+    status = getattr(charging, "status", None) if charging is not None else None
+    battery = getattr(status, "battery", None) if status is not None else None
+    return {
+        "state": getattr(status, "state", None),
+        "charge_type": getattr(status, "charge_type", None),
+        "charge_power_kw": getattr(status, "charge_power_in_kw", None),
+        "remaining_time_min": getattr(status, "remaining_time_to_fully_charged_in_minutes", None),
+        "charging_soc": getattr(battery, "state_of_charge_in_percent", None),
+    }
+
+
+def _driving_range_soc(driving) -> int | None:
+    eng = getattr(driving, "primary_engine_range", None) if driving is not None else None
+    soc = getattr(eng, "current_so_c_in_percent", None)
+    if soc is None:
+        return None
+    if isinstance(soc, int):
+        return soc
+    try:
+        return int(soc)
+    except (TypeError, ValueError):
+        return None
+
+
 def _extract_render_url(data: dict, preferred_view: str) -> str | None:
     """Extract the best render URL from garage or renders API response.
 
@@ -618,6 +656,42 @@ class DataCollector:
                             "Smart poll: vehicle %s PARKED (online=%s, unchanged or unreachable).",
                             user_vehicle_id, is_online,
                         )
+                    # Optional parked-probe archive (v1.1.14.1). Does not set car_active
+                    # and does not reschedule to active_interval. Extra call: driving-range.
+                    # Isolated from parked health/auth: probe failures must not roll back
+                    # ConnectionState or feed cycle_errors into _apply_health.
+                    if settings.collect_parked_probes and is_online:
+                        try:
+                            probe_errors: list = []
+                            driving_probe = await _safe(
+                                api.get_driving_range(vin), "driving_range", user_vehicle_id, probe_errors
+                            )
+                            fields = _charging_probe_fields(charging)
+                            range_soc = _driving_range_soc(driving_probe)
+                            logger.info(
+                                "Parked probe: vehicle %s state=%s type=%s kW=%s remain_min=%s "
+                                "charging_soc=%s range_soc=%s",
+                                user_vehicle_id,
+                                fields["state"],
+                                fields["charge_type"],
+                                fields["charge_power_kw"],
+                                fields["remaining_time_min"],
+                                fields["charging_soc"],
+                                range_soc,
+                            )
+                            session.add(CollectorRawResponse(
+                                user_vehicle_id=user_vehicle_id,
+                                captured_at=now,
+                                raw_connection_status=_to_raw(conn_resp),
+                                raw_charging=_to_raw(charging),
+                                raw_driving_range=_to_raw(driving_probe),
+                                raw_air_conditioning=_to_raw(ac_resp),
+                            ))
+                        except Exception:
+                            logger.exception(
+                                "Parked probe failed for vehicle %s; parked health commit continues",
+                                user_vehicle_id,
+                            )
                     # Refresh connection-health every cycle (one cheap UPDATE) so the UI can
                     # detect when we stop being able to reach the vehicle.
                     _apply_health(cs, conn_resp is not None, cycle_errors, now)
@@ -1111,19 +1185,6 @@ class DataCollector:
                 # ── Raw API payload archive ─────────────────────────────────
                 # Serialize every response (pydantic → dict) and store as JSONB.
                 # NULL columns = endpoint was not called or returned an error.
-                def _to_raw(obj) -> dict | None:
-                    if obj is None:
-                        return None
-                    if isinstance(obj, dict):
-                        return obj
-                    try:
-                        return obj.model_dump(mode="json")
-                    except Exception:
-                        try:
-                            return obj.__dict__
-                        except Exception:
-                            return None
-
                 if settings.collect_raw_data:
                     session.add(CollectorRawResponse(
                         user_vehicle_id=user_vehicle_id,

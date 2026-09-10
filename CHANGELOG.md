@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.1.14.1] - 2026-09-10
+Collector-only experiment on top of v1.1.14 sleep rules. Does **not** treat `CONNECT_CABLE` as Active.
+
+### Added
+- **Parked probes** (`COLLECT_PARKED_PROBES`): while parked, optionally log and persist `get_charging` + `driving-range` SoC into `collector_raw_responses` (connection/charging/range/HVAC only — no GPS). Extra Škoda call: driving-range. Interval stays `parked_interval_seconds`. Off by default. Rebuild **collector** only. No Alembic.
+
 ## [v1.1.14] - 2026-09-08
 Major feature release on top of v1.1.3: six-method Battery SoH v2 (weighted-median combined), trip-gap vampire drain, user charging plans, display locale (ECB FX + metric/UK/US units), CARTO basemap API keys, Nominatim/Photon geo cache, and a Node 24 frontend image. Storage stays km / °C / EUR / kWh; conversion is display-only.
 
