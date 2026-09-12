@@ -23,23 +23,6 @@ from app.services.external_apis import reverse_geocode_country
 
 logger = logging.getLogger(__name__)
 
-# Škoda often never reports state=CHARGING. Home AC shows CONNECT_CABLE with
-# charge_power_kw=0 the whole time while SoC still rises. Smart-poll used to
-# treat that as parked (30 min), so charging_sessions were never opened.
-PLUGGED_IN_STATES = frozenset({
-    "CHARGING",
-    "READY_FOR_CHARGING",
-    "CONNECT_CABLE",
-    "CHARGING_INTERRUPTED",
-    "CONSERVING",
-})
-
-
-def is_plugged_in(state: str | None) -> bool:
-    """True when the vehicle is on a cable / charging, not merely parked."""
-    return bool(state) and state.upper() in PLUGGED_IN_STATES
-
-
 async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
     """
     Runs after telemetry is gathered. 
@@ -160,7 +143,7 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
 
 
             # --- CHARGING SESSIONS LOGIC ---
-            is_charging = is_plugged_in(latest_charge.state if latest_charge else None)
+            is_charging = latest_charge and latest_charge.state in ("CHARGING", "READY_FOR_CHARGING")
             
             open_charge_res = await session.execute(
                 select(ChargingSession).where(ChargingSession.user_vehicle_id == user_vehicle_id, ChargingSession.session_end.is_(None))
