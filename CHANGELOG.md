@@ -1,14 +1,5 @@
 # Changelog
 
-## [v1.1.15] - 2026-09-10
-Collector hotfix: parked home charging was missed when Škoda reported `CONNECT_CABLE` instead of `CHARGING`. No schema change. No new UI.
-
-### Fixed
-- **Home charging sessions dropped** (`CONNECT_CABLE`): smart-poll treated only `state == "CHARGING"` as active, so a plugged-in parked car stayed on the 30‑minute interval and `charging_sessions` was never opened. Škoda often never emits `CHARGING` (power stays 0 kW) while SoC still rises — MySkoda still has the history; iVDrive only sees live polls. Collector and analytics now treat plugged-in states (`CHARGING`, `READY_FOR_CHARGING`, `CONNECT_CABLE`, `CHARGING_INTERRUPTED`, `CONSERVING`) as charging. Rebuild **api + collector**. Web unchanged. No Alembic.
-
-### Database
-- Head remains `c5849a2e1b70`. No new migration.
-
 ## [v1.1.14] - 2026-09-08
 Major feature release on top of v1.1.3: six-method Battery SoH v2 (weighted-median combined), trip-gap vampire drain, user charging plans, display locale (ECB FX + metric/UK/US units), CARTO basemap API keys, Nominatim/Photon geo cache, and a Node 24 frontend image. Storage stays km / °C / EUR / kWh; conversion is display-only.
 
