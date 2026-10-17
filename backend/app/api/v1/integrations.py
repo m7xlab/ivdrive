@@ -131,6 +131,8 @@ async def upsert_abrp_connection(
     await _get_owned_vehicle(vehicle_id, user, db)
     conn = await _get_or_create_conn(db, vehicle_id)
 
+    # Reject enable-before-token before mutating the row. Covers both:
+    # token already stored (body.token is None) and a non-empty new token.
     will_have_token = bool(conn.token_encrypted) if body.token is None else bool(body.token)
     if body.enabled is True and not will_have_token:
         raise HTTPException(status_code=400, detail="An ABRP vehicle token is required before enabling")
@@ -141,8 +143,6 @@ async def upsert_abrp_connection(
         enabled=body.enabled,
         car_model_typecode=body.car_model_typecode,
     )
-    if body.enabled is True and not conn.token_encrypted:
-        raise HTTPException(status_code=400, detail="An ABRP vehicle token is required before enabling")
 
     await db.commit()
     await db.refresh(user)
