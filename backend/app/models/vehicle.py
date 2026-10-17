@@ -103,6 +103,10 @@ class UserVehicle(TimestampMixin, Base):
         back_populates="user_vehicle", cascade="all, delete-orphan", lazy="noload"
     )
 
+    abrp_connection: Mapped["ABRPConnection | None"] = relationship(
+        back_populates="user_vehicle", cascade="all, delete-orphan", uselist=False, lazy="selectin"
+    )
+
 
 class ConnectorSession(TimestampMixin, Base):
     __tablename__ = "connector_sessions"
@@ -152,3 +156,25 @@ class ConnectorAuthEvent(TimestampMixin, Base):
     details: Mapped[dict | None] = mapped_column(JSONB)
 
     session: Mapped["ConnectorSession"] = relationship(back_populates="auth_events")
+
+
+class ABRPConnection(TimestampMixin, Base):
+    """Per-vehicle ABRP (A Better Route Planner) telemetry integration settings."""
+
+    __tablename__ = "abrp_connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=generate_uuid)
+    user_vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_vehicles.id", ondelete="CASCADE"), unique=True, nullable=False, index=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    token_encrypted: Mapped[str | None] = mapped_column(Text)
+    car_model_typecode: Mapped[str | None] = mapped_column(String(100))
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_text: Mapped[str | None] = mapped_column(String(255))
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    backoff_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_charge_pct: Mapped[float | None] = mapped_column(Float)
+    next_charge_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="abrp_connection")
