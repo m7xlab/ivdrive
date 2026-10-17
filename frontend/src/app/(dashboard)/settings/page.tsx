@@ -2,7 +2,7 @@
 
 
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 
 import {
 
@@ -54,6 +54,7 @@ import {
 
   EyeOff,
   AlertTriangle,
+  BatteryCharging,
 } from "lucide-react";
 
 import Image from "next/image";
@@ -63,6 +64,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 
 import { ThemeSection } from "./theme-section";
+import { AbrpSection } from "./abrp-section";
 
 import { ECB_CURRENCIES } from "@/lib/currency";
 
@@ -216,6 +218,69 @@ function SectionCard({ icon: Icon, title, children }: { icon: React.ElementType;
 
 }
 
+type SettingsCategory = "account" | "vehicle" | "security" | "energy" | "integrations" | "data";
+
+/** Render children only when this settings category is active. */
+function Cat({ active, id, children }: { active: SettingsCategory; id: SettingsCategory; children: ReactNode }) {
+  return active === id ? <>{children}</> : null;
+}
+
+const SETTINGS_CATEGORIES: Array<{
+  id: SettingsCategory;
+  label: string;
+  icon: React.ElementType;
+  hint: string;
+}> = [
+  { id: "account", label: "Account", icon: User, hint: "Profile, preferences, theme" },
+  { id: "vehicle", label: "Vehicles", icon: Car, hint: "Linked cars & sync" },
+  { id: "security", label: "Security", icon: Shield, hint: "Password & 2FA" },
+  { id: "energy", label: "Energy", icon: BatteryCharging, hint: "Geofences & charging plans" },
+  { id: "integrations", label: "Integrations", icon: PlugZap, hint: "ABRP & external services" },
+  { id: "data", label: "Data & Privacy", icon: Database, hint: "Export, logout, danger zone" },
+];
+
+function SettingsCategoryNav({
+  active,
+  onChange,
+}: {
+  active: SettingsCategory;
+  onChange: (id: SettingsCategory) => void;
+}) {
+  return (
+    <nav aria-label="Settings sections" className="w-full lg:w-56 lg:sticky lg:top-6 shrink-0">
+      <ul className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0 -mx-1 px-1">
+        {SETTINGS_CATEGORIES.map((c) => {
+          const Icon = c.icon;
+          const isActive = active === c.id;
+          return (
+            <li key={c.id} className="shrink-0 lg:shrink">
+              <button
+                type="button"
+                onClick={() => onChange(c.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={[
+                  "w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-iv-green/15 text-iv-green border border-iv-green/25"
+                    : "text-iv-muted hover:text-iv-text hover:bg-iv-surface border border-transparent",
+                ].join(" ")}
+              >
+                <Icon size={16} className="flex-shrink-0" />
+                <span className="flex-1">
+                  <span className="block">{c.label}</span>
+                  <span className="hidden lg:block text-[11px] font-normal opacity-70 mt-0.5">
+                    {c.hint}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 
 
 const inputClasses = "w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-green/50 transition-colors";
@@ -306,6 +371,7 @@ export default function SettingsPage() {
   const { currency, unitSystem, fxRate, fxAsOf, fromEur, toEur, formatMoneyFromEur, formatDistance, kmToDisplay, displayToKm } = useLocale();
 
   const [toast, setToast] = useState<{ status: "success" | "error"; message: string } | null>(null);
+  const [category, setCategory] = useState<SettingsCategory>("account");
 
 
 
@@ -1030,18 +1096,22 @@ export default function SettingsPage() {
 
   return (
 
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
 
-      <h1 className="text-2xl font-bold text-iv-text">Settings</h1>
-
-
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-2xl font-bold text-iv-text">Settings</h1>
+      </div>
 
       {toast && <Toast status={toast.status} message={toast.message} onDismiss={() => setToast(null)} />}
 
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        <SettingsCategoryNav active={category} onChange={setCategory} />
 
+        <div className="flex-1 min-w-0 w-full space-y-6">
 
       {/* Preferences */}
 
+      <Cat active={category} id="account">
       <SectionCard icon={Sliders} title="Preferences">
 
          <div className="flex items-center justify-between">
@@ -1065,11 +1135,11 @@ export default function SettingsPage() {
          </div>
 
       </SectionCard>
-
-
+      </Cat>
 
       {/* Vehicles */}
 
+      <Cat active={category} id="vehicle">
       <SectionCard icon={Car} title="Vehicles">
 
         <div className="space-y-2">
@@ -1596,11 +1666,11 @@ export default function SettingsPage() {
         </div>
 
       </SectionCard>
-
-
+      </Cat>
 
       {/* Theme Settings */}
 
+      <Cat active={category} id="account">
       <SectionCard icon={Monitor} title="Theme Preferences">
 
         <ThemeSection />
@@ -1672,11 +1742,11 @@ export default function SettingsPage() {
         </div>
 
       </SectionCard>
-
-
+      </Cat>
 
       {/* Change Password */}
 
+      <Cat active={category} id="security">
       <SectionCard icon={KeyRound} title="Change Password">
 
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handlePasswordChange(); }}>
@@ -2048,11 +2118,11 @@ export default function SettingsPage() {
         </div>
 
       </SectionCard>
-
-
+      </Cat>
 
       {/* Geofences */}
 
+      <Cat active={category} id="energy">
       <SectionCard icon={MapPin} title="Geofences">
 
         <div className="space-y-4">
@@ -2340,10 +2410,17 @@ export default function SettingsPage() {
           )}
         </div>
       </SectionCard>
+      </Cat>
 
-
+      {/* ABRP Integration */}
+      <Cat active={category} id="integrations">
+      <SectionCard icon={PlugZap} title="Integrations — ABRP">
+        <AbrpSection />
+      </SectionCard>
+      </Cat>
 
       {/* Data Sovereignty */}
+      <Cat active={category} id="data">
 
       {exportEnabled && (
 
@@ -2542,8 +2619,9 @@ export default function SettingsPage() {
         </div>
 
       </SectionCard>
-
-
+      </Cat>
+      </div>
+      </div>
 
       {/* Re-authenticate modal */}
 

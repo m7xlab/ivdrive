@@ -67,6 +67,19 @@ This guide is for running the full iVDrive stack (API, collector, frontend, data
 - **LOG_LEVEL** — `info` (default) or `debug`.
 - **COLLECTOR_DEBUG** — Set to `true` to log parsed API response summaries in the collector (for troubleshooting).
 
+### ABRP Telemetry (optional)
+
+iVDrive can push live vehicle data (SOC, charging status/power, position, range, odometer) to [A Better Route Planner](https://abetterrouteplanner.com) so ABRP can use it for live route planning. **Off by default.**
+
+Each user configures their own free ABRP credentials in the UI (stored encrypted):
+
+1. **API key** — generate a free Telemetry API key in your ABRP account under [Manage telemetry API keys](https://abetterrouteplanner.com/resources/api).
+2. **Car token** — one per vehicle, from the ABRP app (Live Data → Custom connection).
+
+Then in iVDrive: **Settings → Integrations — ABRP**, save the API key once, and paste each vehicle's car token with sync enabled. No server-side ABRP configuration is required.
+
+**Limitation:** ABRP Custom connections only expose Driving and Charging data. Remote vehicle control from ABRP ("Remote data") is not supported — that is an ABRP-side limitation of the Telemetry API, not an iVDrive gap.
+
 ## Backups
 
 - Back up the PostgreSQL data volume (`pgdata`) and your `.env` (especially `JWT_SECRET_KEY` and `ENCRYPTION_KEY`). Restore with the same keys so existing tokens and encrypted credentials remain valid.

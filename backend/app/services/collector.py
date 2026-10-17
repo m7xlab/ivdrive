@@ -19,6 +19,7 @@ from app.models.telemetry import (
 )
 
 from app.models.vehicle import ConnectorSession, UserVehicle
+from app.services.abrp_sync import AbrpSnapshot, flush_outbox, push_vehicle_tlm
 from app.services.crypto import decrypt_field, encrypt_field
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
 from app.services.analytics import is_plugged_in, process_completed_trips_and_charges
@@ -194,6 +195,20 @@ class DataCollector:
             settings.embedding_worker_max_attempts,
             settings.embedding_worker_enabled,
         )
+
+        # ABRP telemetry flusher — drains ivdrive:abrp_outbox and pushes to
+        # /tlm/send (1 sample) or /tlm/bulk (≥2 vehicles of the same user).
+        # No-op unless a user has an API key + enabled vehicle tokens.
+        self._scheduler.add_job(
+            self._flush_abrp_outbox,
+            "interval",
+            seconds=10,
+            id="abrp_outbox_flush",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info("ABRP flusher scheduled: every 10s")
 
         # Also run it once on startup if the table is empty
         asyncio.create_task(self._initial_energy_prices_check())
@@ -625,6 +640,15 @@ class DataCollector:
                     # detect when we stop being able to reach the vehicle.
                     _apply_health(cs, conn_resp is not None, cycle_errors, now)
                     await session.commit()
+
+                    # ABRP: push a parked/charging snapshot (never breaks collection)
+                    try:
+                        parked_snap = await self._build_parked_abrp_snapshot(
+                            session, now=now, vehicle=vehicle, conn_resp=conn_resp
+                        )
+                        await self._maybe_push_abrp(session, vehicle, parked_snap)
+                    except Exception:
+                        logger.warning("ABRP parked snapshot failed for %s", user_vehicle_id, exc_info=True)
                     return
 
                 # ══════════════════════════════════════════════════════════════
@@ -1193,6 +1217,28 @@ class DataCollector:
                             user_vehicle_id, exc_info=True,
                         )
 
+                # ABRP: push an active snapshot built from this cycle's fetches.
+                # Guarded so ABRP never breaks collection.
+                try:
+                    active_snap = self._build_active_abrp_snapshot(
+                        now=now,
+                        vehicle=vehicle,
+                        charging=charging,
+                        driving=driving,
+                        position=position,
+                        ac_resp=ac_resp,
+                        maint_resp=maint_resp,
+                        conn_resp=conn_resp,
+                        is_charging=bool(is_charging),
+                        car_active=bool(car_active),
+                        temp_c=temp_c,
+                        elevation_m=elevation_m,
+                        battery_temp=battery_temp,
+                    )
+                    await self._maybe_push_abrp(session, vehicle, active_snap)
+                except Exception:
+                    logger.warning("ABRP active snapshot failed for %s", user_vehicle_id, exc_info=True)
+
             except Exception:
                 logger.exception("Collection failed for vehicle %s", user_vehicle_id)
                 await session.rollback()
@@ -1203,6 +1249,135 @@ class DataCollector:
         self._background_tasks.discard(task)
         if not task.cancelled() and task.exception():
             logger.error("Background task failed with exception: %s", task.exception(), exc_info=task.exception())
+
+    # ── ABRP outbound telemetry ────────────────────────────────────────────
+
+    async def _flush_abrp_outbox(self) -> None:
+        try:
+            async with async_session() as session:
+                await flush_outbox(session)
+        except Exception:
+            logger.warning("ABRP outbox flush failed", exc_info=True)
+
+    async def _maybe_push_abrp(self, session, vehicle: UserVehicle, snapshot: AbrpSnapshot) -> None:
+        """Enqueue one ABRP datapoint. Never raises — collection must not break."""
+        try:
+            await push_vehicle_tlm(session, vehicle, snapshot)
+        except Exception:
+            logger.warning("ABRP push failed for vehicle %s", vehicle.id, exc_info=True)
+
+    @staticmethod
+    def _build_active_abrp_snapshot(
+        *,
+        now: datetime,
+        vehicle: UserVehicle,
+        charging,
+        driving,
+        position,
+        ac_resp,
+        maint_resp,
+        conn_resp,
+        is_charging: bool,
+        car_active: bool,
+        temp_c,
+        elevation_m,
+        battery_temp=None,
+    ) -> AbrpSnapshot:
+        snap = AbrpSnapshot(now=now, capacity_kwh=vehicle.battery_capacity_kwh)
+        snap.is_charging = bool(is_charging)
+        snap.is_parked = not car_active
+
+        if charging and charging.status:
+            st = charging.status
+            snap.charge_power_kw = st.charge_power_in_kw
+            snap.charge_type = st.charge_type
+            if st.battery is not None:
+                if st.battery.state_of_charge_in_percent is not None:
+                    snap.soc = float(st.battery.state_of_charge_in_percent)
+                if st.battery.remaining_cruising_range_in_meters is not None:
+                    snap.remaining_range_m = float(st.battery.remaining_cruising_range_in_meters)
+                batt_t = getattr(st.battery, "temperature", None)
+                if batt_t is not None:
+                    snap.batt_temp_c = float(batt_t)
+
+        if snap.soc is None and driving and driving.primary_engine_range:
+            pr = driving.primary_engine_range
+            if pr.current_so_c_in_percent is not None:
+                snap.soc = float(pr.current_so_c_in_percent)
+            if pr.remaining_range_in_km is not None:
+                snap.range_km = float(pr.remaining_range_in_km)
+            elif driving.total_range_in_km is not None:
+                snap.range_km = float(driving.total_range_in_km)
+
+        if position and position.positions:
+            for pos in position.positions:
+                if pos.type == "VEHICLE" and pos.gps_coordinates:
+                    snap.lat = pos.gps_coordinates.latitude
+                    snap.lon = pos.gps_coordinates.longitude
+                    break
+
+        snap.elevation_m = elevation_m
+        snap.ext_temp_c = temp_c
+        if snap.ext_temp_c is None and ac_resp and ac_resp.outside_temperature:
+            snap.ext_temp_c = ac_resp.outside_temperature.celsius
+        if ac_resp and ac_resp.target_temperature:
+            snap.hvac_setpoint_c = ac_resp.target_temperature.celsius
+        if maint_resp and maint_resp.mileage_in_km is not None:
+            snap.odometer_km = float(maint_resp.mileage_in_km)
+        if battery_temp is not None and snap.batt_temp_c is None:
+            snap.batt_temp_c = float(battery_temp)
+        return snap
+
+    @staticmethod
+    async def _build_parked_abrp_snapshot(session, *, now: datetime, vehicle: UserVehicle, conn_resp) -> AbrpSnapshot:
+        """Reduced snapshot for parked cycles: last-known SOC/odometer + is_parked=1."""
+        from app.models.telemetry import ChargingState, DriveLevel, OdometerReading
+
+        snap = AbrpSnapshot(now=now, capacity_kwh=vehicle.battery_capacity_kwh)
+        snap.is_parked = True
+        snap.is_charging = False
+
+        # Latest SOC: prefer ChargingState, fall back to DriveLevel
+        row = await session.execute(
+            select(ChargingState.battery_pct, ChargingState.remaining_range_m, ChargingState.charge_power_kw, ChargingState.state)
+            .where(ChargingState.user_vehicle_id == vehicle.id)
+            .order_by(ChargingState.last_date.desc())
+            .limit(1)
+        )
+        cs_row = row.first()
+        if cs_row is not None:
+            if cs_row[0] is not None:
+                snap.soc = float(cs_row[0])
+            if cs_row[1] is not None:
+                snap.remaining_range_m = float(cs_row[1])
+            state = (cs_row[3] or "").upper()
+            if state == "CHARGING":
+                snap.is_charging = True
+                snap.is_parked = False
+                snap.charge_power_kw = cs_row[2]
+
+        if snap.soc is None:
+            row = await session.execute(
+                select(DriveLevel.level)
+                .where(DriveLevel.user_vehicle_id == vehicle.id)
+                .order_by(DriveLevel.last_date.desc())
+                .limit(1)
+            )
+            level = row.scalar_one_or_none()
+            if level is not None:
+                snap.soc = float(level)
+
+        row = await session.execute(
+            select(OdometerReading.mileage_in_km)
+            .where(OdometerReading.user_vehicle_id == vehicle.id)
+            .order_by(OdometerReading.captured_at.desc())
+            .limit(1)
+        )
+        odo = row.scalar_one_or_none()
+        if odo is not None:
+            snap.odometer_km = float(odo)
+
+        return snap
 
     def register_vehicle(self, user_vehicle_id: UUID, interval: int) -> None:
         job_id = f"collect_{user_vehicle_id}"

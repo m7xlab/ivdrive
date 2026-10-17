@@ -22,10 +22,11 @@ from app.models.telemetry import (
     VehicleState,
 )
 from app.models.user import User
-from app.models.vehicle import ConnectorSession, UserVehicle
+from app.models.vehicle import ABRPConnection, ConnectorSession, UserVehicle
 from app.models.ai_premium import AITierConfig, AIUserOverride, AIUsageLog
 
 __all__ = [
+    "ABRPConnection",
     "AITierConfig",
     "AIUserOverride",
     "AIUsageLog",

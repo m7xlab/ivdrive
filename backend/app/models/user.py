@@ -39,6 +39,10 @@ class User(TimestampMixin, Base):
         String(16), default="metric", nullable=False, server_default="metric"
     )
 
+    # ABRP (A Better Route Planner) — per-user free Telemetry API key.
+    # Per-vehicle tokens live on ABRPConnection.
+    abrp_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+
     vehicles: Mapped[list["UserVehicle"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )

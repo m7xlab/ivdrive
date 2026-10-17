@@ -43,6 +43,7 @@ iVDrive is a premium EV data monitoring app for Volkswagen Group vehicles (start
 - **Beta Access** — Use online at [ivdrive.eu](https://ivdrive.eu). Request an invite, get approved, and start viewing your data.
 - **VW Group EV focus** — Built for Škoda Connect first; designed to extend to other Volkswagen Group EVs.
 - **Single dashboard** — Trips, charging, efficiency, locations, and driving statistics in one place.
+- **ABRP live telemetry** *(optional)* — Push SOC, charging and position data to [A Better Route Planner](https://abetterrouteplanner.com) for accurate live route planning. Disabled by default; enable in Settings → Integrations. Note: ABRP Custom connections expose Driving/Charging data only — remote vehicle control from ABRP is not supported (ABRP-side limitation).
 - **Self-host optional** — For advanced users: run the full stack yourself with Docker (see [Getting Started](#-getting-started)).
 
 ## 🏗️ Architecture

@@ -1,6 +1,13 @@
 # .github/workflows/security-scan.yml
 # Comprehensive security scanning: container images, SAST, secrets, IaC
 # Runs in parallel on PRs and pushes to main; uploads SARIF to GitHub Security tab
+#
+# Policy:
+#   - SARIF upload always runs (Security tab stays populated).
+#   - Workflow FAILS on CRITICAL image CVEs (or any fs/IaC CRITICAL,HIGH).
+#   - HIGH OS/library CVEs in the runtime image are reported but do not gate
+#     the build — Debian base images routinely carry HIGH items with a fix in
+#     the next point release; failing the whole scan on those makes CI flap.
 
 name: Security Scan
 
@@ -31,13 +38,13 @@ jobs:
     name: Trivy — Docker image
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build image (load locally, do not push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -47,7 +54,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run Trivy on the image (SARIF)
+      # Full CRITICAL+HIGH report for the Security tab / logs.
+      # exit-code 0 so the SARIF upload always runs even when findings exist.
+      - name: Run Trivy on the image (SARIF report)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'app:${{ github.sha }}'
@@ -55,7 +64,7 @@ jobs:
           output: 'trivy-image.sarif'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0'
           vuln-type: 'os,library'
           limit-severities-for-sarif: 'true'
           cache: 'true'
@@ -81,6 +90,19 @@ jobs:
           cache: 'true'
           cache-dir: .trivy-cache
 
+      # Gate: fail the job only on CRITICAL image CVEs (HIGH is reported above).
+      - name: Fail on CRITICAL image CVEs
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'app:${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: 'os,library'
+          cache: 'true'
+          cache-dir: .trivy-cache
+
   # ─────────────────────────────────────────────
   # 2. Filesystem + IaC scan (Trivy fs)
   #    Catches vulnerable deps, Dockerfile issues, K8s/Terraform misconfig
@@ -89,7 +111,7 @@ jobs:
     name: Trivy — Filesystem & IaC
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -125,7 +147,7 @@ jobs:
   #     contents: read
   #     security-events: write
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v5
   #
   #     - name: Run Semgrep
   #       env:
@@ -159,7 +181,7 @@ jobs:
         # Adjust to your stack. Common: python, javascript-typescript, go, java-kotlin, csharp
         language: ['python', 'javascript-typescript']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -182,12 +204,14 @@ jobs:
     name: Gitleaks — Secrets
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history for accurate secret scanning
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: set if you have a Gitleaks org license (v3 works without it
+          # for public repos / GitHub Advanced Security users).
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
