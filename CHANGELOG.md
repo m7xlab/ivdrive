@@ -1,5 +1,37 @@
 # Changelog
 
+## [v1.1.16] - 2026-10-17
+Feature release: A Better Route Planner (ABRP) live-telemetry integration, Settings UX overhaul (category navigation), and a hardened security-scan workflow. Builds on v1.1.15 (CONNECT_CABLE home-charging capture).
+
+### Added
+- **ABRP telemetry integration** (community request [#189](https://github.com/m7xlab/ivdrive/discussions/189)): optional outbound push of live vehicle data to [A Better Route Planner](https://abetterrouteplanner.com) so trips can use accurate live SOC and charging data instead of a slower third-party bridge. **Off by default.**
+  - **Credentials are per ABRP user, not deployment config.** Settings → **Integrations — ABRP**: save a free Telemetry API key from the user's ABRP account, then paste a **car token** per vehicle (ABRP app → Live Data → Custom connection). Both stored AES-256-GCM encrypted (`users.abrp_api_key_encrypted`, `abrp_connections.token_encrypted`) via the same `encrypt_field` helpers as VINs and connector tokens. Never returned by the API — only opaque `••••` hints.
+  - **What is sent** (metric): `utc` (epoch seconds), `soc`, `power` (charging negated — ABRP convention), `lat`/`lon`/`elevation` (omitted when the vehicle has incognito mode on), `is_charging` / `is_parked` / `is_dcfc`, `odometer`, `est_battery_range`, `capacity`/`soe`, `ext_temp`/`batt_temp`, `hvac_setpoint`/`hvac_power`, optional `car_model` typecode. Numeric **speed is omitted** (not available from the Škoda API).
+  - **Transport**: collector enqueues one datapoint per cycle into a Valkey outbox (`ivdrive:abrp_outbox`). A flusher pushes via `POST /1/tlm/send` for a single sample or `POST /1/tlm/bulk` when the same user has multiple vehicles queued. Failures never break collection (bookkeeping + exponential backoff).
+  - **Read-side**: Settings can fetch ABRP's next charge-to goal (`get_next_charge`) and show it as a chip. No remote vehicle control — ABRP Custom connections only expose Driving/Charging data (ABRP-side limitation of the Telemetry API).
+  - API: `GET/PUT /api/v1/integrations/abrp` (user API key), `PUT/DELETE /api/v1/integrations/abrp/vehicles/{id}` (car token), `GET/POST .../next-charge`.
+- **Settings category navigation**: the settings page is no longer a single ~3600px scroll. Sticky left category rail on desktop (Account · Vehicles · Security · Energy · Integrations · Data & Privacy) with one category per view; horizontal scrollable tabs on mobile. Content column uses the full remaining width instead of a narrow `max-w-2xl` card stack.
+
+### Changed
+- **Settings IA**: sections regrouped — Account (preferences, theme, profile), Vehicles, Security (password, 2FA), Energy (geofences, charging plans), Integrations (ABRP), Data & Privacy (export, danger zone).
+- **Security Scan workflow** (`.github/workflows/security-scan.yml`):
+  - Action bumps for Node 24 runners: `actions/checkout@v5`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `gitleaks/gitleaks-action@v3`. `github/codeql-action` stays on `@v4`.
+  - **Trivy image scan no longer gates the job on HIGH OS/library CVEs.** Weekly runs were flipping red whenever the Debian base image carried a fixable HIGH (e.g. `libpcre2` CVE-2026-103111). SARIF upload + table report always run for CRITICAL+HIGH; a separate gate step fails only on **CRITICAL** image CVEs. Filesystem/IaC scan still fails on CRITICAL+HIGH.
+- **Repo hygiene**: `.gitignore` also covers local assistant/CLI tooling dirs and Playwright artifacts.
+
+### Database
+- `a9c4e2b7d1f8_add_abrp_connections.py` — `abrp_connections` (1:1 with `user_vehicles`): `enabled`, `token_encrypted`, `car_model_typecode`, `last_sent_at`, `last_error_text`, `consecutive_failures`, `backoff_until`, `next_charge_pct`, `next_charge_fetched_at`.
+- `b7e1a4c9d2f3_add_user_abrp_api_key.py` — `users.abrp_api_key_encrypted`.
+
+### Migration notes
+- `alembic upgrade head` from v1.1.15: `c5849a2e1b70` → `a9c4e2b7d1f8` → `b7e1a4c9d2f3`.
+- Rebuild **web** image for the settings layout; rebuild **api** + **collector** for ABRP push. No new required env vars.
+
+### Notes
+- ABRP feature is fully opt-in: no API key and no vehicle tokens means zero outbound traffic.
+- Telemetry push cadence follows the collector (default 300s active / 1800s parked). ABRP's ideal is ~5s and hard floor ~30s — expect minute-level live updates, still much faster than typical third-party bridges. ABRP processes telemetry in 60s batches.
+- Test tokens must never be committed; they are pasted in the UI and stored encrypted.
+
 ## [v1.1.15] - 2026-09-10
 Collector hotfix: parked home charging was missed when Škoda reported `CONNECT_CABLE` instead of `CHARGING`. No schema change. No new UI.
 

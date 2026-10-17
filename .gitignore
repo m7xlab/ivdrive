@@ -23,6 +23,9 @@ _local_docs/**
 _deprecated_scripts/
 .claudemem
 .claude/
+.mimocode/
+.mimocodes/
+.playwright-cli/
 CLAUDE.md
 run_tests.py
 issues.md
