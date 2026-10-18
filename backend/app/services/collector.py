@@ -1482,6 +1482,12 @@ class DataCollector:
         if self._scheduler.get_job(job_id):
             self._scheduler.remove_job(job_id)
             logger.info("Unregistered collection job %s", job_id)
+        # Drop per-vehicle tracking so removed cars cannot leak memory.
+        self._poll_mode.pop(user_vehicle_id, None)
+        self._sleep_ticks.pop(user_vehicle_id, None)
+        self._ac_probe_hold.pop(user_vehicle_id, None)
+        self._last_connection_state.pop(user_vehicle_id, None)
+        self._stale_active_counters.pop(user_vehicle_id, None)
 
 
 async def _update_or_insert_duration_state(
