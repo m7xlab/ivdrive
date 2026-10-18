@@ -1,0 +1,58 @@
+---
+name: Bug report
+description: Something broken or unexpected in iVDrive
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve iVDrive. Please redact **passwords, tokens and full VINs**.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Clear, short summary.
+      placeholder: The charging curve chart stayed empty after refreshing…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps help us fix faster.
+      placeholder: |
+        1. Open Statistics → Charging Curve
+        2. Select last 7 days
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How do you run iVDrive?
+      options:
+        - Hosted (ivdrive.eu)
+        - Self-hosted (Docker Compose)
+        - Local development
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: v1.1.x or docker image tag
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste relevant snippets (redact secrets).
+      render: shell

@@ -97,7 +97,7 @@ Linear gradient: #4BA82E → #00D4FF (135° angle, bottom-left to top-right)
 
 - **App Name:** iVDrive
 - **API Source:** `https://mysmob.api.connect.skoda-auto.cz`
-- **Supported Vehicles:** Škoda iV lineup (Enyaq iV, Octavia iV, Superb iV, etc.), with planned expansion to other VW Group EVs
+- **Supported Vehicles:** Škoda fully electric lineup (Enyaq iV / Enyaq Coupé / Elroq, etc.), with planned expansion to other VW Group EVs
 - **Inspiration projects:** [MySkoda](https://myskoda.readthedocs.io/en/stable/) · [CarConnectivity](https://github.com/tillsteinbach/CarConnectivity)
 - **Platform:** Cross-platform (iOS, Android, macOS, Web)
 

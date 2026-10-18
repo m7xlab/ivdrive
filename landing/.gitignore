@@ -1,0 +1,7 @@
+node_modules
+.next
+out
+output
+.playwright-cli
+Dockerfile.bak
+.env*

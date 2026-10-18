@@ -1,0 +1,61 @@
+---
+sidebar_position: 1
+slug: /intro
+title: Welcome to iVDrive
+---
+
+# Welcome to iVDrive
+
+**iVDrive** is open electric-vehicle telemetry for **Škoda iV** and other **Volkswagen Group** EVs. It turns raw vehicle data into clear answers: how far you drove, what charging really cost, and how healthy your battery is over time.
+
+This documentation helps you:
+
+- **Get started** with the hosted beta at [ivdrive.eu](https://ivdrive.eu)
+- **Use every major feature** — trips, charging, battery health, statistics
+- **Self-host** the full stack with Docker if you want data on your own hardware
+- **Contribute** to the open-source project
+
+## Who is iVDrive for?
+
+| Audience | What you get |
+|----------|----------------|
+| **EV owners** | One dashboard for trips, charging, efficiency and battery health |
+| **Self-hosters** | Full Docker Compose stack — your server, your data |
+| **Developers** | REST API, collector architecture, community contributions |
+
+## Choose your path
+
+### Cloud (easiest)
+
+1. [Request an invite](https://ivdrive.eu/register)
+2. Verify your email and create an account
+3. [Add your vehicle](./getting-started/add-vehicle.md)
+4. Explore your dashboard
+
+Start here: **[Quick start](./getting-started/quick-start.md)**
+
+### Self-hosted (full control)
+
+Run the same product on a VPS, NAS, or home lab:
+
+```bash
+git clone https://github.com/m7xlab/iVDrive.git
+cd iVDrive
+cp .env.example .env
+docker compose up -d
+```
+
+Details: **[Self-hosting overview](./self-hosting/overview.md)**
+
+## What you get
+
+- **Trips & routes** — maps, elevation, efficiency
+- **Charging intelligence** — sessions, curves, €/kWh economics
+- **Battery health (SoH)** — multi-method estimates with confidence
+- **Predictive SoC & vampire drain** — plan before the battery light
+- **ABRP integration** — optional live telemetry to A Better Route Planner
+- **AI coach** — ask questions about your own data
+
+:::note
+iVDrive is in **invite-only beta**. The project is community-driven and actively evolving. Feedback and contributions are welcome.
+:::

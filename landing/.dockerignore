@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+output
+.playwright-cli
+Dockerfile
+README.md
+*.md
+.env*

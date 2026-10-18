@@ -1,16 +1,6 @@
-# Funding / donation links for iVDrive
-# These appear in the "Sponsor" button on the GitHub repo.
-# Replace the placeholder(s) below with your actual links.
-
-# GitHub Sponsors: use your username ONLY if you're enrolled at https://github.com/sponsors
-# Remove or comment out until approved, or you'll see "not enrolled" errors.
+# These links appear in the GitHub Sponsors button and repo funding UI.
 github: [m7xlab]
-
-# Ko-fi: https://ko-fi.com — use your username
 ko_fi: m7xlaboratory
-
-# Buy Me a Coffee: use your username only (not a URL or array)
 buy_me_a_coffee: m7xlab
-
-# Custom URLs: PayPal, etc. (up to 4). Use for anything not listed above.
-# custom: ['https://www.paypal.me/yourpage']
+custom:
+  - "https://ivdrive.eu/sponsors/"

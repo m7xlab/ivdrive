@@ -130,9 +130,18 @@ If you prefer to run the stack yourself (e.g. on your NAS):
 
 For more detail, see [Project overview](docs/project_overview.md) and the [docs](docs/README.md).
 
+## 🌐 Marketing landing (production)
+
+A separate optional service (`landing/`) provides the public marketing site at the apex domain and reverse-proxies the app.
+
+- Self-hosters: ignore it — `docker compose up` still opens the console at `/`.
+- Production: `docker compose -f docker-compose.yml -f docker-compose.landing.yml up -d --build`
+- Details: [landing/README.md](landing/README.md)
+
 ## 📚 Documentation
 
-- [Documentation index](docs/README.md) — Using iVDrive, self-hosting, and project overview.
+- **User docs (Docusaurus)** — `documentation/` (`npm start` / `npm run build`), covering getting started, user guide, self-hosting, reference and community.
+- [Documentation index](docs/README.md) — Markdown sources and project overview.
 - [Self-hosting guide](docs/self-hosting.md) — Run the stack with Docker on your own server or NAS.
 - [Changelog](CHANGELOG.md) — Release history and notable changes.
 - [Roadmap](ROADMAP.md) — Current focus and planned directions.
