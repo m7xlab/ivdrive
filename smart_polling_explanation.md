@@ -1,48 +1,52 @@
-# Smart Polling v2.4 Logic 🛰️
+# Smart Polling v2.5 Logic 🛰️
 
-How iVDrive monitors your vehicle efficiently while respecting battery life and API limits.
+How iVDrive monitors your vehicle **without hammering the Škoda API** or filling the database with identical rows while the car sleeps.
 
-## ⚙️ The Blueprint
-A technical visualization of the polling logic here:
-👉 **[Smart Polling Blueprint](https://rawcdn.githack.com/m7xlab/ivdrive/8ab2ff8f0a3f31f0a0a5a74915aef5a5a58812e3/smart_polling_blueprint.html)**
+## The idea
 
----
+When the car is **parked and not doing anything**, we only **ping status**. Full telemetry starts when the car is **active** (driving, really charging, or climate on). You can always force a full check with **Refresh**.
 
-## 🏎️ Overview: Active Mode
-When your vehicle is **active**, the collector fetches **full live telemetry** every few minutes:
+## States
 
-- **Triggers:** moving, **or** actually charging (`state=CHARGING` / power &gt; 0), **or** climatisation running
-- **Interval:** `active_interval_seconds` (e.g. 180 s / 3 min)
-- **Data:** Position, odometer, battery/charging, range, status, HVAC, temperatures, warning lights
-- **Not fetched every cycle:** garage metadata / vehicle renders (backfilled only when missing)
-- **Goal:** High-resolution tracking for trips and charging analytics
+### 🏎️ Active
+- **Triggers:** moving, **or** really charging (`state=CHARGING` / power &gt; 0), **or** climatisation on
+- **Interval:** `active_interval_seconds` (e.g. 3 min)
+- **Work:** full live telemetry (position, odometer, charging, range, status, HVAC, temps…)
+- Garage / vehicle renders are **not** fetched every cycle (static metadata)
 
-## 💤 Overview: Parked Mode
-When your vehicle is **parked** (including **cable plugged at 0 kW**), the collector stays in a deep-sleep cycle:
+### 🛡️ Stabilization
+After activity stops, **3** more Active cycles capture the end of the trip/charge (final odometer, position, lock state), then deep sleep.
 
-- **Interval:** `parked_interval_seconds` (e.g. 900 s / 15 min)
-- **Probe:** `get_connection_status` (+ `get_charging` when online) — **no full endpoint dump**
-- **Cable without power:** `CONNECT_CABLE` / `READY_FOR_CHARGING` at 0 kW is **Parked** for polling intensity (it does **not** wake Active every 3 minutes)
-- **SoC while plugged:** the charging probe updates `ChargingState` so overnight home sessions still record SoC climb
-- **Optimization:** If the online/offline status hasn't changed, **0 ConnectionState rows** are written
-- **Goal:** Minimal API load and no 12 V drain while the car sleeps
+### 💤 Deep sleep (parked)
+- **Interval:** `parked_interval_seconds` (e.g. 15 min) — this **is** the ping period
+- **Every tick:** **one** `get_connection_status` call  
+  - if the car is moving → **Active** immediately  
+  - **no database writes** unless online/offline **changed**
+- **Wake window:** every **N**th tick (default **N = 4**, e.g. ~1 h at 15 min) also calls `get_charging` + `get_air_conditioning` as **sensors only**
+  - real charging or climate on → **Active**
+  - cable at 0 kW (`CONNECT_CABLE`) → stay asleep
+  - still **no** same-value DB churn
+- **Never** while asleep: position / vehicle_status / maintenance / garage / renders / driving-range
 
-**Active vs plugged-in (important):**
+### 🚀 Manual refresh
+UI refresh button runs a **full** fetch now and treats the car as Active (reset sleep). Use it when you plug in or want the latest snapshot immediately.
 
-| Signal | Polling mode | Charging session |
-|---|---|---|
-| `CHARGING` or power &gt; 0 | **Active** | open / keep session |
-| Cable, 0 kW (`CONNECT_CABLE`, …) | **Parked** | still treated as plugged for sessions |
-| Unplugged | Parked | close session |
+## Why
 
-## 🛡️ The Stabilization Buffer
-When you stop your car, iVDrive does not sleep immediately. It stays in **Active Mode** for **3 more cycles**:
-1.  **Cycle #1:** Confirm final parking position.
-2.  **Cycle #2:** Confirm final odometer reading.
-3.  **Cycle #3:** Confirm final lock/status before entering deep sleep.
+| Problem | Fix |
+|---|---|
+| Škoda API called every few minutes overnight (ban risk) | Deep sleep = 1 status ping / parked interval |
+| DB filled with the same `CONNECT_CABLE` / SoC rows | Writes **only on change** or in Active |
+| Cable at 0 kW looked “active” (v1.1.15) | `is_actively_charging()` — power/state, not merely plugged |
+| Saving vehicle settings reset Active to parked rate | Interval updates respect current mode |
 
-## 🚀 Manual Refresh (Override)
-Clicking the **Refresh Button** in the UI bypasses all of the above logic. It immediately triggers the backend collector to perform a **one-time full fetch** regardless of the current state or timers.
+## Settings
+
+| Setting | Meaning |
+|---|---|
+| `active_interval_seconds` | Full telemetry cadence while Active |
+| `parked_interval_seconds` | Status ping cadence while asleep |
+| `sleep_wake_probe_every_n` (env) | Wake-probe every Nth parked tick (default 4) |
 
 ---
 *Generated by iVDrive Team ®*
