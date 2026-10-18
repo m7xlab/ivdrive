@@ -40,6 +40,22 @@ def is_plugged_in(state: str | None) -> bool:
     return bool(state) and state.upper() in PLUGGED_IN_STATES
 
 
+def is_actively_charging(state: str | None, charge_power_kw: float | None = None) -> bool:
+    """True when energy is actually flowing into the pack (or state says CHARGING).
+
+    Used only for smart-poll intensity (Active vs Parked). A cable with 0 kW
+    (CONNECT_CABLE overnight) is *plugged in* but must NOT keep the collector
+    in Active full-fetch mode — use is_plugged_in() for charging sessions.
+    """
+    if not state:
+        return False
+    if state.upper() == "CHARGING":
+        return True
+    if is_plugged_in(state) and charge_power_kw is not None and charge_power_kw > 0:
+        return True
+    return False
+
+
 async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
     """
     Runs after telemetry is gathered. 
