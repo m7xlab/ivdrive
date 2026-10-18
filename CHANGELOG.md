@@ -1,5 +1,28 @@
 # Changelog
 
+## [v1.2.0] - 2026-10-18
+
+**Marketing launch** — public landing site, docs, and optional Caddy edge. Self-host `docker compose up` is unchanged (console at `/`).
+
+### Added
+- **Landing site** (`landing/`) — static Next.js + **Caddy** marketing edge: home, features, roadmap, sponsors, about, open source, community. Apple-minimal dark brand (emerald → cyan).
+- **Dual-use `/`** — desktop guests and crawlers see the marketing home; signed-in cookies or mobile UA go to the app console. `iv_view=landing` / `iv_view=app` cookies override.
+- **Docs site** (`documentation/`) — Docusaurus under **`/docs/`** (getting started, user guide, self-hosting, reference, community).
+- **Roadmap** (on-site `/roadmap`) — 2026 built-from-scratch Škoda EV beta · 2027 H1 VW **BEV** · 2027 H2 SEAT/CUPRA **BEV** · 2028 hybrids/PHEVs; public call for real-car data contributors.
+- **Sponsors** (`/sponsors`) — GitHub Sponsors / Ko-fi story for the solo maintainer.
+- **Compose overlay** — `docker-compose.landing.yml` (optional `ivdrive-landing` + `ivdrive-docs`).
+- **Deploy runbook** — `landing/DEPLOY.md` (placeholders only).
+
+### Changed
+- Product screenshots refreshed from the live app (dark + light).
+- GitHub: YAML issue forms, `config.yml`, funding + PR template aligned with `validate-pr-description`.
+- License short name in copy: **Elastic License 2.0 (ELv2)**.
+
+### Notes
+- **Self-host:** no landing required; API/web/collector DB behavior unchanged.
+- **Production:** publish **`ivdrive-landing`** as the public entry (was `ivdrive-web:3000`). Full steps in `landing/DEPLOY.md`.
+- New images: `ivdrive-landing`, `ivdrive-docs` (app images unchanged in behavior).
+
 ## [v1.1.16.1] - 2026-10-17
 Hotfix: restore deep-sleep polling while a car sits on a cable without drawing power. v1.1.15/v1.1.16 treated `CONNECT_CABLE` (and other plugged-in states) as Active, so home-parked EVs did a **full Škoda fetch every `active_interval_seconds`** (often 3 min) all night.
 
