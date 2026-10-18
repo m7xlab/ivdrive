@@ -1,0 +1,25 @@
+# Optional production overlay: public landing + reverse proxy in front of the app.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.landing.yml up -d --build
+#
+# Self-hosters can ignore this file entirely.
+
+services:
+  ivdrive-docs:
+    image: ivdrive-docs:latest
+    build: ./documentation
+    networks:
+      - backend
+    restart: unless-stopped
+
+  ivdrive-landing:
+    image: ivdrive-landing:latest
+    build: ./landing
+    ports:
+      - "80:80"
+    networks:
+      - backend
+    depends_on:
+      - ivdrive-web
+      - ivdrive-docs
+    restart: unless-stopped

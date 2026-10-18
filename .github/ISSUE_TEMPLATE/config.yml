@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/m7xlab/iVDrive/discussions
+    about: Ask how-tos, share ideas, show your setup.
+  - name: Documentation
+    url: https://ivdrive.eu/docs/
+    about: Guides for using and self-hosting iVDrive.
+  - name: Security report
+    url: https://github.com/m7xlab/iVDrive/blob/main/SECURITY.md
+    about: Please report vulnerabilities privately — not in public issues.

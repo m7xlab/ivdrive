@@ -1,0 +1,13 @@
+# Keep Docker build context tiny — docs sources only
+node_modules
+build
+.docusaurus
+.cache-loader
+.cache
+.git
+.env
+.env.*
+*.log
+.DS_Store
+Dockerfile
+.dockerignore

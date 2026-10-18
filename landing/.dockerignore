@@ -1,0 +1,17 @@
+# Keep Docker build context tiny — sources only
+node_modules
+.next
+out
+output
+.cache
+.turbo
+.playwright-cli
+.mimocode
+.claude
+.git
+.env
+.env.*
+*.log
+*.md
+Dockerfile
+.dockerignore

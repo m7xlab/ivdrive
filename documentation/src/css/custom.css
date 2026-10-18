@@ -1,0 +1,68 @@
+/**
+ * iVDrive documentation theme
+ */
+
+:root {
+  --ifm-color-primary: #3d8f27;
+  --ifm-color-primary-dark: #378123;
+  --ifm-color-primary-darker: #337a21;
+  --ifm-color-primary-darkest: #2a641b;
+  --ifm-color-primary-light: #439d2b;
+  --ifm-color-primary-lighter: #47a42d;
+  --ifm-color-primary-lightest: #55b839;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-hero-background-color: #0a0e1a;
+  --ifm-hero-text-color: #e0e4ef;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #5fd437;
+  --ifm-color-primary-dark: #4fc02c;
+  --ifm-color-primary-darker: #49b52a;
+  --ifm-color-primary-darkest: #3c9522;
+  --ifm-color-primary-light: #6fd84a;
+  --ifm-color-primary-lighter: #7ada59;
+  --ifm-color-primary-lightest: #97e37b;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+}
+
+.hero--primary {
+  --ifm-hero-background-color: #0a0e1a;
+  --ifm-hero-text-color: #e0e4ef;
+  background:
+    radial-gradient(ellipse 60% 80% at 70% 20%, rgba(0, 212, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse 50% 70% at 20% 80%, rgba(75, 168, 46, 0.16), transparent 55%),
+    #0a0e1a;
+  color: var(--ifm-hero-text-color);
+  padding: 4rem 0 3.5rem;
+}
+
+.hero--primary .hero__title {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.hero--primary .hero__subtitle {
+  color: #a8b4d4;
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+.hero--primary .button--outline {
+  border-color: rgba(224, 255, 255, 0.28);
+  color: #e0e4ef;
+}
+
+.hero--primary .button--outline:hover {
+  border-color: #5fd437;
+  color: #5fd437;
+}
+
+[data-theme='dark'] .hero--primary {
+  color: #e0e4ef;
+}
+
+.navbar__logo img {
+  border-radius: 8px;
+}

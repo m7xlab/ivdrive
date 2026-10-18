@@ -1,0 +1,194 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #05070f;
+  --color-abyss: #0a0e1a;
+  --color-surface: #10162a;
+  --color-elevated: #161d33;
+  --color-line: rgba(224, 255, 255, 0.08);
+  --color-line-strong: rgba(224, 255, 255, 0.14);
+
+  --color-emerald: #4ba82e;
+  --color-emerald-bright: #5fd437;
+  --color-cyan: #00d4ff;
+  --color-glow: #e0ffff;
+
+  --color-ink: #f2f6ff;
+  --color-muted: #8b93b0;
+  --color-faint: #5c6480;
+
+  --font-display: var(--font-syne), "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-outfit), "Outfit", ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-glow: 0 0 80px rgba(75, 168, 46, 0.18);
+  --shadow-glow-cyan: 0 0 80px rgba(0, 212, 255, 0.16);
+  --shadow-card: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--color-void);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-void);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(75, 168, 46, 0.35);
+  color: var(--color-glow);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.035em;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #5fd437 0%, #4ba82e 35%, #00d4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gradient-soft {
+  background: linear-gradient(180deg, #f2f6ff 0%, #a8b4d4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glass {
+  background: linear-gradient(
+    160deg,
+    rgba(22, 29, 51, 0.72) 0%,
+    rgba(10, 14, 26, 0.55) 100%
+  );
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.hairline {
+  border: 1px solid var(--color-line);
+}
+
+.btn-primary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 9999px;
+  padding: 0.95rem 1.75rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  color: #04140a;
+  background: linear-gradient(135deg, #6ee84a 0%, #4ba82e 42%, #00c2e8 100%);
+  box-shadow:
+    0 10px 40px rgba(75, 168, 46, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    filter 0.25s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.05);
+  box-shadow:
+    0 18px 50px rgba(75, 168, 46, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+}
+
+.btn-primary:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 9999px;
+  padding: 0.95rem 1.65rem;
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+  background: rgba(255, 255, 255, 0.02);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(0, 212, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.aurora {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.section-pad {
+  padding: clamp(5rem, 12vw, 9rem) 0;
+}
+
+.container-x {
+  width: min(1180px, calc(100% - 2.5rem));
+  margin-inline: auto;
+}
+
+.device-frame {
+  border-radius: 18px;
+  border: 1px solid var(--color-line-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+  padding: 10px;
+  box-shadow:
+    0 40px 100px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 212, 255, 0.05);
+}
+
+.device-frame img {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.grid-fade {
+  background-image:
+    linear-gradient(rgba(224, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(224, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 20%, transparent 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
