@@ -88,7 +88,7 @@ export default function RoadmapPage() {
               metrics that matter.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <CTAButton href="/register">Request invite</CTAButton>
+              <CTAButton href="https://app.ivdrive.eu/register">Request invite</CTAButton>
               <CTAAnchor
                 href="https://github.com/m7xlab/iVDrive/discussions"
                 target="_blank"
@@ -214,7 +214,7 @@ export default function RoadmapPage() {
                   </li>
                 </ul>
                 <div className="mt-8 flex flex-wrap gap-3">
-                  <CTAButton href="/register">Join the beta</CTAButton>
+                  <CTAButton href="https://app.ivdrive.eu/register">Join the beta</CTAButton>
                   <CTAButton href="/sponsors/" variant="ghost">
                     Sponsor the project
                   </CTAButton>

@@ -58,7 +58,7 @@ export default function CommunityPage() {
                 <Github className="h-4 w-4" />
                 GitHub
               </CTAButton>
-              <CTAButton href="/register" variant="ghost">
+              <CTAButton href="https://app.ivdrive.eu/register" variant="ghost">
                 Join the beta
               </CTAButton>
             </div>

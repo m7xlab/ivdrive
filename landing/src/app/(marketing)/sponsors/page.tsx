@@ -109,7 +109,7 @@ export default function SponsorsPage() {
                 >
                   Star on GitHub
                 </CTAAnchor>
-                <CTAButton href="/register" variant="ghost">
+                <CTAButton href="https://app.ivdrive.eu/register" variant="ghost">
                   Join the beta
                 </CTAButton>
               </div>

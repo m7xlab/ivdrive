@@ -15,8 +15,8 @@ const cols = [
   {
     title: "Get started",
     links: [
-      { href: "/register", label: "Request invite" },
-      { href: "/login", label: "Sign in" },
+      { href: "https://app.ivdrive.eu/register", label: "Request invite" },
+      { href: "https://app.ivdrive.eu/login", label: "Sign in" },
       { href: "/docs/", label: "Documentation" },
     ],
   },
@@ -88,7 +88,7 @@ export function MarketingFooter() {
                         {link.label}
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       </a>
-                    ) : link.href === "/login" || link.href === "/register" ? (
+                    ) : link.href === "https://app.ivdrive.eu/login" || link.href === "https://app.ivdrive.eu/register" ? (
                       <a
                         href={link.href}
                         className="text-sm text-muted transition-colors hover:text-ink"
