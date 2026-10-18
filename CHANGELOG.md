@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.2.1] - 2026-10-18
+Smart polling **deep-sleep**: stop constant Škoda pulls and identical DB writes while the car is parked. Status ping only; full monitoring when the car is actually active.
+
+### Fixed
+- **Deep sleep (parked / cable @ 0 kW):** every `parked_interval_seconds` (e.g. 15 min) does **one** `get_connection_status` and **no database writes** unless online/offline changed. No more refreshing `charging_states` / ABRP with the same values overnight.
+- **Wake window:** every Nth parked tick (`sleep_wake_probe_every_n`, default 4) probes `get_charging` + `get_air_conditioning` **as sensors only**. Real charging (`CHARGING` or power &gt; 0) or climate on → **Active** full fetch. Cable at 0 kW stays asleep.
+- **Activity = motion / real charge / climate** — not merely plugged in. Manual **Refresh** still forces a full fetch immediately.
+- **`vehicle_updated` no longer clobbers Active interval:** saving vehicle settings used to re-register the job at `parked_interval_seconds`, so a live Active poll dropped to the parked rate (full fetches at 15 min). Interval updates now follow the current poll mode.
+
+### Changed
+- Smart Polling **v2.5** (see `smart_polling_explanation.md`).
+- Active full fetch unchanged except garage/renders (static metadata) are not called every cycle (from v1.1.16.1).
+- New config: `sleep_wake_probe_every_n` (default 4).
+
+### Notes
+- No schema change. Rebuild **api + collector** (web unchanged).
+- Battery Level chart (`drive_levels`) is written on Active cycles only — it should not gain points while the car is asleep.
+
 ## [v1.2.0] - 2026-10-18
 
 **Marketing launch** — public landing site, docs, and optional Caddy edge. Self-host `docker compose up` is unchanged (console at `/`).

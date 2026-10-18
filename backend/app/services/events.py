@@ -54,12 +54,20 @@ async def publish_vehicle_linked(vehicle_id: str, interval: int) -> None:
     })
 
 
-async def publish_vehicle_updated(vehicle_id: str, interval: int, enabled: bool) -> None:
-    await publish_event("vehicle_updated", {
+async def publish_vehicle_updated(
+    vehicle_id: str,
+    interval: int,
+    enabled: bool,
+    active_interval: int | None = None,
+) -> None:
+    payload = {
         "vehicle_id": vehicle_id,
         "interval": interval,
         "enabled": enabled,
-    })
+    }
+    if active_interval is not None:
+        payload["active_interval"] = active_interval
+    await publish_event("vehicle_updated", payload)
 
 
 async def publish_vehicle_deleted(vehicle_id: str) -> None:

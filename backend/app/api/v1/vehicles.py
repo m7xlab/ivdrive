@@ -348,6 +348,7 @@ async def update_vehicle(
         str(vehicle.id),
         vehicle.parked_interval_seconds,
         vehicle.collection_enabled,
+        active_interval=vehicle.active_interval_seconds,
     )
     return _vehicle_to_response(vehicle)
 

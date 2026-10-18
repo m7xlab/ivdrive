@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Polling — non-credential, safe to have defaults; override per-vehicle via API
     default_parked_interval_seconds: int = 1800
     default_active_interval_seconds: int = 300
+    # Deep-sleep wake window: every Nth parked tick also probes charging/AC
+    # (sensors only). Other parked ticks are connection_status only, no DB writes.
+    sleep_wake_probe_every_n: int = 4
     collector_debug: bool = False
     collect_raw_data: bool = False
     skoda_client_debug: bool = False

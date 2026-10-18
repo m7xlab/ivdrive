@@ -63,11 +63,15 @@ class DataCollector:
         self._scheduler = AsyncIOScheduler()
         self._background_tasks: set = set()
         self._stale_active_counters: dict[UUID, int] = {}  # Tracks extra polls after car stops being "active"
-        # Smart Polling v2.3: tracks last known online/offline state per vehicle so we can
-        # skip writing a ConnectionState record when nothing changed (avoids thousands of
-        # identical rows while the car sits parked overnight).
-        # None = unknown (first poll after startup → always write the initial record).
+        # Smart Polling v2.5: last known online/offline per vehicle so deep-sleep
+        # ticks can skip DB writes when nothing changed.
         self._last_connection_state: dict[UUID, bool | None] = {}
+        # "active" | "sleep" — deep sleep is the default until something wakes us.
+        self._poll_mode: dict[UUID, str] = {}
+        # How many parked ticks since we entered deep sleep (for the wake window).
+        self._sleep_ticks: dict[UUID, int] = {}
+        # Climate was recently on — keep probing AC briefly after it stops.
+        self._ac_probe_hold: dict[UUID, int] = {}
         # Strong reference to the pub/sub listener task so it cannot be GC'd.
         self._listen_task: asyncio.Task | None = None
 
@@ -345,10 +349,15 @@ class DataCollector:
 
         elif event_type == "vehicle_updated":
             enabled = data.get("enabled", True)
-            interval = data.get("interval", settings.default_parked_interval_seconds)
+            active_interval = data.get("active_interval", settings.default_active_interval_seconds)
+            parked_interval = data.get("interval", settings.default_parked_interval_seconds)
             if enabled:
-                self.register_vehicle(vehicle_id, interval)
-                logger.info("Event: updated vehicle %s (interval=%ds)", vehicle_id, interval)
+                self.update_vehicle_intervals(
+                    vehicle_id,
+                    active_interval=int(active_interval),
+                    parked_interval=int(parked_interval),
+                )
+                logger.info("Event: updated vehicle %s intervals (active=%ss parked=%ss)", vehicle_id, active_interval, parked_interval)
             else:
                 self.unregister_vehicle(vehicle_id)
                 logger.info("Event: disabled collection for vehicle %s", vehicle_id)
@@ -511,17 +520,19 @@ class DataCollector:
 
             try:
                 # ══════════════════════════════════════════════════════════════
-                # SMART POLLING — Motion-Triggered approach  (v2.4)
+                # ══════════════════════════════════════════════════════════════
+                # SMART POLLING — Deep-sleep / wake  (v2.5)
                 #
-                # PARKED  → 1–2 lightweight calls (connection_status + charging
-                #           probe when online). No full endpoint dump.
-                #           ConnectionState only written when online/offline CHANGES.
-                #           A cable at 0 kW (CONNECT_CABLE) stays PARKED.
-                # ACTIVE  → full live fetch when moving OR really charging OR AC.
-                #           Interval switches to active_interval_seconds immediately.
+                # DEEP_SLEEP (parked, cable @ 0 kW, idle):
+                #   every parked_interval: 1× get_connection_status, NO DB writes
+                #   every Nth tick (wake window): + get_charging + get_ac as
+                #   sensors only (still no persist unless we enter ACTIVE)
+                # ACTIVE: full live fetch when moving OR really charging OR AC.
+                # STABILIZATION: 3 full-fetch cycles after activity stops.
+                # Manual refresh (force): full fetch immediately.
                 #
-                # "Active" = moving OR is_actively_charging(power/state) OR climatisation.
-                # There is NO periodic full-refresh timer while parked.
+                # Goal: do not hammer the Škoda API or rewrite identical rows
+                # while the car sleeps (ban risk + DB noise).
                 # ══════════════════════════════════════════════════════════════
 
                 # ── Step 1: Connection status (always, 1 API call) ──────────
@@ -530,70 +541,134 @@ class DataCollector:
                 is_online = conn_resp and not conn_resp.unreachable
                 is_moving = conn_resp and (conn_resp.in_motion or conn_resp.ignition_on)
 
-                # DEBUG LOG for transition tracking
                 logger.info(
-                    "Smart poll: vehicle %s status check [online=%s, moving=%s, stale_count=%d]",
-                    user_vehicle_id, is_online, is_moving, self._stale_active_counters.get(user_vehicle_id, 0)
+                    "Smart poll: vehicle %s status check [online=%s, moving=%s, mode=%s, sleep_tick=%s, stale_count=%d]",
+                    user_vehicle_id, is_online, is_moving,
+                    self._poll_mode.get(user_vehicle_id, "sleep"),
+                    self._sleep_ticks.get(user_vehicle_id, 0),
+                    self._stale_active_counters.get(user_vehicle_id, 0),
                 )
 
-                # ── Step 2: Determine activity ──────────────────────────────
-                # Active = moving OR real charging (power flowing / state=CHARGING) OR AC.
-                # A cable at 0 kW (CONNECT_CABLE overnight) is parked for polling
-                # intensity — is_plugged_in() stays for charging_sessions only.
                 is_charging = False
                 is_ac_on = False
                 charging = None
                 ac_resp = None
 
-                # Only check secondary status if the car is online.
-                # If car is offline/unreachable, it cannot be charging or climatizing via API.
-                if is_online:
-                    if not is_moving:
-                        # Not moving — check charging (2nd API call)
-                        charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
-                        charge_state = charging.status.state if charging and charging.status else None
-                        charge_power = charging.status.charge_power_in_kw if charging and charging.status else None
-                        is_charging = is_actively_charging(charge_state, charge_power)
+                # Manual refresh always does a full collection cycle.
+                if force:
+                    self._poll_mode[user_vehicle_id] = "active"
+                    self._sleep_ticks[user_vehicle_id] = 0
 
-                        if not is_charging:
-                            # Not really charging — check AC (3rd API call). Also when
-                            # plugged at 0 kW: pre-conditioning on a home cable must
-                            # still wake Active so climatisation is recorded.
-                            ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
-                            is_ac_on = (
-                                ac_resp is not None
-                                and ac_resp.state is not None
-                                and ac_resp.state.upper() in ("ON", "HEATING", "COOLING", "VENTILATION")
-                            )
+                mode = self._poll_mode.get(user_vehicle_id, "sleep")
+                wake_n = max(getattr(settings, "sleep_wake_probe_every_n", 4), 1)
+                sleep_tick = 0
+                wake_window = False
 
-                car_active = is_online and (is_moving or is_charging or is_ac_on)
+                if is_moving:
+                    # Motion alone is enough for ACTIVE — skip other probes.
+                    car_active = True
+                    self._poll_mode[user_vehicle_id] = "active"
+                    self._sleep_ticks[user_vehicle_id] = 0
+                elif is_online and not is_moving:
+                    if mode == "sleep" and not force:
+                        sleep_tick = self._sleep_ticks.get(user_vehicle_id, 0) + 1
+                        self._sleep_ticks[user_vehicle_id] = sleep_tick
+                        wake_window = (sleep_tick % wake_n == 0)
+                    else:
+                        wake_window = True  # active/stabilize always probe fully
 
-                # ── Step 3: Stabilization (Smart Polling v2.1) ───────────────
-                # When car stops being active, we continue "Active" polling for a few cycles
-                # to ensure we capture the final odometer/position/state for analytics.
-                STABILIZATION_CYCLES = 3  # ~3 extra polls before dropping to parked interval (smart polling engine)
+                    if mode == "sleep" and not force and not wake_window:
+                        # ── Status-only deep-sleep tick ─────────────────────
+                        logger.info(
+                            "Smart poll: vehicle %s DEEP_SLEEP ping=connection_status tick=%d/%d interval=%ds",
+                            user_vehicle_id, sleep_tick, wake_n, vehicle.parked_interval_seconds,
+                        )
+                        last_known = self._last_connection_state.get(user_vehicle_id)
+                        state_changed = (last_known is None) or (last_known != is_online)
+                        if state_changed and conn_resp is not None:
+                            session.add(ConnectionState(
+                                user_vehicle_id=user_vehicle_id,
+                                captured_at=now,
+                                is_online=is_online,
+                                in_motion=False,
+                                ignition_on=conn_resp.ignition_on if conn_resp else None,
+                            ))
+                            self._last_connection_state[user_vehicle_id] = is_online
+                        _apply_health(cs, conn_resp is not None, cycle_errors, now)
+                        await session.commit()
+                        return
+
+                    # Wake window / not sleeping: probe charging (and AC).
+                    charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
+                    charge_state = charging.status.state if charging and charging.status else None
+                    charge_power = charging.status.charge_power_in_kw if charging and charging.status else None
+                    is_charging = is_actively_charging(charge_state, charge_power)
+
+                    ac_hold = self._ac_probe_hold.get(user_vehicle_id, 0)
+                    if not is_charging and (mode != "sleep" or wake_window or ac_hold > 0 or force):
+                        ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
+                        is_ac_on = (
+                            ac_resp is not None
+                            and ac_resp.state is not None
+                            and ac_resp.state.upper() in ("ON", "HEATING", "COOLING", "VENTILATION")
+                        )
+                    if is_ac_on:
+                        self._ac_probe_hold[user_vehicle_id] = 3
+                    elif ac_hold > 0:
+                        self._ac_probe_hold[user_vehicle_id] = ac_hold - 1
+
+                    car_active = bool(is_moving or is_charging or is_ac_on)
+                    if not car_active and mode == "sleep" and not force:
+                        # Wake window found nothing interesting — still deep sleep.
+                        logger.info(
+                            "Smart poll: vehicle %s DEEP_SLEEP wake-probe tick=%d/%d (no activity)",
+                            user_vehicle_id, sleep_tick, wake_n,
+                        )
+                        last_known = self._last_connection_state.get(user_vehicle_id)
+                        state_changed = (last_known is None) or (last_known != is_online)
+                        if state_changed and conn_resp is not None:
+                            session.add(ConnectionState(
+                                user_vehicle_id=user_vehicle_id,
+                                captured_at=now,
+                                is_online=is_online,
+                                in_motion=False,
+                                ignition_on=conn_resp.ignition_on if conn_resp else None,
+                            ))
+                            self._last_connection_state[user_vehicle_id] = is_online
+                        _apply_health(cs, conn_resp is not None, cycle_errors, now)
+                        await session.commit()
+                        return
+                else:
+                    car_active = False
 
                 if car_active:
-                    # Car is genuinely active, reset the stabilization countdown
+                    self._poll_mode[user_vehicle_id] = "active"
+                    self._sleep_ticks[user_vehicle_id] = 0
+
+                # ── Stabilization: full fetch a few cycles after activity ends ──
+                STABILIZATION_CYCLES = 3
+
+                if car_active:
                     self._stale_active_counters[user_vehicle_id] = STABILIZATION_CYCLES
                 else:
-                    # Car is inactive, check if we are still stabilizing from a previous active state
                     count = self._stale_active_counters.get(user_vehicle_id, 0)
                     if count > 0:
-                        car_active = True # Force active mode
+                        car_active = True  # Force active mode for final snapshots
                         self._stale_active_counters[user_vehicle_id] = count - 1
+                        self._poll_mode[user_vehicle_id] = "active"
                         logger.info(
                             "Smart poll: vehicle %s stabilizing (%d extra active polls remaining)",
-                            user_vehicle_id, count - 1
+                            user_vehicle_id, count - 1,
                         )
                         if count - 1 == 0:
-                            logger.info("Smart poll: stabilization complete for vehicle %s, will return to parked next cycle", user_vehicle_id)
+                            logger.info(
+                                "Smart poll: stabilization complete for vehicle %s, will deep-sleep next cycle",
+                                user_vehicle_id,
+                            )
+                if not car_active and not force:
+                    self._poll_mode[user_vehicle_id] = "sleep"
 
-                # ── Step 4: Dynamic interval rescheduling ───────────────────
-                # v2.3: When activity is first detected (Parked → Active transition), the
-                # interval switches immediately here so the NEXT scheduler tick already
-                # fires at active_interval_seconds.  The full fetch below runs in the
-                # current cycle, so there is zero lag on the first active collection.
+                # ── Dynamic interval rescheduling ──────────────────────────
                 job_id = f"collect_{user_vehicle_id}"
                 desired_interval = vehicle.active_interval_seconds if car_active else vehicle.parked_interval_seconds
                 current_interval = self._get_job_interval_seconds(job_id)
@@ -604,19 +679,11 @@ class DataCollector:
                         user_vehicle_id, current_interval, desired_interval, car_active,
                     )
 
-                # ── Step 5: PARKED — conditionally save connection state, bail out ─
-                # v2.3: Only write a ConnectionState row when the online/offline status
-                # has actually changed since the last poll.  This prevents the table from
-                # accumulating thousands of identical rows while the car sleeps overnight.
-                # On the very first poll after a collector restart (cache is empty) we
-                # always write so the DB reflects current reality.
+                # ── Parked/inactive: persist only on change, then bail ─────
                 if not car_active and not force:
                     last_known = self._last_connection_state.get(user_vehicle_id)
                     state_changed = (last_known is None) or (last_known != is_online)
 
-                    # Only record a ConnectionState row on a real, observed status change.
-                    # Skip when conn_resp is None: we couldn't reach Škoda this cycle, so we
-                    # don't actually know the car went offline (avoids false "offline" rows).
                     if state_changed and conn_resp is not None:
                         session.add(ConnectionState(
                             user_vehicle_id=user_vehicle_id,
@@ -627,67 +694,17 @@ class DataCollector:
                         ))
                         self._last_connection_state[user_vehicle_id] = is_online
                         logger.info(
-                            "Smart poll: vehicle %s PARKED — state changed (was=%s → now online=%s). "
-                            "ConnectionState saved.",
+                            "Smart poll: vehicle %s PARKED — state changed (was=%s → now online=%s).",
                             user_vehicle_id, last_known, is_online,
                         )
                     else:
                         logger.debug(
-                            "Smart poll: vehicle %s PARKED (online=%s, unchanged or unreachable).",
+                            "Smart poll: vehicle %s PARKED (online=%s, unchanged).",
                             user_vehicle_id, is_online,
                         )
 
-                    # Cheap parked charge persist: reuse the charging probe already
-                    # fetched in step 2 (no extra API call). Keeps overnight home
-                    # sessions / SoC climb without waking Active on CONNECT_CABLE.
-                    # Requires a real state string — it is the duration-state match key.
-                    if charging and charging.status and charging.status.state:
-                        try:
-                            st = charging.status
-                            cs_data = {
-                                "state": st.state,
-                                "charge_type": st.charge_type,
-                                "charge_power_kw": st.charge_power_in_kw,
-                                "charge_rate_km_per_hour": st.charge_rate_in_kilometers_per_hour,
-                                "remaining_time_min": st.remaining_time_to_fully_charged_in_minutes,
-                            }
-                            if charging.settings:
-                                cs_data["target_soc_pct"] = charging.settings.target_state_of_charge_in_percent
-                                cs_data["max_charge_current_ac"] = charging.settings.max_charge_current_ac
-                            if st.battery:
-                                cs_data["battery_pct"] = st.battery.state_of_charge_in_percent
-                                cs_data["remaining_range_m"] = st.battery.remaining_cruising_range_in_meters
-                            max_gap_s = max(vehicle.parked_interval_seconds * 2, 600)
-                            await _update_or_insert_duration_state(
-                                session, ChargingState, user_vehicle_id,
-                                match_keys={"state": st.state},
-                                volatile_keys=[
-                                    "charge_power_kw", "charge_rate_km_per_hour",
-                                    "remaining_time_min", "target_soc_pct",
-                                    "battery_pct", "remaining_range_m",
-                                ],
-                                now=now,
-                                max_gap_s=max_gap_s,
-                                **cs_data,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Parked charging persist failed for %s", user_vehicle_id, exc_info=True,
-                            )
-
-                    # Refresh connection-health every cycle (one cheap UPDATE) so the UI can
-                    # detect when we stop being able to reach the vehicle.
                     _apply_health(cs, conn_resp is not None, cycle_errors, now)
                     await session.commit()
-
-                    # ABRP: push a parked/charging snapshot (never breaks collection)
-                    try:
-                        parked_snap = await self._build_parked_abrp_snapshot(
-                            session, now=now, vehicle=vehicle, conn_resp=conn_resp
-                        )
-                        await self._maybe_push_abrp(session, vehicle, parked_snap)
-                    except Exception:
-                        logger.warning("ABRP parked snapshot failed for %s", user_vehicle_id, exc_info=True)
                     return
 
                 # ══════════════════════════════════════════════════════════════
@@ -1434,11 +1451,43 @@ class DataCollector:
         )
         logger.info("Registered collection job %s every %ds (first run NOW)", job_id, interval)
 
+    def update_vehicle_intervals(
+        self,
+        user_vehicle_id: UUID,
+        active_interval: int,
+        parked_interval: int,
+    ) -> None:
+        """Apply DB interval settings without clobbering an Active job.
+
+        vehicle_updated used to re-register at parked_interval_seconds, which
+        knocked live Active polling back to the parked rate (full fetches at the
+        wrong cadence).
+        """
+        job_id = f"collect_{user_vehicle_id}"
+        job = self._scheduler.get_job(job_id)
+        if job is None:
+            self.register_vehicle(user_vehicle_id, parked_interval)
+            return
+        current = self._get_job_interval_seconds(job_id) or parked_interval
+        desired = active_interval if self._poll_mode.get(user_vehicle_id) == "active" else parked_interval
+        if current != desired:
+            self._scheduler.reschedule_job(job_id, trigger="interval", seconds=desired)
+            logger.info(
+                "Updated job %s interval %ds → %ds (mode=%s)",
+                job_id, current, desired, self._poll_mode.get(user_vehicle_id, "sleep"),
+            )
+
     def unregister_vehicle(self, user_vehicle_id: UUID) -> None:
         job_id = f"collect_{user_vehicle_id}"
         if self._scheduler.get_job(job_id):
             self._scheduler.remove_job(job_id)
             logger.info("Unregistered collection job %s", job_id)
+        # Drop per-vehicle tracking so removed cars cannot leak memory.
+        self._poll_mode.pop(user_vehicle_id, None)
+        self._sleep_ticks.pop(user_vehicle_id, None)
+        self._ac_probe_hold.pop(user_vehicle_id, None)
+        self._last_connection_state.pop(user_vehicle_id, None)
+        self._stale_active_counters.pop(user_vehicle_id, None)
 
 
 async def _update_or_insert_duration_state(
