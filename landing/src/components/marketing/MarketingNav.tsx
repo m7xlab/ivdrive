@@ -107,6 +107,7 @@ export function MarketingNav() {
             ))}
             <a
               href="/docs/"
+              onClick={() => setOpen(false)}
               className="rounded-xl px-3 py-3 text-ink hover:bg-white/5"
             >
               Docs
