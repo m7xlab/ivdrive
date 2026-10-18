@@ -49,12 +49,18 @@
 
 		@go_app header_regexp Cookie `access_token=|refresh_token=|iv_view=app`
 		handle @go_app {
-			reverse_proxy ivdrive-web:3000
+			reverse_proxy ivdrive-web:3000 {
+				header_up X-Forwarded-Proto {scheme}
+				header_up X-Forwarded-Host {host}
+			}
 		}
 
 		@go_app_mobile header_regexp User-Agent `(?i)mobile|android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini|tablet`
 		handle @go_app_mobile {
-			reverse_proxy ivdrive-web:3000
+			reverse_proxy ivdrive-web:3000 {
+				header_up X-Forwarded-Proto {scheme}
+				header_up X-Forwarded-Host {host}
+			}
 		}
 
 		handle {

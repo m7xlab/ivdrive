@@ -6,11 +6,14 @@ COPY package.json ./
 RUN npm install
 
 COPY . .
-RUN npm run build && \
-    # Also expose /page/ URLs (trailing slash) for static export
-    for p in features open-source community about roadmap sponsors; do \
-      mkdir -p "out/$p" && cp "out/$p.html" "out/$p/index.html"; \
-    done
+# Build static export, then also serve /page/ (trailing slash) for every
+# exported page — not a hardcoded route list.
+RUN npm run build \
+  && for f in out/*.html; do \
+       base=$(basename "$f" .html); \
+       [ "$base" = "index" ] || [ "$base" = "404" ] && continue; \
+       mkdir -p "out/$base" && cp "$f" "out/$base/index.html"; \
+     done
 
 # ── Caddy: serve static + proxy app paths ───────────────────────────────
 FROM caddy:2.8-alpine

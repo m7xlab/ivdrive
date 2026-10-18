@@ -106,9 +106,7 @@ export function MarketingNav() {
               </Link>
             ))}
             <a
-              href="https://github.com/m7xlab/iVDrive"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/docs/"
               className="rounded-xl px-3 py-3 text-ink hover:bg-white/5"
             >
               Docs
