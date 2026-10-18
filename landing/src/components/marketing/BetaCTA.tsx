@@ -27,7 +27,7 @@ export function BetaCTA() {
                 the full stack on your own hardware tonight.
               </p>
               <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <CTAButton href="/register">
+                <CTAButton href="https://app.ivdrive.eu/register">
                   Request invite
                   <ArrowRight className="h-4 w-4" />
                 </CTAButton>

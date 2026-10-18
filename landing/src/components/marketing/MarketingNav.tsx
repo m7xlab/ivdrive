@@ -72,12 +72,12 @@ export function MarketingNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <a
-            href="/login"
+            href="https://app.ivdrive.eu/login"
             className="px-3 py-2 text-[0.92rem] text-muted transition-colors hover:text-ink"
           >
             Sign in
           </a>
-          <CTAButton href="/register" className="!px-5 !py-2.5 text-sm">
+          <CTAButton href="https://app.ivdrive.eu/register" className="!px-5 !py-2.5 text-sm">
             Request invite
           </CTAButton>
         </div>
@@ -114,13 +114,13 @@ export function MarketingNav() {
             </a>
             <div className="mt-3 flex flex-col gap-2">
               <a
-                href="/login"
+                href="https://app.ivdrive.eu/login"
                 onClick={() => setOpen(false)}
                 className="btn-ghost w-full"
               >
                 Sign in
               </a>
-              <CTAButton href="/register" className="w-full" onClick={() => setOpen(false)}>
+              <CTAButton href="https://app.ivdrive.eu/register" className="w-full" onClick={() => setOpen(false)}>
                 Request invite
               </CTAButton>
             </div>

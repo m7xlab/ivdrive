@@ -54,7 +54,7 @@ export default function AboutPage() {
               life.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <CTAButton href="/register">Request invite</CTAButton>
+              <CTAButton href="https://app.ivdrive.eu/register">Request invite</CTAButton>
               <CTAButton href="/features/" variant="ghost">
                 Explore features
               </CTAButton>

@@ -61,7 +61,7 @@ export default function OpenSourcePage() {
                 <Github className="h-4 w-4" />
                 Clone the repo
               </CTAButton>
-              <CTAButton href="/register" variant="ghost">
+              <CTAButton href="https://app.ivdrive.eu/register" variant="ghost">
                 Prefer hosted? Request invite
               </CTAButton>
             </div>

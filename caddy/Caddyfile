@@ -1,0 +1,65 @@
+# iVDrive landing — marketing only (ivdrive.eu)
+# App lives on its own host (app.ivdrive.eu) — do not proxy console here.
+#
+# Mount at /etc/caddy/Caddyfile. Override with env if needed:
+#   IVDRIVE_APP_URL   e.g. https://app.ivdrive.eu
+#   IVDRIVE_DOCS_UPSTREAM  default ivdrive-docs:80
+
+{
+	admin off
+}
+
+:80 {
+	root * /srv
+	encode gzip
+
+	# App links leave the marketing site
+	@to_app path /login /login/ /register /register/ /forgot-password /forgot-password/ /reset-password /reset-password/ /app /app/*
+	handle @to_app {
+		redir {$IVDRIVE_APP_URL:https://app.ivdrive.eu}{uri} 308
+	}
+
+	# Docs
+	handle /docs/* {
+		reverse_proxy {$IVDRIVE_DOCS_UPSTREAM:ivdrive-docs:80}
+	}
+	handle /docs {
+		redir /docs/ 308
+	}
+
+	# Marketing pages
+	@marketing path /features /features/* /features/ /open-source /open-source/* /open-source/ /community /community/* /community/ /about /about/* /about/ /roadmap /roadmap/* /roadmap/ /sponsors /sponsors/* /sponsors/ /sitemap.xml /robots.txt /og.png /brand/* /marketing/* /favicon.ico /_next/*
+	handle @marketing {
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options SAMEORIGIN
+			Referrer-Policy strict-origin-when-cross-origin
+		}
+	}
+
+	# Home
+	handle / {
+		try_files /index.html
+		file_server
+		header Cache-Control "public, max-age=3600"
+	}
+
+	# Landing export files (js/css)
+	@has_static {
+		file {
+			root /srv
+			try_files {path}
+		}
+	}
+	handle @has_static {
+		file_server
+	}
+
+	# Unknown → marketing home (never the app)
+	handle {
+		try_files /index.html
+		file_server
+	}
+}

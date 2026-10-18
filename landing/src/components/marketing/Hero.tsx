@@ -69,11 +69,11 @@ export function Hero() {
             variants={fadeUp}
             className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
-            <CTAButton href="/register">
+            <CTAButton href="https://app.ivdrive.eu/register">
               Request invite
               <ArrowRight className="h-4 w-4" />
             </CTAButton>
-            <CTAButton href="/login" variant="ghost">
+            <CTAButton href="https://app.ivdrive.eu/login" variant="ghost">
               Sign in
             </CTAButton>
             <a

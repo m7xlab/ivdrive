@@ -16,7 +16,7 @@ function Inner({ children, className }: Common) {
 }
 
 function isExternalAppRoute(href: string) {
-  return href === "/login" || href === "/register" || href.startsWith("/login?") || href.startsWith("/register?");
+  return href === "https://app.ivdrive.eu/login" || href === "https://app.ivdrive.eu/register" || href.startsWith("/login?") || href.startsWith("/register?");
 }
 
 export function CTAButton({

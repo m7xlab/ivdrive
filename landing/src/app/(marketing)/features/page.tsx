@@ -110,7 +110,7 @@ export default function FeaturesPage() {
               about the electrons.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <CTAButton href="/register">Request invite</CTAButton>
+              <CTAButton href="https://app.ivdrive.eu/register">Request invite</CTAButton>
               <CTAButton href="/" variant="ghost">
                 Back to home
               </CTAButton>

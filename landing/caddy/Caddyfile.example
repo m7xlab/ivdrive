@@ -1,0 +1,64 @@
+# iVDrive landing — marketing static + reverse proxy
+#
+# This file is **deployment config**. Mount it at runtime:
+#   volumes:
+#     - ./landing/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+#
+# The image includes a default copy so `docker run` works out of the box,
+# but self-host / prod operators should mount their own (ports, upstreams).
+
+{
+	admin off
+}
+
+:80 {
+	root * /srv
+	encode gzip
+
+	# Docs site
+	handle /docs/* {
+		reverse_proxy {$IVDRIVE_DOCS_UPSTREAM:ivdrive-docs:80}
+	}
+	handle /docs {
+		redir /docs/ 308
+	}
+
+	# Marketing static (not /_next)
+	@marketing path /features /features/* /open-source /open-source/* /community /community/* /about /about/* /roadmap /roadmap/* /sponsors /sponsors/* /sitemap.xml /robots.txt /og.png /brand/* /marketing/* /favicon.ico
+	handle @marketing {
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+
+	# / dual routing: marketing vs console
+	handle / {
+		@go_app header_regexp Cookie `access_token=|refresh_token=|iv_view=app`
+		handle @go_app {
+			reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000}
+		}
+		@go_app_mobile header_regexp User-Agent `(?i)mobile|android|iphone|ipad|ipod|tablet`
+		handle @go_app_mobile {
+			reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000}
+		}
+		handle {
+			try_files /index.html
+			file_server
+		}
+	}
+
+	# Static files that exist in /srv (landing _next, RSC txt, …)
+	@has_static {
+		file {
+			root /srv
+			try_files {path}
+		}
+	}
+	handle @has_static {
+		file_server
+	}
+
+	# Everything else → app
+	handle {
+		reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000}
+	}
+}
