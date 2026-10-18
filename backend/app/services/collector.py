@@ -640,7 +640,8 @@ class DataCollector:
                     # Cheap parked charge persist: reuse the charging probe already
                     # fetched in step 2 (no extra API call). Keeps overnight home
                     # sessions / SoC climb without waking Active on CONNECT_CABLE.
-                    if charging and charging.status:
+                    # Requires a real state string — it is the duration-state match key.
+                    if charging and charging.status and charging.status.state:
                         try:
                             st = charging.status
                             cs_data = {
