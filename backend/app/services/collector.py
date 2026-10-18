@@ -541,7 +541,6 @@ class DataCollector:
                 # A cable at 0 kW (CONNECT_CABLE overnight) is parked for polling
                 # intensity — is_plugged_in() stays for charging_sessions only.
                 is_charging = False
-                is_plugged = False
                 is_ac_on = False
                 charging = None
                 ac_resp = None
@@ -554,13 +553,12 @@ class DataCollector:
                         charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
                         charge_state = charging.status.state if charging and charging.status else None
                         charge_power = charging.status.charge_power_in_kw if charging and charging.status else None
-                        is_plugged = is_plugged_in(charge_state)
                         is_charging = is_actively_charging(charge_state, charge_power)
 
-                        if not is_charging and not is_plugged:
-                            # Not moving, not on a cable — check AC (3rd API call).
-                            # Skip when plugged in: AC on a cable is rare and we already
-                            # have the charging probe this cycle.
+                        if not is_charging:
+                            # Not really charging — check AC (3rd API call). Also when
+                            # plugged at 0 kW: pre-conditioning on a home cable must
+                            # still wake Active so climatisation is recorded.
                             ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
                             is_ac_on = (
                                 ac_resp is not None
