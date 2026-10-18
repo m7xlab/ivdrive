@@ -1,22 +1,32 @@
-# Optional production overlay: public landing + reverse proxy in front of the app.
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.landing.yml up -d --build
+# Optional overlay: marketing landing + docs in front of the app.
 #
-# Self-hosters can ignore this file entirely.
+#   docker compose -f docker-compose.yml -f docker-compose.landing.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.landing.yml up -d
+#
+# Self-hosters: omit this file — console stays at `/`.
+#
+# Caddy config is **deployment-owned**: mount ./landing/caddy/Caddyfile
+# (see landing/caddy/Caddyfile.example). Adjust LANDING_ADDR / upstreams as needed.
 
 services:
   ivdrive-docs:
-    image: ivdrive-docs:latest
-    build: ./documentation
+    image: m7xlab/ivdrive-docs:v1.2.0
+    pull_policy: always
     networks:
       - backend
     restart: unless-stopped
 
   ivdrive-landing:
-    image: ivdrive-landing:latest
-    build: ./landing
+    image: m7xlab/ivdrive-landing:v1.2.0
+    pull_policy: always
     ports:
-      - "80:80"
+      - "3035:80"          # match your reverse proxy / edge port
+    environment:
+      IVDRIVE_WEB_UPSTREAM: "ivdrive-web:3000"
+      IVDRIVE_DOCS_UPSTREAM: "ivdrive-docs:80"
+    volumes:
+      # Override routing without rebuilding the image
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
     networks:
       - backend
     depends_on:

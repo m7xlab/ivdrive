@@ -15,10 +15,12 @@ RUN npm run build \
        mkdir -p "out/$base" && cp "$f" "out/$base/index.html"; \
      done
 
-# ── Caddy: serve static + proxy app paths ───────────────────────────────
+# ── Caddy: static marketing + reverse proxy ─────────────────────────────
+# Default config is a fallback. Production/self-host should mount their own:
+#   - ./landing/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
 FROM caddy:2.8-alpine
 
 COPY --from=builder /app/out /srv
-COPY caddy/Caddyfile /etc/caddy/Caddyfile
+COPY caddy/Caddyfile.example /etc/caddy/Caddyfile
 
 EXPOSE 80

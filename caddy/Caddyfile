@@ -1,0 +1,98 @@
+# iVDrive landing — marketing static + reverse proxy
+#
+# Deployment-owned config. Prefer mounting this file:
+#   ./landing/caddy/Caddyfile → /etc/caddy/Caddyfile
+#
+# Env overrides (optional):
+#   LANDING_ADDR          listen address (default :80)
+#   IVDRIVE_WEB_UPSTREAM  app upstream (default ivdrive-web:3000)
+#   IVDRIVE_DOCS_UPSTREAM docs upstream (default ivdrive-docs:80)
+
+{
+	admin off
+}
+
+:80 {
+	root * /srv
+	encode gzip
+
+	# ── Docs (Docusaurus) ───────────────────────────────────────────────
+	handle /docs/* {
+		reverse_proxy {$IVDRIVE_DOCS_UPSTREAM:ivdrive-docs:80} {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle /docs {
+		redir /docs/ 308
+	}
+
+	# ── Marketing pages (not /_next — shared with the app) ──────────────
+	@marketing path /features /features/* /features/ /open-source /open-source/* /open-source/ /community /community/* /community/ /about /about/* /about/ /roadmap /roadmap/* /roadmap/ /sponsors /sponsors/* /sponsors/ /sitemap.xml /robots.txt /og.png /brand/* /marketing/* /favicon.ico
+	handle @marketing {
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options SAMEORIGIN
+			Referrer-Policy strict-origin-when-cross-origin
+		}
+	}
+
+	# ── / : marketing vs console ────────────────────────────────────────
+	handle / {
+		@force_landing header_regexp Cookie `iv_view=landing`
+		handle @force_landing {
+			try_files /index.html
+			file_server
+		}
+
+		@bot header_regexp User-Agent `(?i)googlebot|bingbot|crawler|spider`
+		handle @bot {
+			try_files /index.html
+			file_server
+		}
+
+		@go_app header_regexp Cookie `access_token=|refresh_token=|iv_view=app`
+		handle @go_app {
+			reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000} {
+				header_up X-Forwarded-Proto {scheme}
+				header_up X-Forwarded-Host {host}
+			}
+		}
+
+		@go_app_mobile header_regexp User-Agent `(?i)mobile|android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini|tablet`
+		handle @go_app_mobile {
+			reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000} {
+				header_up X-Forwarded-Proto {scheme}
+				header_up X-Forwarded-Host {host}
+			}
+		}
+
+		handle {
+			try_files /index.html
+			file_server
+			header Cache-Control "public, max-age=3600"
+		}
+	}
+
+	# ── Files that exist in the landing export (incl. landing /_next) ──
+	@has_static {
+		file {
+			root /srv
+			try_files {path}
+		}
+	}
+	handle @has_static {
+		file_server
+	}
+
+	# ── App: /login /register /api/* /_next/* (web chunks) / console ────
+	handle {
+		reverse_proxy {$IVDRIVE_WEB_UPSTREAM:ivdrive-web:3000} {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+}
