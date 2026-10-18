@@ -18,8 +18,8 @@
 		redir /docs/ 308
 	}
 
-	# ── Marketing pages & assets ─────────────────────────────────────────
-	@marketing path /features /features/* /features/ /open-source /open-source/* /open-source/ /community /community/* /community/ /about /about/* /about/ /roadmap /roadmap/* /roadmap/ /sponsors /sponsors/* /sponsors/ /sitemap.xml /robots.txt /og.png /brand/* /marketing/* /favicon.ico /_next/*
+	# ── Marketing pages & assets (NOT /_next — app + landing both use it) ──
+	@marketing path /features /features/* /features/ /open-source /open-source/* /open-source/ /community /community/* /community/ /about /about/* /about/ /roadmap /roadmap/* /roadmap/ /sponsors /sponsors/* /sponsors/ /sitemap.xml /robots.txt /og.png /brand/* /marketing/* /favicon.ico
 	handle @marketing {
 		root * /srv
 		try_files {path} {path}.html {path}/index.html /index.html
