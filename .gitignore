@@ -70,8 +70,19 @@ frontend/.next/
 frontend/out/
 frontend/build/
 frontend/dist/
+landing/.next/
+landing/out/
+landing/output/
+documentation/build/
+documentation/.docusaurus/
+documentation/.cache-loader/
+.next/
+out/
+build/
+dist/
 .turbo/
 .parcel-cache/
+.cache/
 .eslintcache
 
 # ---- TS / Next generated files ------------------------------------------

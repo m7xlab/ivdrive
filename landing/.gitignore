@@ -1,7 +1,30 @@
-node_modules
-.next
-out
-output
-.playwright-cli
+# Dependencies
+node_modules/
+
+# Next.js / build
+.next/
+out/
+output/
+next-env.d.ts
+*.tsbuildinfo
+
+# Caches & tooling
+.cache/
+.turbo/
+.eslintcache
+.playwright-cli/
+.mimocode/
+.claude/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Docker
 Dockerfile.bak
-.env*
