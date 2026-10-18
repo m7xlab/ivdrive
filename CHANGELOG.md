@@ -1,5 +1,24 @@
 # Changelog
 
+## [v1.1.16.1] - 2026-10-17
+Hotfix: restore deep-sleep polling while a car sits on a cable without drawing power. v1.1.15/v1.1.16 treated `CONNECT_CABLE` (and other plugged-in states) as Active, so home-parked EVs did a **full Škoda fetch every `active_interval_seconds`** (often 3 min) all night.
+
+### Fixed
+- **Parked sleep vs home cable** (`collector.py`): Active polling now requires **real activity** — moving, `state == "CHARGING"`, or `charge_power_kw > 0` on a plugged-in state, or climatisation on. A 0 kW `CONNECT_CABLE` / `READY_FOR_CHARGING` / `CONSERVING` night is **Parked** again (`parked_interval_seconds`, e.g. 15 min).
+  - `is_plugged_in()` is still used for **charging session** open/close (overnight home sessions and SoC climbs are kept).
+  - New `is_actively_charging(state, charge_power_kw)` in `analytics.py` owns poll intensity only.
+- **Overnight SoC without waking Active**: the parked path persists `ChargingState` (SoC, power, remaining range) from the charging probe **already fetched** that cycle — no extra API call, no full fetch.
+- **Parked probe cost**: skip the AC probe when the vehicle is plugged in (already have charging this cycle). Parked work is connection status (+ charging when online), never position/status/maintenance/garage/renders.
+- **Active full-fetch trim**: `get_garage_vehicle` / `get_vehicle_renders` no longer run every Active cycle (static metadata; backfilled only when missing). Cuts two Škoda calls per active tick.
+
+### Changed
+- Smart Polling **v2.4** (see `smart_polling_explanation.md`): Active = moving / real charge / AC; Parked includes cable-at-zero-power.
+- Tests: `test_charging_detect.py` covers `is_actively_charging` matrix (CONNECT_CABLE at 0 kW must not activate).
+
+### Notes
+- No schema change. No new env vars. Rebuild **api + collector** only (web unchanged).
+- Pair with v1.1.16 ABRP: parked cable no longer floods ABRP with full-rate points; real charging still pushes.
+
 ## [v1.1.16] - 2026-10-17
 Feature release: A Better Route Planner (ABRP) live-telemetry integration, Settings UX overhaul (category navigation), and a hardened security-scan workflow. Builds on v1.1.15 (CONNECT_CABLE home-charging capture).
 

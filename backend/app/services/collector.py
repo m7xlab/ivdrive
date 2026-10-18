@@ -22,7 +22,7 @@ from app.models.vehicle import ConnectorSession, UserVehicle
 from app.services.abrp_sync import AbrpSnapshot, flush_outbox, push_vehicle_tlm
 from app.services.crypto import decrypt_field, encrypt_field
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
-from app.services.analytics import is_plugged_in, process_completed_trips_and_charges
+from app.services.analytics import is_actively_charging, is_plugged_in, process_completed_trips_and_charges
 from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
 from app.services.skoda_api import SkodaAPIClient
 from app.services.skoda_auth import SkodaAuthClient
@@ -511,16 +511,16 @@ class DataCollector:
 
             try:
                 # ══════════════════════════════════════════════════════════════
-                # SMART POLLING — Motion-Triggered approach  (v2.3)
+                # SMART POLLING — Motion-Triggered approach  (v2.4)
                 #
-                # PARKED  → 1 API call  (connection_status only)
-                #           ConnectionState only written when online/offline status CHANGES
-                #           (prevents thousands of identical rows while car sleeps overnight)
-                # ACTIVE  → full fetch   (all endpoints), save everything
-                #           Interval switches to active_interval_seconds IMMEDIATELY when
-                #           any of the 3 lightweight probes detect activity.
+                # PARKED  → 1–2 lightweight calls (connection_status + charging
+                #           probe when online). No full endpoint dump.
+                #           ConnectionState only written when online/offline CHANGES.
+                #           A cable at 0 kW (CONNECT_CABLE) stays PARKED.
+                # ACTIVE  → full live fetch when moving OR really charging OR AC.
+                #           Interval switches to active_interval_seconds immediately.
                 #
-                # "Active" = moving OR charging OR climatisation running.
+                # "Active" = moving OR is_actively_charging(power/state) OR climatisation.
                 # There is NO periodic full-refresh timer while parked.
                 # ══════════════════════════════════════════════════════════════
 
@@ -537,8 +537,11 @@ class DataCollector:
                 )
 
                 # ── Step 2: Determine activity ──────────────────────────────
-                # If clearly moving we can skip the charging/AC probes.
+                # Active = moving OR real charging (power flowing / state=CHARGING) OR AC.
+                # A cable at 0 kW (CONNECT_CABLE overnight) is parked for polling
+                # intensity — is_plugged_in() stays for charging_sessions only.
                 is_charging = False
+                is_plugged = False
                 is_ac_on = False
                 charging = None
                 ac_resp = None
@@ -549,16 +552,15 @@ class DataCollector:
                     if not is_moving:
                         # Not moving — check charging (2nd API call)
                         charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
-                        # CONNECT_CABLE / READY_FOR_CHARGING must count as active.
-                        # Škoda frequently never emits CHARGING (power stays 0) while SoC rises.
-                        is_charging = bool(
-                            charging
-                            and charging.status
-                            and is_plugged_in(charging.status.state)
-                        )
+                        charge_state = charging.status.state if charging and charging.status else None
+                        charge_power = charging.status.charge_power_in_kw if charging and charging.status else None
+                        is_plugged = is_plugged_in(charge_state)
+                        is_charging = is_actively_charging(charge_state, charge_power)
 
-                        if not is_charging:
-                            # Not moving, not charging — check AC (3rd API call)
+                        if not is_charging and not is_plugged:
+                            # Not moving, not on a cable — check AC (3rd API call).
+                            # Skip when plugged in: AC on a cable is rare and we already
+                            # have the charging probe this cycle.
                             ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
                             is_ac_on = (
                                 ac_resp is not None
@@ -636,6 +638,44 @@ class DataCollector:
                             "Smart poll: vehicle %s PARKED (online=%s, unchanged or unreachable).",
                             user_vehicle_id, is_online,
                         )
+
+                    # Cheap parked charge persist: reuse the charging probe already
+                    # fetched in step 2 (no extra API call). Keeps overnight home
+                    # sessions / SoC climb without waking Active on CONNECT_CABLE.
+                    if charging and charging.status:
+                        try:
+                            st = charging.status
+                            cs_data = {
+                                "state": st.state,
+                                "charge_type": st.charge_type,
+                                "charge_power_kw": st.charge_power_in_kw,
+                                "charge_rate_km_per_hour": st.charge_rate_in_kilometers_per_hour,
+                                "remaining_time_min": st.remaining_time_to_fully_charged_in_minutes,
+                            }
+                            if charging.settings:
+                                cs_data["target_soc_pct"] = charging.settings.target_state_of_charge_in_percent
+                                cs_data["max_charge_current_ac"] = charging.settings.max_charge_current_ac
+                            if st.battery:
+                                cs_data["battery_pct"] = st.battery.state_of_charge_in_percent
+                                cs_data["remaining_range_m"] = st.battery.remaining_cruising_range_in_meters
+                            max_gap_s = max(vehicle.parked_interval_seconds * 2, 600)
+                            await _update_or_insert_duration_state(
+                                session, ChargingState, user_vehicle_id,
+                                match_keys={"state": st.state},
+                                volatile_keys=[
+                                    "charge_power_kw", "charge_rate_km_per_hour",
+                                    "remaining_time_min", "target_soc_pct",
+                                    "battery_pct", "remaining_range_m",
+                                ],
+                                now=now,
+                                max_gap_s=max_gap_s,
+                                **cs_data,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Parked charging persist failed for %s", user_vehicle_id, exc_info=True,
+                            )
+
                     # Refresh connection-health every cycle (one cheap UPDATE) so the UI can
                     # detect when we stop being able to reach the vehicle.
                     _apply_health(cs, conn_resp is not None, cycle_errors, now)
@@ -675,9 +715,8 @@ class DataCollector:
                 maint_resp = await _safe(api.get_maintenance(vin), "maintenance", user_vehicle_id, cycle_errors)
                 warning_lights_resp = await _safe(api.get_warning_lights(vin), "warning_lights", user_vehicle_id, cycle_errors)
 
-                # Fetch additional metadata endpoints for complete raw data coverage
-                garage_vehicle_resp = await _safe(api.get_garage_vehicle(vin), "garage_vehicle", user_vehicle_id, cycle_errors)
-                vehicle_renders_resp = await _safe(api.get_vehicle_renders(vin), "vehicle_renders", user_vehicle_id, cycle_errors)
+                # Garage / renders are static metadata — backfilled separately when
+                # missing (see _fetch_vehicle_metadata). Not fetched every Active cycle.
 
                 # Weather & elevation for position enrichment
                 temp_c = None
@@ -1163,8 +1202,8 @@ class DataCollector:
                         raw_air_conditioning=_to_raw(ac_resp),
                         raw_maintenance=_to_raw(maint_resp),
                         raw_warning_lights=_to_raw(warning_lights_resp),
-                        raw_garage_vehicle=_to_raw(garage_vehicle_resp),
-                        raw_vehicle_renders=_to_raw(vehicle_renders_resp),
+                        raw_garage_vehicle=None,
+                        raw_vehicle_renders=None,
                     ))
 
                 # ── Commit & update timestamp ───────────────────────────────
