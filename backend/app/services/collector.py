@@ -1452,15 +1452,13 @@ class DataCollector:
             ))
 
         if snap.hvac_state or snap.hvac_setpoint_c is not None:
-            await _update_or_insert_duration_state(
-                session, AirConditioningState, vid,
-                match_keys={"state": snap.hvac_state or "UNKNOWN"},
-                volatile_keys=["target_temp_celsius"],
-                now=now,
-                max_gap_s=max_gap_s,
+            session.add(AirConditioningState(
+                user_vehicle_id=vid,
+                captured_at=now,
                 state=snap.hvac_state,
                 target_temp_celsius=snap.hvac_setpoint_c,
-            )
+                outside_temp_celsius=snap.outside_temp_c,
+            ))
 
         # Smart-poll: treat official IN_MOTION as active
         if snap.is_moving:
