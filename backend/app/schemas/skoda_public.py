@@ -169,6 +169,9 @@ class SkodaPublicSettingsOut(BaseModel):
     has_api_key: bool = False
     api_key_hint: str | None = None
     key_expires_at: datetime | None = None
+    expires_in_days: int | None = None
+    expiry_warning: str | None = None
+    last_error: str | None = None
     docs_url: str = "https://public.api.connect.skoda-auto.cz/docs"
     key_qr_url: str = "https://public.api.connect.skoda-auto.cz/docs/api-keys-qr.svg"
     vehicles: list[SkodaPublicVehicleOut] = Field(default_factory=list)

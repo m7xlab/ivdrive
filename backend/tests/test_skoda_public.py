@@ -78,3 +78,24 @@ def test_parse_key_expiry_header():
     dt = parse_expires_at(meta)
     assert dt is not None
     assert dt.year == 2026
+
+
+def test_friendly_errors_are_plain_language():
+    from app.services.skoda_public_api import friendly_skoda_error
+
+    expired = friendly_skoda_error(
+        "err", 401, "https://public.api.connect.skoda-auto.cz/problems/api-key-expired"
+    )
+    assert "MyŠkoda" in expired or "MySkoda" in expired
+    assert "3 month" in expired.lower()
+    assert "msk_" not in expired
+
+    rate = friendly_skoda_error("err", 429, "rate-limit-exceeded")
+    assert "20" in rate and "hour" in rate.lower()
+
+    not_auth = friendly_skoda_error("err", 403, "api-key-not-authorized")
+    assert "vehicle" in not_auth.lower()
+
+    generic = friendly_skoda_error("err", 500, None)
+    assert "MyŠkoda" in generic or "MySkoda" in generic
+

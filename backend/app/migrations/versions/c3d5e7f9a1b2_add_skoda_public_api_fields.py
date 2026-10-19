@@ -27,6 +27,10 @@ def upgrade() -> None:
         sa.Column("skoda_public_key_expires_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.add_column(
+        "users",
+        sa.Column("skoda_public_last_error", sa.String(length=512), nullable=True),
+    )
+    op.add_column(
         "user_vehicles",
         sa.Column(
             "telemetry_source",
@@ -39,5 +43,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("user_vehicles", "telemetry_source")
+    op.drop_column("users", "skoda_public_last_error")
     op.drop_column("users", "skoda_public_key_expires_at")
     op.drop_column("users", "skoda_public_api_key_encrypted")

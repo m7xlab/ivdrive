@@ -37,9 +37,18 @@ DEFAULT_INCLUDE = (
 
 
 class SkodaPublicAPIError(Exception):
-    def __init__(self, message: str, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        *,
+        problem_type: str | None = None,
+        user_message: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.problem_type = problem_type
+        self.user_message = user_message or friendly_skoda_error(message, status_code, problem_type)
 
 
 class SkodaPublicAuthError(SkodaPublicAPIError):
@@ -52,6 +61,55 @@ class SkodaPublicRateLimitError(SkodaPublicAPIError):
 
 class SkodaPublicTimeoutError(SkodaPublicAPIError):
     pass
+
+
+# RFC 9457 problem types from https://public.api.connect.skoda-auto.cz/docs
+_PROBLEM_USER_MESSAGES: dict[str, str] = {
+    "api-key-expired": (
+        "Your MyŠkoda API key has expired. Open the MyŠkoda app → API keys, create a "
+        "new key (keys are valid for about 3 months), then save it here again."
+    ),
+    "api-key-not-authorized": (
+        "This API key is not allowed for this vehicle. In the MyŠkoda app, edit the key "
+        "and make sure this car is selected, or create a new key that includes it."
+    ),
+    "operation-not-authorized": (
+        "The car refused this command for your account. Try the action in the MyŠkoda app "
+        "or check the vehicle’s connected services."
+    ),
+    "operation-not-supported": "This car does not support that feature.",
+    "operation-disabled": "That feature is currently switched off for this car.",
+    "rate-limit-exceeded": (
+        "Too many requests to the Škoda API (about 20 per hour per car). "
+        "iVDrive will wait and try again later."
+    ),
+    "vehicle-not-accepting-requests": (
+        "The car is not accepting requests right now (it may be asleep or the 12V battery "
+        "is low). Try again in a few minutes."
+    ),
+}
+
+
+def friendly_skoda_error(
+    message: str, status_code: int | None = None, problem_type: str | None = None
+) -> str:
+    """Plain-language explanation for Settings / toasts (never raw codes only)."""
+    if problem_type:
+        key = problem_type.rstrip("/").split("/")[-1].lower()
+        if key in _PROBLEM_USER_MESSAGES:
+            return _PROBLEM_USER_MESSAGES[key]
+    if status_code == 401:
+        return _PROBLEM_USER_MESSAGES["api-key-expired"]
+    if status_code == 403:
+        return _PROBLEM_USER_MESSAGES["api-key-not-authorized"]
+    if status_code == 429:
+        return _PROBLEM_USER_MESSAGES["rate-limit-exceeded"]
+    if status_code == 422:
+        return _PROBLEM_USER_MESSAGES["operation-not-supported"]
+    return (
+        "Could not reach the official MyŠkoda service. "
+        "Check your internet connection and try again."
+    )
 
 
 @dataclass
@@ -93,26 +151,62 @@ class SkodaPublicAPIClient:
 
     def _raise_for_status(self, resp: httpx.Response) -> dict[str, Any]:
         self._capture_meta(resp.headers)
+        problem_type = None
+        detail = None
+        if resp.headers.get("content-type", "").startswith("application/problem+json") or (
+            resp.status_code >= 400 and resp.headers.get("content-type", "").endswith("json")
+        ):
+            try:
+                body = resp.json()
+                problem_type = body.get("type") or body.get("title")
+                detail = body.get("detail") or body.get("title")
+            except Exception:
+                problem_type = None
+
         if resp.status_code == 401:
-            raise SkodaPublicAuthError("Invalid or expired X-API-Key", 401)
+            raise SkodaPublicAuthError(
+                detail or "Invalid or expired X-API-Key",
+                401,
+                problem_type=problem_type,
+            )
         if resp.status_code == 403:
-            raise SkodaPublicAuthError("API key not authorized for this vehicle", 403)
+            raise SkodaPublicAuthError(
+                detail or "API key not authorized for this vehicle",
+                403,
+                problem_type=problem_type,
+            )
         if resp.status_code == 429:
             raise SkodaPublicRateLimitError(
-                f"Rate limited (Retry-After={resp.headers.get('Retry-After')})", 429
+                detail or f"Rate limited (Retry-After={resp.headers.get('Retry-After')})",
+                429,
+                problem_type=problem_type,
             )
         if resp.status_code == 404:
-            raise SkodaPublicAPIError("Vehicle not found", 404)
+            raise SkodaPublicAPIError(
+                detail or "Vehicle not found", 404, problem_type=problem_type
+            )
         if resp.status_code == 422:
-            raise SkodaPublicAPIError("Operation not supported", 422)
+            raise SkodaPublicAPIError(
+                detail or "Operation not supported", 422, problem_type=problem_type
+            )
         if resp.status_code >= 500:
-            raise SkodaPublicAPIError(f"Upstream {resp.status_code}", resp.status_code)
+            raise SkodaPublicAPIError(
+                detail or f"Upstream {resp.status_code}",
+                resp.status_code,
+                problem_type=problem_type,
+            )
         if resp.status_code >= 400:
-            raise SkodaPublicAPIError(f"HTTP {resp.status_code}: {resp.text[:200]}", resp.status_code)
+            raise SkodaPublicAPIError(
+                detail or f"HTTP {resp.status_code}: {resp.text[:200]}",
+                resp.status_code,
+                problem_type=problem_type,
+            )
         try:
             return resp.json()
         except Exception as exc:
-            raise SkodaPublicAPIError("Invalid JSON response", resp.status_code) from exc
+            raise SkodaPublicAPIError(
+                "Invalid JSON response", resp.status_code, problem_type=problem_type
+            ) from exc
 
     async def get_vehicle(
         self,

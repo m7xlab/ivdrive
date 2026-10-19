@@ -1344,11 +1344,15 @@ class DataCollector:
         try:
             resp, meta = await client.get_vehicle_snapshot(vin)
         except Exception as exc:
+            user_msg = getattr(exc, "user_message", None) or str(exc)
             logger.warning(
-                "Public Škoda API failed for %s (%s); falling back if available",
-                vehicle.id, exc,
+                "Public Škoda API failed for %s: %s", vehicle.id, user_msg,
             )
-            # Fallback to legacy unless user forced official-only
+            user.skoda_public_last_error = user_msg[:512]
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
             return pref == "public"
         finally:
             await client.close()
@@ -1362,6 +1366,8 @@ class DataCollector:
             expires = parse_expires_at(meta)
             if expires and user.skoda_public_key_expires_at != expires:
                 user.skoda_public_key_expires_at = expires
+            if user.skoda_public_last_error:
+                user.skoda_public_last_error = None
             await session.commit()
             logger.info(
                 "Public Škoda snapshot ok vehicle=%s soc=%s moving=%s rate_left=%s",

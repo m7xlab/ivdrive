@@ -94,6 +94,9 @@ export interface SkodaPublicSettings {
   has_api_key: boolean;
   api_key_hint: string | null;
   key_expires_at: string | null;
+  expires_in_days: number | null;
+  expiry_warning: string | null;
+  last_error: string | null;
   docs_url: string;
   key_qr_url: string;
   vehicles: SkodaPublicVehicle[];

@@ -243,16 +243,34 @@ export function SkodaPublicSection() {
                 <p className="text-sm font-medium text-iv-text">Your MyŠkoda API key</p>
                 <p className="text-xs text-iv-muted mt-0.5">
                   {settings?.has_api_key
-                    ? `Saved ${settings.api_key_hint}${expires ? ` · expires ${expires}` : ""}`
-                    : "Not set — create one in the MyŠkoda app"}
+                    ? `Saved ${settings.api_key_hint}${
+                        settings.expires_in_days != null
+                          ? ` · expires in about ${settings.expires_in_days} day${
+                              settings.expires_in_days === 1 ? "" : "s"
+                            }`
+                          : ""
+                      }`
+                    : "Not set — create one in the MyŠkoda app (valid about 3 months)"}
                 </p>
               </div>
-              {settings?.has_api_key && (
+              {settings?.has_api_key && !settings?.expiry_warning && (
                 <span className="inline-flex items-center rounded-full bg-iv-green/10 border border-iv-green/20 px-2.5 py-1 text-xs text-iv-green">
                   configured
                 </span>
               )}
             </div>
+
+            {settings?.expiry_warning && (
+              <div className="rounded-lg border border-iv-warning/30 bg-iv-warning/10 px-3 py-2.5 text-xs text-iv-warning leading-relaxed">
+                {settings.expiry_warning}
+              </div>
+            )}
+
+            {settings?.last_error && (
+              <div className="rounded-lg border border-iv-danger/30 bg-iv-danger/10 px-3 py-2.5 text-xs text-iv-danger leading-relaxed">
+                {settings.last_error}
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2">
               <input

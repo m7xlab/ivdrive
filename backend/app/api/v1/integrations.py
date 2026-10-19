@@ -223,6 +223,8 @@ async def fetch_next_charge(
 
 
 async def _load_skoda_settings(user: User, db: AsyncSession) -> SkodaPublicSettingsOut:
+    from datetime import UTC, datetime
+
     result = await db.execute(
         select(UserVehicle)
         .where(UserVehicle.user_id == user.id)
@@ -230,10 +232,33 @@ async def _load_skoda_settings(user: User, db: AsyncSession) -> SkodaPublicSetti
     )
     vehicles = result.scalars().all()
     has_key, hint = _hint(user.skoda_public_api_key_encrypted)
+
+    expires_at = user.skoda_public_key_expires_at
+    days_left = None
+    expiry_warning = None
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        days_left = max(0, (expires_at - datetime.now(UTC)).days)
+        if days_left <= 0:
+            expiry_warning = (
+                "Your MyŠkoda API key has expired. Create a new one in the MyŠkoda app "
+                "(they last about 3 months) and save it here."
+            )
+        elif days_left <= 14:
+            expiry_warning = (
+                f"Your MyŠkoda API key expires in {days_left} day"
+                f"{'s' if days_left != 1 else ''}. "
+                "Create a new key in the MyŠkoda app soon — keys cannot be renewed automatically."
+            )
+
     return SkodaPublicSettingsOut(
         has_api_key=has_key,
         api_key_hint=hint,
         key_expires_at=user.skoda_public_key_expires_at,
+        expires_in_days=days_left,
+        expiry_warning=expiry_warning,
+        last_error=user.skoda_public_last_error,
         vehicles=[
             SkodaPublicVehicleOut(
                 vehicle_id=str(v.id),
