@@ -65,6 +65,7 @@ import { api } from "@/lib/api";
 
 import { ThemeSection } from "./theme-section";
 import { AbrpSection } from "./abrp-section";
+import { SkodaPublicSection } from "./skoda-public-section";
 
 import { ECB_CURRENCIES } from "@/lib/currency";
 
@@ -2416,6 +2417,11 @@ export default function SettingsPage() {
       <Cat active={category} id="integrations">
       <SectionCard icon={PlugZap} title="Integrations — ABRP">
         <AbrpSection />
+      </SectionCard>
+
+      {/* Official MyŠkoda Public API */}
+      <SectionCard icon={KeyRound} title="Škoda official API">
+        <SkodaPublicSection />
       </SectionCard>
       </Cat>
 

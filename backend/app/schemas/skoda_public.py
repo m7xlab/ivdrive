@@ -154,3 +154,29 @@ class VehicleResponse(BaseModel):
     model_config = _CAMEL
     vehicle: Vehicle | None = None
     errors: list[VehicleError] = Field(default_factory=list)
+
+
+# ── Settings DTOs (iVDrive API, not the public Skoda contract) ───────────────
+
+
+class SkodaPublicVehicleOut(BaseModel):
+    vehicle_id: str
+    display_name: str | None = None
+    telemetry_source: str = "auto"  # auto | legacy | public
+
+
+class SkodaPublicSettingsOut(BaseModel):
+    has_api_key: bool = False
+    api_key_hint: str | None = None
+    key_expires_at: datetime | None = None
+    docs_url: str = "https://public.api.connect.skoda-auto.cz/docs"
+    key_qr_url: str = "https://public.api.connect.skoda-auto.cz/docs/api-keys-qr.svg"
+    vehicles: list[SkodaPublicVehicleOut] = Field(default_factory=list)
+
+
+class SkodaPublicSettingsUpdate(BaseModel):
+    api_key: str | None = None  # empty string clears
+
+
+class SkodaVehicleSourceUpdate(BaseModel):
+    telemetry_source: str = "auto"  # auto | legacy | public
