@@ -11,6 +11,11 @@ def main() -> None:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
     )
+    # APScheduler logs every timer tick at INFO (manual-refresh 5s, ABRP flush 10s)
+    # — that looks like a collect loop in `docker compose logs`. Keep those quiet.
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

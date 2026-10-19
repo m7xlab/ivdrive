@@ -2413,15 +2413,14 @@ export default function SettingsPage() {
       </SectionCard>
       </Cat>
 
-      {/* ABRP Integration */}
-      <Cat active={category} id="integrations">
-      <SectionCard icon={PlugZap} title="Integrations — ABRP">
-        <AbrpSection />
-      </SectionCard>
-
       {/* Official MyŠkoda Public API */}
+      <Cat active={category} id="integrations">
       <SectionCard icon={KeyRound} title="Škoda official API">
         <SkodaPublicSection />
+      </SectionCard>
+
+      <SectionCard icon={PlugZap} title="Integrations — ABRP">
+        <AbrpSection />
       </SectionCard>
       </Cat>
 
