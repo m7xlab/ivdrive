@@ -14,6 +14,8 @@ import {
 import { skodaApi, type SkodaPublicSettings } from "@/lib/api/integrations";
 
 const DOCS_URL = "https://public.api.connect.skoda-auto.cz/docs";
+// Bundled locally — remote QR is blocked by CSP img-src
+const KEY_QR_SRC = "/assets/myskoda-api-keys-qr.svg";
 const KEY_QR_URL = "https://public.api.connect.skoda-auto.cz/docs/api-keys-qr.svg";
 const APP_KEYS_URL = "https://go.skoda.eu/api-keys";
 
@@ -90,10 +92,10 @@ function HowToModal({ onClose }: { onClose: () => void }) {
         </ol>
 
         <div className="rounded-xl border border-iv-border bg-iv-surface p-4 flex flex-col items-center gap-3">
-          {/* Official MyŠkoda API key management QR */}
+          {/* Official MyŠkoda API key management QR (served from /public/assets for CSP) */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={KEY_QR_URL}
+            src={KEY_QR_SRC}
             alt="QR code to open MyŠkoda API key management"
             width={180}
             height={180}
@@ -102,6 +104,14 @@ function HowToModal({ onClose }: { onClose: () => void }) {
           <p className="text-xs text-iv-muted text-center">
             Scan with your phone to open API key management
           </p>
+          <a
+            href={KEY_QR_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-iv-muted hover:text-iv-green underline"
+          >
+            Open QR in browser
+          </a>
         </div>
 
         <div className="flex flex-col gap-2">
