@@ -24,11 +24,18 @@ from app.schemas.abrp import (
     AbrpSettingsOut,
     AbrpSettingsUpdate,
 )
+from app.schemas.skoda_public import (
+    SkodaPublicSettingsOut,
+    SkodaPublicSettingsUpdate,
+    SkodaPublicVehicleOut,
+    SkodaVehicleSourceUpdate,
+)
 from app.services.abrp_sync import (
     refresh_next_charge,
     upsert_token_fields,
     upsert_user_api_key,
 )
+from app.services.crypto import encrypt_field
 
 router = APIRouter()
 
@@ -210,3 +217,97 @@ async def fetch_next_charge(
         fetched_at=conn.next_charge_fetched_at,
         error=None if pct is not None else conn.last_error_text,
     )
+
+
+# ── Official MyŠkoda Public API (v1.3.0 dual-stack) ─────────────────────────
+
+
+async def _load_skoda_settings(user: User, db: AsyncSession) -> SkodaPublicSettingsOut:
+    from datetime import UTC, datetime
+
+    result = await db.execute(
+        select(UserVehicle)
+        .where(UserVehicle.user_id == user.id)
+        .order_by(UserVehicle.display_name)
+    )
+    vehicles = result.scalars().all()
+    has_key, hint = _hint(user.skoda_public_api_key_encrypted)
+
+    expires_at = user.skoda_public_key_expires_at
+    days_left = None
+    expiry_warning = None
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        days_left = max(0, (expires_at - datetime.now(UTC)).days)
+        if days_left <= 0:
+            expiry_warning = (
+                "Your MyŠkoda API key has expired. Create a new one in the MyŠkoda app "
+                "(they last about 3 months) and save it here."
+            )
+        elif days_left <= 14:
+            expiry_warning = (
+                f"Your MyŠkoda API key expires in {days_left} day"
+                f"{'s' if days_left != 1 else ''}. "
+                "Create a new key in the MyŠkoda app soon — keys cannot be renewed automatically."
+            )
+
+    return SkodaPublicSettingsOut(
+        has_api_key=has_key,
+        api_key_hint=hint,
+        key_expires_at=user.skoda_public_key_expires_at,
+        expires_in_days=days_left,
+        expiry_warning=expiry_warning,
+        last_error=user.skoda_public_last_error,
+        vehicles=[
+            SkodaPublicVehicleOut(
+                vehicle_id=str(v.id),
+                display_name=v.display_name,
+                telemetry_source=v.telemetry_source or "auto",
+            )
+            for v in vehicles
+        ],
+    )
+
+
+@router.get("/skoda", response_model=SkodaPublicSettingsOut)
+async def get_skoda_settings(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _load_skoda_settings(user, db)
+
+
+@router.put("/skoda", response_model=SkodaPublicSettingsOut)
+async def update_skoda_settings(
+    body: SkodaPublicSettingsUpdate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or clear the user's MyŠkoda Public API key (encrypted at rest)."""
+    if body.api_key is not None:
+        if body.api_key == "":
+            user.skoda_public_api_key_encrypted = None
+            user.skoda_public_key_expires_at = None
+        else:
+            user.skoda_public_api_key_encrypted = encrypt_field(body.api_key.strip())
+        await db.commit()
+        await db.refresh(user)
+    return await _load_skoda_settings(user, db)
+
+
+@router.put("/skoda/vehicles/{vehicle_id}", response_model=SkodaPublicSettingsOut)
+async def update_skoda_vehicle_source(
+    vehicle_id: uuid.UUID,
+    body: SkodaVehicleSourceUpdate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    vehicle = await _get_owned_vehicle(vehicle_id, user, db)
+    source = (body.telemetry_source or "auto").lower()
+    if source not in ("auto", "legacy", "public"):
+        raise HTTPException(status_code=400, detail="telemetry_source must be auto, legacy, or public")
+    vehicle.telemetry_source = source
+    await db.commit()
+    await db.refresh(user)
+    return await _load_skoda_settings(user, db)

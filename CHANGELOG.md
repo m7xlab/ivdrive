@@ -1,5 +1,30 @@
 # Changelog
 
+## [v1.3.0] - 2026-10-19
+**Official MyŠkoda Public API dual-stack** — collect live telemetry with a personal Public API key (no Škoda password), keep the legacy login path as fallback, and fail with human-readable errors when keys expire or VINs are not linked.
+
+### Added
+- **Official MyŠkoda Public API client** (`skoda_public_api.py`): `X-API-Key` against `public.api.connect.skoda-auto.cz`, single composite vehicle snapshot (`include=…`), problem+json → friendly user messages (`api-key-expired`, `api-key-not-authorized`, `rate-limit-exceeded`, …).
+- **Dual-stack source layer** (`vehicle_source.py` + `skoda_normalize.py`): per-vehicle `telemetry_source` = **Auto** (public first, login fallback) · **Login** (legacy `myskoda`) · **Official** (Public API only). Normalized snapshot shared by the collector so charts/ABRP do not care which backend answered.
+- **Settings → Integrations → Škoda official API**: paste a personal API key from the MyŠkoda app ([go.skoda.eu/api-keys](https://go.skoda.eu/api-keys), QR help bundled locally for CSP). Key + expiry stored AES-256-GCM on the user; soft warnings before expiry.
+- **Add Vehicle without password** when an official key is configured — onboard cars that only use the Public API path.
+- **Collector** `_try_collect_public` / `_persist_public_snapshot`: SoC, range, charging, HVAC, parking position, connection readiness; HVAC stored as point-in-time rows (`AirConditioningState.captured_at`).
+- Per-vehicle **source switch** on the vehicle form; human-readable API problems (not raw status codes) in UI and collector logs.
+- Migration `c3d5e7f9a1b2`: `users.skoda_public_api_key_encrypted` + expiry/last_error, `vehicles.telemetry_source`.
+
+### Changed
+- Settings Integrations order: **Škoda official API** above ABRP.
+- APScheduler collector tick logs demoted (noisy INFO looked like a poll loop).
+- Tests: `test_skoda_public.py` for client errors + normalize mapping.
+
+### Cutoff readiness (legacy login)
+When Škoda retires the unofficial login/MQTT stack, vehicles can move to **Official** (or Auto with public-only) without a code change: configure a user API key and set source to Official/Auto. Rate budget is ~**20 req/hour/VIN** on the Public API — smart polling intervals still apply.
+
+### Notes
+- No breaking API change. Rebuild **api + collector + web** (web for Settings + Add Vehicle).
+- Never commit API keys; they live only in the UI and encrypted DB columns.
+- Dual-stack during transition: legacy login remains for cars not bound to a Public API key.
+
 ## [v1.2.1] - 2026-10-18
 Smart polling **deep-sleep**: stop constant Škoda pulls and identical DB writes while the car is parked. Status ping only; full monitoring when the car is actually active.
 

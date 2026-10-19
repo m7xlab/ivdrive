@@ -358,6 +358,9 @@ function AddVehicleModal({
 
   const [skodaSpin, setSkodaSpin] = useState("");
 
+  /** Official MyŠkoda API key — no account password required. */
+  const [useOfficialApi, setUseOfficialApi] = useState(false);
+
   const [wltpRangeKm, setWltpRangeKm] = useState("");
 
   const [activeInterval, setActiveInterval] = useState(300);
@@ -388,11 +391,13 @@ function AddVehicleModal({
 
         display_name: displayName || undefined,
 
-        skoda_username: skodaUsername,
+        use_official_api: useOfficialApi || undefined,
 
-        skoda_password: skodaPassword,
+        skoda_username: useOfficialApi ? undefined : skodaUsername,
 
-        skoda_spin: skodaSpin || undefined,
+        skoda_password: useOfficialApi ? undefined : skodaPassword,
+
+        skoda_spin: useOfficialApi ? undefined : skodaSpin || undefined,
 
         active_interval_seconds: activeInterval,
 
@@ -521,47 +526,67 @@ function AddVehicleModal({
 
           />
 
-          <FormField
+          {/* Connection method */}
+          <div className="rounded-xl border border-iv-border p-3 space-y-2">
+            <p className="text-xs font-medium text-iv-muted uppercase tracking-wide">How we connect</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setUseOfficialApi(true)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  useOfficialApi
+                    ? "bg-iv-green/15 text-iv-green border border-iv-green/25"
+                    : "border border-iv-border text-iv-muted hover:text-iv-text"
+                }`}
+              >
+                Official MyŠkoda API key
+              </button>
+              <button
+                type="button"
+                onClick={() => setUseOfficialApi(false)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  !useOfficialApi
+                    ? "bg-iv-green/15 text-iv-green border border-iv-green/25"
+                    : "border border-iv-border text-iv-muted hover:text-iv-text"
+                }`}
+              >
+                Škoda Connect login
+              </button>
+            </div>
+            <p className="text-[11px] text-iv-muted leading-relaxed">
+              {useOfficialApi
+                ? "Uses the API key from Settings → Škoda official API. No account password. Make sure this VIN is selected on the key in the MyŠkoda app."
+                : "Classic login with your Škoda Connect email and password."}
+            </p>
+          </div>
 
-            label="Skoda Username"
+          {!useOfficialApi && (
+            <>
+              <FormField
+                label="Skoda Username"
+                required
+                value={skodaUsername}
+                onChange={setSkodaUsername}
+                placeholder="Skoda Connect email"
+              />
 
-            required
+              <FormField
+                label="Skoda Password"
+                required
+                type="password"
+                value={skodaPassword}
+                onChange={setSkodaPassword}
+                placeholder="Skoda Connect password"
+              />
 
-            value={skodaUsername}
-
-            onChange={setSkodaUsername}
-
-            placeholder="Skoda Connect email"
-
-          />
-
-          <FormField
-
-            label="Skoda Password"
-
-            required
-
-            type="password"
-
-            value={skodaPassword}
-
-            onChange={setSkodaPassword}
-
-            placeholder="Skoda Connect password"
-
-          />
-
-          <FormField
-
-            label="Skoda S-PIN"
-
-            value={skodaSpin}
-
-            onChange={setSkodaSpin}
-
-            placeholder="Optional 4-digit S-PIN"
-
-          />
+              <FormField
+                label="Skoda S-PIN"
+                value={skodaSpin}
+                onChange={setSkodaSpin}
+                placeholder="Optional 4-digit S-PIN"
+              />
+            </>
+          )}
 
           <FormField
 
@@ -681,7 +706,11 @@ function AddVehicleModal({
 
               type="submit"
 
-              disabled={submitting || !vin || !skodaUsername || !skodaPassword}
+              disabled={
+                submitting ||
+                !vin ||
+                (!useOfficialApi && (!skodaUsername || !skodaPassword))
+              }
 
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-iv-green px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-iv-green/90 disabled:opacity-40 disabled:cursor-not-allowed"
 

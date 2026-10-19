@@ -58,6 +58,11 @@ class UserVehicle(TimestampMixin, Base):
     home_lon: Mapped[float | None] = mapped_column(Float, default=None)
     home_tz: Mapped[str | None] = mapped_column(String(50), default=None)  # e.g. "Europe/Vilnius"
 
+    # Dual-stack Škoda source: auto | legacy | public
+    telemetry_source: Mapped[str] = mapped_column(
+        String(16), default="auto", server_default="auto", nullable=False
+    )
+
     user: Mapped["User"] = relationship(back_populates="vehicles")  # noqa: F821
     connector_session: Mapped["ConnectorSession | None"] = relationship(
         back_populates="user_vehicle", cascade="all, delete-orphan", uselist=False, lazy="selectin"

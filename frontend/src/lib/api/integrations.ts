@@ -83,3 +83,47 @@ export const integrationsApi = {
     return res.json();
   },
 };
+
+export interface SkodaPublicVehicle {
+  vehicle_id: string;
+  display_name: string | null;
+  telemetry_source: string;
+}
+
+export interface SkodaPublicSettings {
+  has_api_key: boolean;
+  api_key_hint: string | null;
+  key_expires_at: string | null;
+  expires_in_days: number | null;
+  expiry_warning: string | null;
+  last_error: string | null;
+  docs_url: string;
+  key_qr_url: string;
+  vehicles: SkodaPublicVehicle[];
+}
+
+export const skodaApi = {
+  async getSettings(): Promise<SkodaPublicSettings> {
+    const res = await apiFetch("/api/v1/integrations/skoda");
+    return res.json();
+  },
+
+  async updateSettings(body: { api_key?: string }): Promise<SkodaPublicSettings> {
+    const res = await apiFetch("/api/v1/integrations/skoda", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+
+  async setVehicleSource(
+    vehicleId: string,
+    telemetrySource: string,
+  ): Promise<SkodaPublicSettings> {
+    const res = await apiFetch(`/api/v1/integrations/skoda/vehicles/${vehicleId}`, {
+      method: "PUT",
+      body: JSON.stringify({ telemetry_source: telemetrySource }),
+    });
+    return res.json();
+  },
+};

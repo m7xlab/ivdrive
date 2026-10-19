@@ -19,8 +19,11 @@ from app.models.telemetry import (
 )
 
 from app.models.vehicle import ConnectorSession, UserVehicle
+from app.models.user import User
 from app.services.abrp_sync import AbrpSnapshot, flush_outbox, push_vehicle_tlm
 from app.services.crypto import decrypt_field, encrypt_field
+from app.services.skoda_normalize import NormalizedSnapshot
+from app.services.skoda_public_api import SkodaPublicAPIClient, parse_expires_at
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
 from app.services.analytics import is_actively_charging, is_plugged_in, process_completed_trips_and_charges
 from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
@@ -462,12 +465,25 @@ class DataCollector:
             stmt = (
                 select(UserVehicle)
                 .where(UserVehicle.id == user_vehicle_id)
-                .options(selectinload(UserVehicle.connector_session))
+                .options(
+                    selectinload(UserVehicle.connector_session),
+                    selectinload(UserVehicle.user),
+                )
             )
             result = await session.execute(stmt)
             vehicle = result.scalar_one_or_none()
 
-            if not vehicle or not vehicle.connector_session:
+            if not vehicle:
+                logger.warning("Vehicle %s not found", user_vehicle_id)
+                return
+
+            # ── Official MyŠkoda Public API (v1.3.0 dual-stack) ────────────
+            # Preferred when telemetry_source is public, or auto with a saved key.
+            public_done = await self._try_collect_public(session, vehicle, force=force)
+            if public_done:
+                return
+
+            if not vehicle.connector_session:
                 logger.warning("Vehicle %s not found or no session", user_vehicle_id)
                 return
 
@@ -808,35 +824,38 @@ class DataCollector:
                     vehicle.warning_lights = warning_lights_resp.get("warningLights", [])
 
                 # --- Driving range ---
+                # One sample Drive per vehicle (not a new "trip" per poll) — DriveLevel /
+                # DriveRange are chart points under a stable container.
                 drive_obj = None
                 if driving and driving.primary_engine_range:
                     eng = driving.primary_engine_range
-                    drive_obj = Drive(
-                        user_vehicle_id=user_vehicle_id,
-                        drive_id=f"poll_{now.isoformat()}",
+                    drive_obj = await _get_or_create_sample_drive(
+                        session,
+                        user_vehicle_id,
+                        drive_id="poll",
                         type=eng.engine_type or driving.car_type,
                     )
-                    session.add(drive_obj)
-                    await session.flush()
 
                     if eng.current_so_c_in_percent is not None:
-                        session.add(DriveLevel(
-                            drive_id=drive_obj.id,
-                            first_date=now,
-                            last_date=now,
+                        await _append_drive_level(
+                            session,
+                            drive_obj,
                             level=float(eng.current_so_c_in_percent),
-                        ))
+                            ts=now,
+                            max_gap_s=max_gap_s,
+                        )
 
                     range_km = eng.remaining_range_in_km
                     if range_km is None and driving.total_range_in_km is not None:
                         range_km = driving.total_range_in_km
                     if range_km is not None:
-                        session.add(DriveRange(
-                            drive_id=drive_obj.id,
-                            first_date=now,
-                            last_date=now,
+                        await _append_drive_range(
+                            session,
+                            drive_obj,
                             range_km=float(range_km),
-                        ))
+                            ts=now,
+                            max_gap_s=max_gap_s,
+                        )
 
                 # --- Vehicle status ---
                 if status_resp:
@@ -1307,6 +1326,157 @@ class DataCollector:
 
     # ── ABRP outbound telemetry ────────────────────────────────────────────
 
+    # ── Official MyŠkoda Public API (v1.3.0) ─────────────────────────────────
+
+    async def _try_collect_public(
+        self, session, vehicle: UserVehicle, force: bool = False
+    ) -> bool:
+        """One official GET snapshot. Returns True if handled (success or clean fail)."""
+        user = vehicle.user
+        if user is None or not user.skoda_public_api_key_encrypted:
+            return False
+        pref = (vehicle.telemetry_source or "auto").lower()
+        if pref not in ("public", "auto") and not force:
+            return False
+        if pref == "legacy" and not force:
+            return False
+
+        vin = decrypt_field(vehicle.vin_encrypted)
+        api_key = decrypt_field(user.skoda_public_api_key_encrypted)
+        client = SkodaPublicAPIClient(api_key)
+        try:
+            resp, meta = await client.get_vehicle_snapshot(vin)
+        except Exception as exc:
+            user_msg = getattr(exc, "user_message", None) or str(exc)
+            logger.warning(
+                "Public Škoda API failed for %s: %s", vehicle.id, user_msg,
+            )
+            user.skoda_public_last_error = user_msg[:512]
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+            return pref == "public"
+        finally:
+            await client.close()
+
+        now = datetime.now(UTC)
+        from app.services.skoda_normalize import snapshot_from_public
+
+        snap = snapshot_from_public(resp, now=now, vin=vin)
+        try:
+            await self._persist_public_snapshot(session, vehicle, snap)
+            expires = parse_expires_at(meta)
+            if expires and user.skoda_public_key_expires_at != expires:
+                user.skoda_public_key_expires_at = expires
+            if user.skoda_public_last_error:
+                user.skoda_public_last_error = None
+            await session.commit()
+            logger.info(
+                "Public Škoda snapshot ok vehicle=%s soc=%s moving=%s rate_left=%s",
+                vehicle.id, snap.soc, snap.is_moving, meta.rate_limit_remaining,
+            )
+            return True
+        except Exception:
+            logger.warning("Public snapshot persist failed for %s", vehicle.id, exc_info=True)
+            await session.rollback()
+            return pref == "public"
+
+    async def _persist_public_snapshot(
+        self, session, vehicle: UserVehicle, snap: NormalizedSnapshot
+    ) -> None:
+        """Write a normalized official snapshot into the usual telemetry tables."""
+        vid = vehicle.id
+        now = snap.captured_at
+        max_gap_s = max(vehicle.active_interval_seconds * 3, 300)
+
+        if snap.is_online is not None:
+            session.add(ConnectionState(
+                user_vehicle_id=vid,
+                captured_at=now,
+                is_online=snap.is_online,
+                in_motion=bool(snap.is_moving),
+                ignition_on=bool(snap.is_moving),
+            ))
+            self._last_connection_state[vid] = snap.is_online
+
+        if snap.charge_state:
+            await _update_or_insert_duration_state(
+                session, ChargingState, vid,
+                match_keys={"state": snap.charge_state},
+                volatile_keys=["charge_power_kw", "battery_pct", "remaining_range_m", "target_soc_pct"],
+                now=now,
+                max_gap_s=max_gap_s,
+                state=snap.charge_state,
+                charge_type=snap.charge_type,
+                charge_power_kw=snap.charge_power_kw,
+                battery_pct=int(snap.soc) if snap.soc is not None else None,
+                remaining_range_m=int(snap.remaining_range_m) if snap.remaining_range_m is not None else None,
+                target_soc_pct=int(snap.target_soc) if snap.target_soc is not None else None,
+            )
+
+        # DriveLevel/DriveRange are chart points under one sample Drive — never a
+        # trip per poll. Only record while the car is Active-like (moving or really
+        # charging); parked SoC lives in ChargingState.battery_pct.
+        if snap.soc is not None and (
+            snap.is_moving
+            or is_actively_charging(snap.charge_state, snap.charge_power_kw)
+        ):
+            drive_obj = await _get_or_create_sample_drive(
+                session, vid, drive_id="official", type="electric"
+            )
+            await _append_drive_level(
+                session,
+                drive_obj,
+                level=float(snap.soc),
+                ts=now,
+                max_gap_s=max_gap_s,
+            )
+            if snap.remaining_range_m is not None:
+                await _append_drive_range(
+                    session,
+                    drive_obj,
+                    range_km=float(snap.remaining_range_m) / 1000.0,
+                    ts=now,
+                    max_gap_s=max_gap_s,
+                )
+
+        if snap.odometer_km is not None:
+            session.add(OdometerReading(
+                user_vehicle_id=vid,
+                captured_at=now,
+                mileage_in_km=snap.odometer_km,
+            ))
+
+        if not vehicle.incognito_mode and snap.lat is not None and snap.lon is not None:
+            session.add(VehiclePosition(
+                user_vehicle_id=vid,
+                captured_at=now,
+                latitude=snap.lat,
+                longitude=snap.lon,
+                outside_temp_celsius=snap.outside_temp_c,
+            ))
+
+        if snap.hvac_state or snap.hvac_setpoint_c is not None:
+            session.add(AirConditioningState(
+                user_vehicle_id=vid,
+                captured_at=now,
+                state=snap.hvac_state,
+                target_temp_celsius=snap.hvac_setpoint_c,
+                outside_temp_celsius=snap.outside_temp_c,
+            ))
+
+        # Smart-poll: treat official IN_MOTION as active
+        if snap.is_moving:
+            self._poll_mode[vid] = "active"
+            self._sleep_ticks[vid] = 0
+            self._stale_active_counters[vid] = 3
+            job_id = f"collect_{vid}"
+            desired = vehicle.active_interval_seconds
+            current = self._get_job_interval_seconds(job_id)
+            if current and current != desired:
+                self._scheduler.reschedule_job(job_id, trigger="interval", seconds=desired)
+
     async def _flush_abrp_outbox(self) -> None:
         try:
             async with async_session() as session:
@@ -1488,6 +1658,82 @@ class DataCollector:
         self._ac_probe_hold.pop(user_vehicle_id, None)
         self._last_connection_state.pop(user_vehicle_id, None)
         self._stale_active_counters.pop(user_vehicle_id, None)
+
+
+async def _get_or_create_sample_drive(
+    session,
+    user_vehicle_id: UUID,
+    *,
+    drive_id: str,
+    type: str | None = None,
+) -> Drive:
+    """Stable sample container for DriveLevel/DriveRange — not a trip per poll."""
+    result = await session.execute(
+        select(Drive).where(
+            Drive.user_vehicle_id == user_vehicle_id,
+            Drive.drive_id == drive_id,
+        )
+    )
+    drive = result.scalar_one_or_none()
+    if drive is None:
+        drive = Drive(user_vehicle_id=user_vehicle_id, drive_id=drive_id, type=type)
+        session.add(drive)
+        await session.flush()
+    return drive
+
+
+async def _append_drive_level(
+    session,
+    drive: Drive,
+    *,
+    level: float,
+    ts: datetime,
+    max_gap_s: int,
+) -> None:
+    """Append a SoC point; merge into the last sample when unchanged within max_gap."""
+    result = await session.execute(
+        select(DriveLevel)
+        .where(DriveLevel.drive_id == drive.id)
+        .order_by(DriveLevel.first_date.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    if (
+        last is not None
+        and last.level == level
+        and last.first_date is not None
+        and (ts - last.first_date).total_seconds() <= max_gap_s
+    ):
+        last.last_date = max(last.last_date or ts, ts)
+        return
+    session.add(DriveLevel(drive_id=drive.id, first_date=ts, last_date=ts, level=level))
+
+
+async def _append_drive_range(
+    session,
+    drive: Drive,
+    *,
+    range_km: float,
+    ts: datetime,
+    max_gap_s: int,
+) -> None:
+    """Append a range point; merge into the last sample when unchanged within max_gap."""
+    result = await session.execute(
+        select(DriveRange)
+        .where(DriveRange.drive_id == drive.id)
+        .order_by(DriveRange.first_date.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    if (
+        last is not None
+        and last.range_km == range_km
+        and last.first_date is not None
+        and (ts - last.first_date).total_seconds() <= max_gap_s
+    ):
+        last.last_date = max(last.last_date or ts, ts)
+        return
+    session.add(DriveRange(drive_id=drive.id, first_date=ts, last_date=ts, range_km=range_km))
 
 
 async def _update_or_insert_duration_state(

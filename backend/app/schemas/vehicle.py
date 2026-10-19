@@ -7,9 +7,12 @@ from pydantic import BaseModel, Field
 class VehicleCreate(BaseModel):
     vin: str
     display_name: str | None = None
-    skoda_username: str
-    skoda_password: str
+    # Legacy login (optional). If omitted, iVDrive uses the official MyŠkoda API key
+    # saved under Settings → Škoda official API (telemetry_source=public).
+    skoda_username: str | None = None
+    skoda_password: str | None = None
     skoda_spin: str | None = None
+    use_official_api: bool | None = None  # force public source when true
     active_interval_seconds: int = Field(default=300, ge=60, le=86400)
     parked_interval_seconds: int = Field(default=1800, ge=60, le=86400)
     collection_enabled: bool = True

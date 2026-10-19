@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, generate_uuid
@@ -42,6 +43,12 @@ class User(TimestampMixin, Base):
     # ABRP (A Better Route Planner) — per-user free Telemetry API key.
     # Per-vehicle tokens live on ABRPConnection.
     abrp_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+
+    # Official MyŠkoda Public API (v1.3.0) — one key per user (bound to VINs in the app)
+    skoda_public_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    skoda_public_key_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Human-readable last API problem (e.g. “Your key has expired…”)
+    skoda_public_last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     vehicles: Mapped[list["UserVehicle"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
