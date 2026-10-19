@@ -824,35 +824,38 @@ class DataCollector:
                     vehicle.warning_lights = warning_lights_resp.get("warningLights", [])
 
                 # --- Driving range ---
+                # One sample Drive per vehicle (not a new "trip" per poll) — DriveLevel /
+                # DriveRange are chart points under a stable container.
                 drive_obj = None
                 if driving and driving.primary_engine_range:
                     eng = driving.primary_engine_range
-                    drive_obj = Drive(
-                        user_vehicle_id=user_vehicle_id,
-                        drive_id=f"poll_{now.isoformat()}",
+                    drive_obj = await _get_or_create_sample_drive(
+                        session,
+                        user_vehicle_id,
+                        drive_id="poll",
                         type=eng.engine_type or driving.car_type,
                     )
-                    session.add(drive_obj)
-                    await session.flush()
 
                     if eng.current_so_c_in_percent is not None:
-                        session.add(DriveLevel(
-                            drive_id=drive_obj.id,
-                            first_date=now,
-                            last_date=now,
+                        await _append_drive_level(
+                            session,
+                            drive_obj,
                             level=float(eng.current_so_c_in_percent),
-                        ))
+                            ts=now,
+                            max_gap_s=max_gap_s,
+                        )
 
                     range_km = eng.remaining_range_in_km
                     if range_km is None and driving.total_range_in_km is not None:
                         range_km = driving.total_range_in_km
                     if range_km is not None:
-                        session.add(DriveRange(
-                            drive_id=drive_obj.id,
-                            first_date=now,
-                            last_date=now,
+                        await _append_drive_range(
+                            session,
+                            drive_obj,
                             range_km=float(range_km),
-                        ))
+                            ts=now,
+                            max_gap_s=max_gap_s,
+                        )
 
                 # --- Vehicle status ---
                 if status_resp:
@@ -1412,28 +1415,31 @@ class DataCollector:
                 target_soc_pct=int(snap.target_soc) if snap.target_soc is not None else None,
             )
 
-        if snap.soc is not None:
-            # DriveLevel is drive-scoped; use Drive row like legacy active path
-            drive_obj = Drive(
-                user_vehicle_id=vid,
-                drive_id=f"pub_{now.isoformat()}",
-                type="electric",
+        # DriveLevel/DriveRange are chart points under one sample Drive — never a
+        # trip per poll. Only record while the car is Active-like (moving or really
+        # charging); parked SoC lives in ChargingState.battery_pct.
+        if snap.soc is not None and (
+            snap.is_moving
+            or is_actively_charging(snap.charge_state, snap.charge_power_kw)
+        ):
+            drive_obj = await _get_or_create_sample_drive(
+                session, vid, drive_id="official", type="electric"
             )
-            session.add(drive_obj)
-            await session.flush()
-            session.add(DriveLevel(
-                drive_id=drive_obj.id,
-                first_date=now,
-                last_date=now,
+            await _append_drive_level(
+                session,
+                drive_obj,
                 level=float(snap.soc),
-            ))
+                ts=now,
+                max_gap_s=max_gap_s,
+            )
             if snap.remaining_range_m is not None:
-                session.add(DriveRange(
-                    drive_id=drive_obj.id,
-                    first_date=now,
-                    last_date=now,
+                await _append_drive_range(
+                    session,
+                    drive_obj,
                     range_km=float(snap.remaining_range_m) / 1000.0,
-                ))
+                    ts=now,
+                    max_gap_s=max_gap_s,
+                )
 
         if snap.odometer_km is not None:
             session.add(OdometerReading(
@@ -1652,6 +1658,82 @@ class DataCollector:
         self._ac_probe_hold.pop(user_vehicle_id, None)
         self._last_connection_state.pop(user_vehicle_id, None)
         self._stale_active_counters.pop(user_vehicle_id, None)
+
+
+async def _get_or_create_sample_drive(
+    session,
+    user_vehicle_id: UUID,
+    *,
+    drive_id: str,
+    type: str | None = None,
+) -> Drive:
+    """Stable sample container for DriveLevel/DriveRange — not a trip per poll."""
+    result = await session.execute(
+        select(Drive).where(
+            Drive.user_vehicle_id == user_vehicle_id,
+            Drive.drive_id == drive_id,
+        )
+    )
+    drive = result.scalar_one_or_none()
+    if drive is None:
+        drive = Drive(user_vehicle_id=user_vehicle_id, drive_id=drive_id, type=type)
+        session.add(drive)
+        await session.flush()
+    return drive
+
+
+async def _append_drive_level(
+    session,
+    drive: Drive,
+    *,
+    level: float,
+    ts: datetime,
+    max_gap_s: int,
+) -> None:
+    """Append a SoC point; merge into the last sample when unchanged within max_gap."""
+    result = await session.execute(
+        select(DriveLevel)
+        .where(DriveLevel.drive_id == drive.id)
+        .order_by(DriveLevel.first_date.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    if (
+        last is not None
+        and last.level == level
+        and last.first_date is not None
+        and (ts - last.first_date).total_seconds() <= max_gap_s
+    ):
+        last.last_date = max(last.last_date or ts, ts)
+        return
+    session.add(DriveLevel(drive_id=drive.id, first_date=ts, last_date=ts, level=level))
+
+
+async def _append_drive_range(
+    session,
+    drive: Drive,
+    *,
+    range_km: float,
+    ts: datetime,
+    max_gap_s: int,
+) -> None:
+    """Append a range point; merge into the last sample when unchanged within max_gap."""
+    result = await session.execute(
+        select(DriveRange)
+        .where(DriveRange.drive_id == drive.id)
+        .order_by(DriveRange.first_date.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    if (
+        last is not None
+        and last.range_km == range_km
+        and last.first_date is not None
+        and (ts - last.first_date).total_seconds() <= max_gap_s
+    ):
+        last.last_date = max(last.last_date or ts, ts)
+        return
+    session.add(DriveRange(drive_id=drive.id, first_date=ts, last_date=ts, range_km=range_km))
 
 
 async def _update_or_insert_duration_state(
