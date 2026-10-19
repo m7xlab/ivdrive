@@ -19,8 +19,11 @@ from app.models.telemetry import (
 )
 
 from app.models.vehicle import ConnectorSession, UserVehicle
+from app.models.user import User
 from app.services.abrp_sync import AbrpSnapshot, flush_outbox, push_vehicle_tlm
 from app.services.crypto import decrypt_field, encrypt_field
+from app.services.skoda_normalize import NormalizedSnapshot
+from app.services.skoda_public_api import SkodaPublicAPIClient, parse_expires_at
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
 from app.services.analytics import is_actively_charging, is_plugged_in, process_completed_trips_and_charges
 from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
@@ -462,12 +465,25 @@ class DataCollector:
             stmt = (
                 select(UserVehicle)
                 .where(UserVehicle.id == user_vehicle_id)
-                .options(selectinload(UserVehicle.connector_session))
+                .options(
+                    selectinload(UserVehicle.connector_session),
+                    selectinload(UserVehicle.user),
+                )
             )
             result = await session.execute(stmt)
             vehicle = result.scalar_one_or_none()
 
-            if not vehicle or not vehicle.connector_session:
+            if not vehicle:
+                logger.warning("Vehicle %s not found", user_vehicle_id)
+                return
+
+            # ── Official MyŠkoda Public API (v1.3.0 dual-stack) ────────────
+            # Preferred when telemetry_source is public, or auto with a saved key.
+            public_done = await self._try_collect_public(session, vehicle, force=force)
+            if public_done:
+                return
+
+            if not vehicle.connector_session:
                 logger.warning("Vehicle %s not found or no session", user_vehicle_id)
                 return
 
@@ -1306,6 +1322,150 @@ class DataCollector:
             logger.error("Background task failed with exception: %s", task.exception(), exc_info=task.exception())
 
     # ── ABRP outbound telemetry ────────────────────────────────────────────
+
+    # ── Official MyŠkoda Public API (v1.3.0) ─────────────────────────────────
+
+    async def _try_collect_public(
+        self, session, vehicle: UserVehicle, force: bool = False
+    ) -> bool:
+        """One official GET snapshot. Returns True if handled (success or clean fail)."""
+        user = vehicle.user
+        if user is None or not user.skoda_public_api_key_encrypted:
+            return False
+        pref = (vehicle.telemetry_source or "auto").lower()
+        if pref not in ("public", "auto") and not force:
+            return False
+        if pref == "legacy" and not force:
+            return False
+
+        vin = decrypt_field(vehicle.vin_encrypted)
+        api_key = decrypt_field(user.skoda_public_api_key_encrypted)
+        client = SkodaPublicAPIClient(api_key)
+        try:
+            resp, meta = await client.get_vehicle_snapshot(vin)
+        except Exception as exc:
+            logger.warning(
+                "Public Škoda API failed for %s (%s); falling back if available",
+                vehicle.id, exc,
+            )
+            # Fallback to legacy unless user forced official-only
+            return pref == "public"
+        finally:
+            await client.close()
+
+        now = datetime.now(UTC)
+        from app.services.skoda_normalize import snapshot_from_public
+
+        snap = snapshot_from_public(resp, now=now, vin=vin)
+        try:
+            await self._persist_public_snapshot(session, vehicle, snap)
+            expires = parse_expires_at(meta)
+            if expires and user.skoda_public_key_expires_at != expires:
+                user.skoda_public_key_expires_at = expires
+            await session.commit()
+            logger.info(
+                "Public Škoda snapshot ok vehicle=%s soc=%s moving=%s rate_left=%s",
+                vehicle.id, snap.soc, snap.is_moving, meta.rate_limit_remaining,
+            )
+            return True
+        except Exception:
+            logger.warning("Public snapshot persist failed for %s", vehicle.id, exc_info=True)
+            await session.rollback()
+            return pref == "public"
+
+    async def _persist_public_snapshot(
+        self, session, vehicle: UserVehicle, snap: NormalizedSnapshot
+    ) -> None:
+        """Write a normalized official snapshot into the usual telemetry tables."""
+        vid = vehicle.id
+        now = snap.captured_at
+        max_gap_s = max(vehicle.active_interval_seconds * 3, 300)
+
+        if snap.is_online is not None:
+            session.add(ConnectionState(
+                user_vehicle_id=vid,
+                captured_at=now,
+                is_online=snap.is_online,
+                in_motion=bool(snap.is_moving),
+                ignition_on=bool(snap.is_moving),
+            ))
+            self._last_connection_state[vid] = snap.is_online
+
+        if snap.charge_state:
+            await _update_or_insert_duration_state(
+                session, ChargingState, vid,
+                match_keys={"state": snap.charge_state},
+                volatile_keys=["charge_power_kw", "battery_pct", "remaining_range_m", "target_soc_pct"],
+                now=now,
+                max_gap_s=max_gap_s,
+                state=snap.charge_state,
+                charge_type=snap.charge_type,
+                charge_power_kw=snap.charge_power_kw,
+                battery_pct=int(snap.soc) if snap.soc is not None else None,
+                remaining_range_m=int(snap.remaining_range_m) if snap.remaining_range_m is not None else None,
+                target_soc_pct=int(snap.target_soc) if snap.target_soc is not None else None,
+            )
+
+        if snap.soc is not None:
+            # DriveLevel is drive-scoped; use Drive row like legacy active path
+            drive_obj = Drive(
+                user_vehicle_id=vid,
+                drive_id=f"pub_{now.isoformat()}",
+                type="electric",
+            )
+            session.add(drive_obj)
+            await session.flush()
+            session.add(DriveLevel(
+                drive_id=drive_obj.id,
+                first_date=now,
+                last_date=now,
+                level=float(snap.soc),
+            ))
+            if snap.remaining_range_m is not None:
+                session.add(DriveRange(
+                    drive_id=drive_obj.id,
+                    first_date=now,
+                    last_date=now,
+                    range_km=float(snap.remaining_range_m) / 1000.0,
+                ))
+
+        if snap.odometer_km is not None:
+            session.add(OdometerReading(
+                user_vehicle_id=vid,
+                captured_at=now,
+                mileage_in_km=snap.odometer_km,
+            ))
+
+        if not vehicle.incognito_mode and snap.lat is not None and snap.lon is not None:
+            session.add(VehiclePosition(
+                user_vehicle_id=vid,
+                captured_at=now,
+                latitude=snap.lat,
+                longitude=snap.lon,
+                outside_temp_celsius=snap.outside_temp_c,
+            ))
+
+        if snap.hvac_state or snap.hvac_setpoint_c is not None:
+            await _update_or_insert_duration_state(
+                session, AirConditioningState, vid,
+                match_keys={"state": snap.hvac_state or "UNKNOWN"},
+                volatile_keys=["target_temp_celsius"],
+                now=now,
+                max_gap_s=max_gap_s,
+                state=snap.hvac_state,
+                target_temp_celsius=snap.hvac_setpoint_c,
+            )
+
+        # Smart-poll: treat official IN_MOTION as active
+        if snap.is_moving:
+            self._poll_mode[vid] = "active"
+            self._sleep_ticks[vid] = 0
+            self._stale_active_counters[vid] = 3
+            job_id = f"collect_{vid}"
+            desired = vehicle.active_interval_seconds
+            current = self._get_job_interval_seconds(job_id)
+            if current and current != desired:
+                self._scheduler.reschedule_job(job_id, trigger="interval", seconds=desired)
 
     async def _flush_abrp_outbox(self) -> None:
         try:
