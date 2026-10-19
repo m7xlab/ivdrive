@@ -30,9 +30,10 @@ export const vehiclesApi = {
   async addVehicle(data: {
     vin: string;
     display_name?: string;
-    skoda_username: string;
-    skoda_password: string;
+    skoda_username?: string;
+    skoda_password?: string;
     skoda_spin?: string;
+    use_official_api?: boolean;
     active_interval_seconds?: number;
     parked_interval_seconds?: number;
     collection_enabled?: boolean;

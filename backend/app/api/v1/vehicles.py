@@ -237,6 +237,56 @@ async def create_vehicle(
             detail="Vehicle with this VIN already registered",
         )
 
+    use_official = bool(body.use_official_api) or not (body.skoda_username and body.skoda_password)
+
+    if use_official:
+        if not user.skoda_public_api_key_encrypted:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Save your MyŠkoda API key first (Settings → Škoda official API), "
+                    "or provide Škoda account login to use the classic connector."
+                ),
+            )
+        # Verify the key can read this VIN before creating the row
+        try:
+            from app.services.skoda_public_api import SkodaPublicAPIClient
+            from app.services.crypto import decrypt_field as _dec
+
+            client = SkodaPublicAPIClient(_dec(user.skoda_public_api_key_encrypted))
+            try:
+                await client.get_vehicle(body.vin, include=["info"])
+            finally:
+                await client.close()
+        except Exception as exc:
+            msg = getattr(exc, "user_message", None) or str(exc)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Could not read this car with your MyŠkoda API key. {msg}"
+                ),
+            )
+
+        vehicle = UserVehicle(
+            user_id=user.id,
+            vin_hash=hash_field(body.vin),
+            vin_encrypted=encrypt_field(body.vin),
+            display_name=body.display_name,
+            connector_config_encrypted=None,
+            collection_enabled=True,
+            active_interval_seconds=body.active_interval_seconds,
+            parked_interval_seconds=body.parked_interval_seconds,
+            wltp_range_km=body.wltp_range_km,
+            country_code=body.country_code,
+            telemetry_source="public",
+        )
+        db.add(vehicle)
+        await db.commit()
+        await db.refresh(vehicle)
+        await publish_vehicle_linked(str(vehicle.id), vehicle.parked_interval_seconds)
+        logger.info("Vehicle %s added via official MyŠkoda API key", vehicle.id)
+        return _vehicle_to_response(vehicle)
+
     connector_config = json.dumps({
         "username": body.skoda_username,
         "password": body.skoda_password,
@@ -254,6 +304,7 @@ async def create_vehicle(
         parked_interval_seconds=body.parked_interval_seconds,
         wltp_range_km=body.wltp_range_km,
         country_code=body.country_code,
+        telemetry_source="legacy" if body.use_official_api is False else "auto",
     )
     db.add(vehicle)
     await db.flush()
