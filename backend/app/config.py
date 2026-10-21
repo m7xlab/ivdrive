@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     # Skoda OAuth — overridable via env; defaults allow collector to work without explicit .env config
     skoda_base_url: str = "https://mysmob.api.connect.skoda-auto.cz"
     skoda_auth_client_id: str = "7f045eee-7003-4379-9968-9355ed2adb06@apps_vw-dilab_com"
+    skoda_client_user_agent: str = "MySkoda/Android/8.17.0/260911002"
     skoda_auth_redirect_uri: str = "myskoda://redirect/login/"
     skoda_auth_scope: str = (
         "address badge birthdate cars driversLicense dealers email "

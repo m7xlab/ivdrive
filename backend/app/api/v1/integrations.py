@@ -357,39 +357,8 @@ async def connect_skoda_login(
     refresh = tokens.get("refreshToken") or ""
     user.skoda_login_refresh_encrypted = encrypt_field(refresh) if refresh else None
 
-    if body.mint_key and not user.skoda_public_api_key_encrypted:
-        try:
-            bff = SkodaBFFClient(tokens["accessToken"])
-            try:
-                inv = await bff.list_public_api_keys()
-                can_mint = True
-                for entry in inv.get("vehicleKeys") or []:
-                    if int(entry.get("keysRemaining") or 1) <= 0 and entry.get("keys"):
-                        can_mint = False
-                if can_mint:
-                    result = await db.execute(
-                        select(UserVehicle).where(UserVehicle.user_id == user.id)
-                    )
-                    vins = []
-                    for v in result.scalars().all():
-                        try:
-                            vins.append(decrypt_field(v.vin_encrypted))
-                        except Exception:
-                            pass
-                    if vins:
-                        minted = await bff.mint_public_api_key(vins[0], name="iVDrive")
-                        user.skoda_public_api_key_encrypted = encrypt_field(minted["key"])
-                        if minted.get("validUntil"):
-                            from datetime import datetime as _dt
-
-                            user.skoda_public_key_expires_at = _dt.fromisoformat(
-                                str(minted["validUntil"]).replace("Z", "+00:00")
-                            )
-            finally:
-                await bff.close()
-        except Exception:
-            # Mint is optional — Login itself already succeeded.
-            pass
+    # Keys are created per vehicle (POST /skoda/vehicles/{id}/mint-key),
+    # not from this account-level connect call.
 
     await db.commit()
     await db.refresh(user)

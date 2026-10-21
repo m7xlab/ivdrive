@@ -24,7 +24,13 @@ SCOPE = (
     "nationalIdentifier openid phone profession profile vin"
 )
 REDIRECT_URI = "myskoda://redirect/login/"
-UA = "MySkoda/Android/8.17.0/260911002"
+
+try:
+    from app.config import settings as _settings
+
+    UA = _settings.skoda_client_user_agent
+except Exception:  # pragma: no cover - import-time fallback
+    UA = "MySkoda/Android/8.17.0/260911002"
 
 
 class BFFAuthError(Exception):
