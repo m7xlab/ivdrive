@@ -13,7 +13,7 @@ from app.schemas.commands import ClimatizationStartRequest, CommandResponse, Unl
 from app.services.crypto import decrypt_field
 
 try:
-    from app.services.skoda_api import SkodaCommandClient
+    from app.services.skoda_commands_client import SkodaCommandClient
 except ImportError:
     SkodaCommandClient = None
 
@@ -43,35 +43,10 @@ async def _execute_command(
 ) -> CommandResponse:
     if SkodaCommandClient is None:
         return CommandResponse(
-            status="failed", message="Skoda command client not available"
+            status="failed", message="Command client not available"
         )
 
     vehicle = await _get_user_vehicle(vehicle_id, user, db)
-    
-    if not vehicle.connector_config_encrypted:
-        return CommandResponse(
-            status="failed", message="Vehicle credentials not configured"
-        )
-
-    try:
-        config_str = decrypt_field(vehicle.connector_config_encrypted)
-        config = json.loads(config_str)
-        username = config.get("username")
-        password = config.get("password")
-        stored_spin = config.get("spin")
-    except Exception:
-        return CommandResponse(
-            status="failed", message="Failed to decrypt vehicle credentials"
-        )
-
-    if not username or not password:
-        return CommandResponse(
-            status="failed", message="Missing username or password in configuration"
-        )
-
-    # Use SPIN from request body (kwargs) if provided, else fallback to stored SPIN
-    request_spin = kwargs.pop("spin", None)
-    spin_to_use = request_spin or stored_spin
 
     # Decrypt VIN
     try:
@@ -79,17 +54,48 @@ async def _execute_command(
     except Exception:
         return CommandResponse(status="failed", message="Invalid VIN configuration")
 
+    access_token = None
+    if vehicle.connector_session and vehicle.connector_session.access_token_encrypted:
+        try:
+            access_token = decrypt_field(vehicle.connector_session.access_token_encrypted)
+        except Exception:
+            access_token = None
+
+    public_api_key = None
+    if vehicle.connector_config_encrypted:
+        try:
+            cfg = json.loads(decrypt_field(vehicle.connector_config_encrypted))
+            public_api_key = cfg.get("api_key")
+        except Exception:
+            public_api_key = None
+    if not public_api_key and user.skoda_public_api_key_encrypted:
+        try:
+            public_api_key = decrypt_field(user.skoda_public_api_key_encrypted)
+        except Exception:
+            public_api_key = None
+
+    if not access_token and not public_api_key:
+        return CommandResponse(
+            status="failed",
+            message="Connect MyŠkoda Login or add an official API key to use remote commands.",
+        )
+
+    request_spin = kwargs.pop("spin", None)
+
     try:
-        client = SkodaCommandClient(email=username, password=password, spin=spin_to_use)
+        client = SkodaCommandClient(
+            access_token=access_token,
+            public_api_key=public_api_key,
+            spin=request_spin,
+        )
         method = getattr(client, command_name, None)
         if method is None:
             return CommandResponse(
                 status="failed", message=f"Unknown command: {command_name}"
             )
-        
-        # Pass VIN as first arg, then kwargs
+
         await method(vin, **kwargs)
-        
+
         return CommandResponse(status="completed", message="Command executed successfully")
     except Exception as exc:
         return CommandResponse(status="failed", message=str(exc))

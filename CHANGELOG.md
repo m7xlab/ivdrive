@@ -1,5 +1,29 @@
 # Changelog
 
+## [v1.3.1] - 2026-10-21
+**Official API key or MyŠkoda Login — per car.** Cleaner vehicle settings, clearer connection status, and smarter polling.
+
+### Added
+- **Per-vehicle connection** under Settings → Vehicles: MyŠkoda **email/password** (optional) and official **API key** (paste or create from login).
+- **Wake, lock/unlock, climate** when MyŠkoda Login is saved for that car.
+- **Create official key from login** — one click instead of pasting a key.
+- Password fields show/hide toggle.
+- Vehicle rows show **Login saved / API key · Nd / expired** badges and connection errors.
+
+### Changed
+- **Source per car:** Auto · MyŠkoda Login · Public API.
+- **Auto** uses Login when saved, otherwise the official API key.
+- Smart polling switches to the **active interval** when the car moves or charges (and back when idle).
+- Wrong MyŠkoda password **stops polling** and asks you to update login (no silent retries).
+- Integrations = external services (ABRP). Škoda connection lives only on the vehicle.
+
+### Removed
+- Old `myskoda` library path and the account-level “Škoda API” settings block.
+
+### Notes
+- Rebuild **api + collector + web**. Run `alembic upgrade head`.
+- Passwords and API keys are stored **encrypted**.
+
 ## [v1.3.0] - 2026-10-19
 **Official MyŠkoda Public API dual-stack** — collect live telemetry with a personal Public API key (no Škoda password), keep the legacy login path as fallback, and fail with human-readable errors when keys expire or VINs are not linked.
 

@@ -66,6 +66,8 @@ import { api } from "@/lib/api";
 import { ThemeSection } from "./theme-section";
 import { AbrpSection } from "./abrp-section";
 import { SkodaPublicSection } from "./skoda-public-section";
+import { VehicleListRow } from "./vehicle-list-row";
+import { PasswordInput } from "@/components/password-input";
 
 import { ECB_CURRENCIES } from "@/lib/currency";
 
@@ -222,6 +224,33 @@ function SectionCard({ icon: Icon, title, children }: { icon: React.ElementType;
 type SettingsCategory = "account" | "vehicle" | "security" | "energy" | "integrations" | "data";
 
 /** Render children only when this settings category is active. */
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  accent = "green",
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  accent?: "green" | "cyan";
+}) {
+  return (
+    <label className="relative inline-flex cursor-pointer shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only peer"
+      />
+      <div
+        className={`h-5 w-9 rounded-full peer-focus:outline-none peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-white after:bg-white after:transition-all peer-checked:after:border-white ${
+          accent === "cyan" ? "bg-iv-border peer-checked:bg-iv-cyan" : "bg-iv-border peer-checked:bg-iv-green"
+        }`}
+      />
+    </label>
+  );
+}
+
 function Cat({ active, id, children }: { active: SettingsCategory; id: SettingsCategory; children: ReactNode }) {
   return active === id ? <>{children}</> : null;
 }
@@ -233,7 +262,7 @@ const SETTINGS_CATEGORIES: Array<{
   hint: string;
 }> = [
   { id: "account", label: "Account", icon: User, hint: "Profile, preferences, theme" },
-  { id: "vehicle", label: "Vehicles", icon: Car, hint: "Linked cars & sync" },
+  { id: "vehicle", label: "Vehicles", icon: Car, hint: "Cars, login & sync" },
   { id: "security", label: "Security", icon: Shield, hint: "Password & 2FA" },
   { id: "energy", label: "Energy", icon: BatteryCharging, hint: "Geofences & charging plans" },
   { id: "integrations", label: "Integrations", icon: PlugZap, hint: "ABRP & external services" },
@@ -401,6 +430,7 @@ export default function SettingsPage() {
 
 
   const [vehicles, setVehicles] = useState<SettingsVehicle[]>([]);
+  const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null);
 
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
 
@@ -1162,504 +1192,288 @@ export default function SettingsPage() {
           ) : (
 
             vehicles.map((v) => (
-
-              <div key={v.id} className="rounded-lg bg-iv-surface border border-iv-border p-3 space-y-3">
-
-
-
-                {/* ── Top row: icon · name+badge · remove ── */}
-
-                <div className="flex items-start gap-3">
-
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-iv-green/10 mt-0.5">
-
-                    <Car size={14} className="text-iv-green" />
-
-                  </div>
-
-
-
-                  {/* Name + badge block */}
-
-                  <div className="flex-1 min-w-0">
-
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-
-                      <p className="text-sm font-medium text-iv-text break-words">
-
-                        {v.display_name || `${v.manufacturer || ""} ${v.model || ""}`.trim() || "Vehicle"}
-
-                      </p>
-                      <ConnectorStatusBadge status={
-                        !v.collection_enabled
-                          ? "paused"
-                          : v.connector_status === "active" && (v.consecutive_failures ?? 0) >= 3
-                            ? "degraded"
-                            : v.connector_status
-                      } />
-                    </div>
-
-                    {/* Dates – stacked on mobile, inline on sm+ */}
-
-                    <div className="mt-1 grid grid-cols-1 gap-0.5 sm:block">
-
-                      <span className="text-xs text-iv-muted">
-
-                        Added {new Date(v.created_at).toLocaleDateString()}
-
-                      </span>
-
-                      {v.last_fetch_at && (
-
-                        <span className="text-xs text-iv-muted sm:before:content-['·'] sm:before:mx-1">
-
-                          Last fetch {new Date(v.last_fetch_at).toLocaleString()}
-
-                        </span>
-
-                      )}
-
-                    </div>
-
-                  </div>
-
-
-
-                  {/* Remove button – icon-only on mobile, icon+label on sm+ */}
-                  {(v.connector_status === "token_error" || v.connector_status === "auth_failed") && (
-                    <button
-                      onClick={() => {
-
-                        setReauthUsername("");
-
-                        setReauthPassword("");
-
-                        setReauthSpin("");
-
-                        setReauthModalId(v.id);
-
-                      }}
-
-                      className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
-
-                    >
-
-                      <RefreshCcw size={14} />
-
-                      <span className="hidden sm:inline">Re-Auth</span>
-
-                    </button>
-
-                  )}
-
-                  <button type="button"
-
-                    onClick={() => setDeleteModalId(v.id)}
-
-                    disabled={vehicleDeleting === v.id}
-
-                    className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-muted hover:text-iv-danger hover:bg-iv-danger/10 transition-colors disabled:opacity-50"
-
-                  >
-
-                    {vehicleDeleting === v.id
-
-                      ? <Loader2 size={14} className="animate-spin" />
-
-                      : <Trash2 size={14} />}
-
-                    <span className="hidden sm:inline">Remove</span>
-
-                  </button>
-
-                  <button type="button"
-
-                    onClick={() => setCalibrationExpanded(v.id)}
-
-                    className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-iv-cyan hover:bg-iv-cyan/10 transition-colors"
-
-                    title="Efficiency Calibration"
-
-                  >
-
-                    <Gauge size={14} />
-
-                    <span className="hidden sm:inline">Calibrate</span>
-
-                  </button>
-
-                </div>
-
-                {/* ── Connection-health alert (auth expired / can't reach vehicle) ── */}
-                <ConnectionAlert
-                  v={v}
-                  onReconnect={() => {
-                    setReauthUsername("");
-                    setReauthPassword("");
-                    setReauthSpin("");
-                    setReauthModalId(v.id);
-                  }}
-                />
-
-                {/* ── Intervals row ── */}
-
-                <div className="flex items-start gap-2 pl-0 sm:pl-11">
-
-                  <Timer size={12} className="text-iv-muted flex-shrink-0 mt-0.5" />
-
-                  {editingInterval === v.id ? (
-
-                    <div className="flex flex-col gap-2 flex-1">
-
-                      <div className="flex items-center justify-between gap-4 py-1">
-
-                        <div className="flex-1">
-
-                          <span className="text-sm font-medium text-iv-text block">Sync Enabled</span>
-
-                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Collect background telemetry from Skoda API. Disabling pauses all data collection.</span>
-
+              <VehicleListRow
+                key={v.id}
+                v={v}
+                expanded={expandedVehicle === v.id}
+                onToggle={() =>
+                  setExpandedVehicle((cur) => (cur === v.id ? null : v.id))
+                }
+                onSaved={loadVehicles}
+                onToast={showToast}
+                onDelete={() => setDeleteModalId(v.id)}
+                onOpenCalibrate={() =>
+                  setCalibrationExpanded((cur) => (cur === v.id ? null : v.id))
+                }
+                alert={
+                  <ConnectionAlert
+                    v={v}
+                    onReconnect={() => {
+                      setReauthUsername("");
+                      setReauthPassword("");
+                      setReauthSpin("");
+                      setReauthModalId(v.id);
+                    }}
+                  />
+                }
+                syncForm={
+                  editingInterval === v.id ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm text-iv-text">Sync enabled</p>
+                          <p className="text-[11px] text-iv-muted">Collect telemetry in the background</p>
                         </div>
-
-                        <label aria-label="Sync Enabled toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-
-                          <input type="checkbox" checked={editForms[v.id]?.collectionEnabled ?? true} onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], collectionEnabled: e.target.checked } }))} className="sr-only peer" />
-
-                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-green transition-colors"></div>
-
-                        </label>
-
+                        <ToggleSwitch
+                          checked={editForms[v.id]?.collectionEnabled ?? true}
+                          onChange={(checked) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], collectionEnabled: checked },
+                            }))
+                          }
+                        />
                       </div>
-
-                      <div className="flex items-center justify-between gap-4 py-1 mb-2">
-
-                        <div className="flex-1">
-
-                          <span className="text-sm font-medium text-iv-text block">Incognito Mode</span>
-
-                          <span className="text-[10px] text-iv-muted block leading-tight mt-0.5">Pause GPS/location tracking while preserving battery & charging stats.</span>
-
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm text-iv-text">Incognito</p>
+                          <p className="text-[11px] text-iv-muted">No GPS; keep battery & charging stats</p>
                         </div>
-
-                        <label aria-label="Incognito Mode toggle" className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-
-                          <input type="checkbox" checked={editForms[v.id]?.incognitoMode ?? false} onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], incognitoMode: e.target.checked } }))} className="sr-only peer" />
-
-                          <div className="w-9 h-5 bg-iv-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iv-cyan transition-colors"></div>
-
-                        </label>
-
+                        <ToggleSwitch
+                          checked={editForms[v.id]?.incognitoMode ?? false}
+                          onChange={(checked) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], incognitoMode: checked },
+                            }))
+                          }
+                          accent="cyan"
+                        />
                       </div>
-
                       <div className="flex items-center gap-2">
-
-                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Active Telemetry</span>
-
-                        <input type="range" min={60} max={1800} step={60} value={editForms[v.id]?.activeInterval ?? 300}
-
-                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], activeInterval: Number(e.target.value) } }))}
-
-                          className="flex-1 accent-iv-green min-w-0" />
-
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(editForms[v.id]?.activeInterval ?? 300)}</span>
-
-                      </div>
-
-                      <div className="flex items-center gap-2">
-
-                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Parked Check</span>
-
-                        <input type="range" min={300} max={7200} step={300} value={editForms[v.id]?.parkedInterval ?? 1800}
-
-                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], parkedInterval: Number(e.target.value) } }))}
-
-                          className="flex-1 accent-iv-cyan min-w-0" />
-
-                        <span className="text-xs text-iv-cyan font-mono w-14 text-right flex-shrink-0">{intervalLabel(editForms[v.id]?.parkedInterval ?? 1800)}</span>
-
-                      </div>
-
-                      <div className="flex items-center gap-2">
-
-                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">WLTP Range ({distanceLabel(unitSystem)})</span>
-
+                        <span className="text-xs text-iv-muted w-28">Active poll</span>
                         <input
-
+                          type="range"
+                          min={60}
+                          max={1800}
+                          step={60}
+                          value={editForms[v.id]?.activeInterval ?? 300}
+                          onChange={(e) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], activeInterval: Number(e.target.value) },
+                            }))
+                          }
+                          className="flex-1 accent-iv-green min-w-0"
+                        />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">
+                          {intervalLabel(editForms[v.id]?.activeInterval ?? 300)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28">Parked poll</span>
+                        <input
+                          type="range"
+                          min={300}
+                          max={7200}
+                          step={300}
+                          value={editForms[v.id]?.parkedInterval ?? 1800}
+                          onChange={(e) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], parkedInterval: Number(e.target.value) },
+                            }))
+                          }
+                          className="flex-1 accent-iv-cyan min-w-0"
+                        />
+                        <span className="text-xs text-iv-cyan font-mono w-14 text-right">
+                          {intervalLabel(editForms[v.id]?.parkedInterval ?? 1800)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-iv-muted w-28">WLTP ({distanceLabel(unitSystem)})</span>
+                        <input
                           type="number"
-
                           min={1}
-
                           max={2000}
-
-                          step={1}
-
                           value={editForms[v.id]?.wltpRange ?? ""}
-
-                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], wltpRange: e.target.value } }))}
-
+                          onChange={(e) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], wltpRange: e.target.value },
+                            }))
+                          }
                           placeholder="e.g. 510"
-
-                          className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50"
-
+                          className="flex-1 min-w-0 rounded-lg border border-iv-border bg-iv-surface px-2 py-1.5 text-xs text-iv-text"
                         />
-
-                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">{distanceLabel(unitSystem)}</span>
-
                       </div>
-
                       <div className="flex items-center gap-2">
-
-                        <span className="text-xs text-iv-muted w-28 flex-shrink-0">Energy Region</span>
-
+                        <span className="text-xs text-iv-muted w-28">Region</span>
                         <input
-
                           type="text"
-
                           maxLength={2}
-
                           value={editForms[v.id]?.countryCode ?? ""}
-
-                          onChange={(e) => setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], countryCode: e.target.value.toUpperCase() } }))}
-
-                          placeholder="e.g. LT"
-
-                          className="flex-1 min-w-0 rounded bg-iv-surface border border-iv-border px-2 py-1 text-xs text-iv-text placeholder:text-iv-muted/50 outline-none focus:border-iv-green/50 uppercase"
-
+                          onChange={(e) =>
+                            setEditForms((prev) => ({
+                              ...prev,
+                              [v.id]: { ...prev[v.id], countryCode: e.target.value.toUpperCase() },
+                            }))
+                          }
+                          placeholder="LT"
+                          className="w-20 rounded-lg border border-iv-border bg-iv-surface px-2 py-1.5 text-xs uppercase"
                         />
-
-                        <span className="text-xs text-iv-muted font-mono w-14 text-right flex-shrink-0">Code</span>
-
                       </div>
-
-                      <div className="flex items-center gap-2 mt-1">
-
-                        <button type="button" onClick={() => handleSaveInterval(v.id)}
-
-                          className="text-xs text-iv-green hover:underline">Save</button>
-
-                        <button type="button" onClick={() => setEditingInterval(null)}
-
-                          className="text-xs text-iv-muted hover:underline">Cancel</button>
-
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInterval(v.id)}
+                          className="rounded-lg bg-iv-green px-3 py-1.5 text-xs font-semibold text-iv-bg"
+                        >
+                          Save sync
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingInterval(null)}
+                          className="rounded-lg border border-iv-border px-3 py-1.5 text-xs text-iv-muted"
+                        >
+                          Cancel
+                        </button>
                       </div>
-
                     </div>
-
                   ) : (
-
-                    <button type="button"
-
-                      onClick={() => {
-
-                        setEditingInterval(v.id);
-
-                        setEditForms(prev => ({
-
-                          ...prev,
-
-                          [v.id]: {
-
-                            activeInterval: v.active_interval_seconds,
-
-                            parkedInterval: v.parked_interval_seconds,
-
-                            collectionEnabled: v.collection_enabled ?? true,
-
-                            incognitoMode: v.incognito_mode ?? false,
-
-                            wltpRange: v.wltp_range_km != null ? String(Math.round(kmToDisplay(v.wltp_range_km))) : "",
-
-                            countryCode: v.country_code || ""
-
-                          }
-
-                        }));
-
-                      }}
-
-                      className="text-xs text-iv-muted hover:text-iv-text transition-colors text-left"
-
-                    >
-
-                      {/* Stack interval pills vertically on mobile, inline on sm+ */}
-
-                      <span className="grid grid-cols-1 gap-0.5 sm:block">
-
-                        <span>Active: {intervalLabel(v.active_interval_seconds)}</span>
-
-                        <span className="sm:before:content-['·'] sm:before:mx-1">
-
-                          Parked: {intervalLabel(v.parked_interval_seconds)}
-
-                        </span>
-
-                        {v.wltp_range_km != null && (
-
-                          <span className="sm:before:content-['·'] sm:before:mx-1">
-
-                            WLTP: {formatDistance(v.wltp_range_km)}
-
-                          </span>
-
-                        )}
-
-                        {v.country_code && (
-
-                          <span className="sm:before:content-['·'] sm:before:mx-1">
-
-                            Region: {v.country_code}
-
-                          </span>
-
-                        )}
-
-                      </span>
-
-                      <span className="text-iv-cyan/60 mt-1 block sm:mt-0 sm:ml-1 sm:inline">Edit</span>
-
-                    </button>
-
-                  )}
-
-                </div>
-
-
-
-                {/* ── Efficiency Calibration (inline) ── */}
-
-                {calibrationExpanded === v.id && (
-
-                  <div className="border-t border-iv-border/50 pt-3 space-y-3">
-
-                    <p className="text-xs text-iv-muted">Tune analytics calculations. Pre-filled with app defaults — adjust only if needed.</p>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-
-                      {[
-
-                        { key: "charger_power_kw", label: "Charger Power (kW)", step: "1", min: "1", max: "350" },
-
-                        { key: "ice_l_per_100km", label: "ICE Fuel (L/100km)", step: "0.1", min: "1", max: "20" },
-
-                        { key: "uphill_kwh_per_100km_per_100m", label: "Uphill (kWh/100km/100m)", step: "0.01", min: "0.01", max: "2" },
-
-                        { key: "downhill_kwh_per_100km_per_100m", label: "Downhill Regen", step: "0.01", min: "0.01", max: "2" },
-
-                        { key: "speed_city_threshold_kmh", label: `City Speed (${speedLabel(unitSystem)})`, step: "5", min: "10", max: "150" },
-
-                        { key: "speed_highway_threshold_kmh", label: `Highway Speed (${speedLabel(unitSystem)})`, step: "5", min: "50", max: "250" },
-
-                        { key: "temp_cold_max_celsius", label: `Cold Temp (${tempLabel(unitSystem)})`, step: "1", min: "-20", max: "30" },
-
-                        { key: "temp_optimal_min_celsius", label: `Optimal Min (${tempLabel(unitSystem)})`, step: "1", min: "-10", max: "40" },
-
-                        { key: "temp_optimal_max_celsius", label: `Optimal Max (${tempLabel(unitSystem)})`, step: "1", min: "-10", max: "50" },
-
-                      ].map(({ key, label, step, min, max }) => {
-                        const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null | undefined>;
-                        const displayVal = (fieldKey: string) => {
-                          let raw = "";
-                          const fromForm = f[fieldKey];
-                          if (fromForm !== undefined && fromForm !== null) {
-                            raw = String(fromForm);
-                          } else {
-                            const fromVehicle = v[fieldKey as keyof SettingsVehicle];
-                            if (typeof fromVehicle === "number" && Number.isFinite(fromVehicle)) {
-                              raw = String(fromVehicle);
-                            } else {
-                              const d = effectiveCalibDefaults[fieldKey];
-                              raw = d !== undefined ? String(d) : "";
-                            }
-                          }
-                          const n = Number(raw);
-                          if (raw !== "" && Number.isFinite(n)) return String(siToCalibDisplay(fieldKey, n));
-                          return raw;
-                        };
-
-                        return (
-
-                          <div key={key} className="flex flex-col gap-1">
-
-                            <span className="text-iv-muted text-[10px]">{label}</span>
-
-                            <input
-
-                              type="number" step={step} min={String(siToCalibDisplay(key, Number(min)))} max={String(siToCalibDisplay(key, Number(max)))}
-
-                              value={displayVal(key)}
-
-                              onChange={e => {
-                                const raw = e.target.value;
-                                const n = Number(raw);
-                                const stored = raw !== "" && Number.isFinite(n) ? String(calibDisplayToSi(key, n)) : raw;
-                                setEditForms(prev => ({ ...prev, [v.id]: { ...prev[v.id], [key]: stored } }));
-                              }}
-
-                              className="bg-iv-bg border border-iv-border rounded px-2 py-1.5 text-iv-text text-xs w-full"
-
-                            />
-
-                          </div>
-
-                        );
-
-                      })}
-
-                    </div>
-
-                    <div className="flex gap-2">
-
-                      <button type="button"
-
-                        onClick={async () => {
-
-                          const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null>;
-                          const calData: Record<string, number | null> = {};
-                          Object.keys(CALIBRATION_FALLBACK_DEFAULTS).forEach(k => {
-                            const raw = f[k];
-
-                            if (raw === undefined) return;
-
-                            if (raw === "" || raw === null) { calData[k] = null; return; }
-
-                            const num = Number(raw);
-
-                            if (!isNaN(num)) calData[k] = num;
-
-                          });
-
-                          await api.updateVehicle(v.id, calData);
-
-                          await loadVehicles();
-
-                          setCalibrationExpanded(null);
-
-                          showToast("success", "Calibration saved");
-
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-xs text-iv-muted">
+                        Active {intervalLabel(v.active_interval_seconds)} · Parked{" "}
+                        {intervalLabel(v.parked_interval_seconds)}
+                        {v.wltp_range_km != null ? ` · WLTP ${Math.round(v.wltp_range_km)} km` : ""}
+                        {v.country_code ? ` · ${v.country_code}` : ""}
+                        {v.collection_enabled ? "" : " · Sync paused"}
+                        {v.incognito_mode ? " · Incognito" : ""}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingInterval(v.id);
+                          setEditForms((prev) => ({
+                            ...prev,
+                            [v.id]: {
+                              activeInterval: v.active_interval_seconds,
+                              parkedInterval: v.parked_interval_seconds,
+                              collectionEnabled: v.collection_enabled ?? true,
+                              incognitoMode: v.incognito_mode ?? false,
+                              wltpRange:
+                                v.wltp_range_km != null ? String(Math.round(v.wltp_range_km)) : "",
+                              countryCode: v.country_code || "",
+                            },
+                          }));
                         }}
-
-                        className="rounded-xl bg-iv-green px-4 py-2 text-xs font-semibold text-white hover:bg-iv-green/90"
-
-                      >Save</button>
-
-                      <button type="button"
-
-                        onClick={() => setCalibrationExpanded(null)}
-
-                        className="rounded-xl border border-iv-border px-4 py-2 text-xs font-medium text-iv-muted hover:bg-iv-surface hover:text-iv-text"
-
-                      >Cancel</button>
-
+                        className="text-xs text-iv-cyan hover:underline"
+                      >
+                        Edit sync
+                      </button>
                     </div>
-
-                  </div>
-
-                )}
-
-
-
-              </div>
-
+                  )
+                }
+                calibrate={
+                  calibrationExpanded === v.id ? (
+                    <div className="space-y-3">
+                      <p className="text-[11px] text-iv-muted">
+                        Efficiency calibration — leave blank to use app defaults.
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {(
+                          [
+                            { key: "charger_power_kw", label: "Charger kW", step: "1", min: "1", max: "350" },
+                            { key: "ice_l_per_100km", label: "ICE L/100km", step: "0.1", min: "1", max: "20" },
+                            { key: "uphill_kwh_per_100km_per_100m", label: "Uphill kWh", step: "0.01", min: "0.01", max: "2" },
+                            { key: "downhill_kwh_per_100km_per_100m", label: "Downhill kWh", step: "0.01", min: "0.01", max: "2" },
+                            { key: "speed_city_threshold_kmh", label: "City speed", step: "5", min: "10", max: "150" },
+                            { key: "speed_highway_threshold_kmh", label: "Highway speed", step: "5", min: "50", max: "250" },
+                            { key: "temp_cold_max_celsius", label: "Cold °C", step: "1", min: "-20", max: "30" },
+                            { key: "temp_optimal_min_celsius", label: "Opt min °C", step: "1", min: "-10", max: "40" },
+                            { key: "temp_optimal_max_celsius", label: "Opt max °C", step: "1", min: "-10", max: "50" },
+                          ] as const
+                        ).map(({ key, label, step, min, max }) => {
+                          const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null | undefined>;
+                          const displayVal = (fieldKey: string) => {
+                            let raw = "";
+                            const fromForm = f[fieldKey];
+                            if (fromForm !== undefined && fromForm !== null) raw = String(fromForm);
+                            else {
+                              const fromVehicle = v[fieldKey as keyof SettingsVehicle];
+                              if (typeof fromVehicle === "number" && Number.isFinite(fromVehicle))
+                                raw = String(fromVehicle);
+                              else {
+                                const d = effectiveCalibDefaults[fieldKey];
+                                raw = d !== undefined ? String(d) : "";
+                              }
+                            }
+                            const n = Number(raw);
+                            if (raw !== "" && Number.isFinite(n)) return String(siToCalibDisplay(fieldKey, n));
+                            return raw;
+                          };
+                          return (
+                            <label key={key} className="text-[10px] text-iv-muted">
+                              {label}
+                              <input
+                                type="number"
+                                step={step}
+                                min={String(siToCalibDisplay(key, Number(min)))}
+                                max={String(siToCalibDisplay(key, Number(max)))}
+                                value={displayVal(key)}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const n = Number(raw);
+                                  const stored =
+                                    raw !== "" && Number.isFinite(n) ? String(calibDisplayToSi(key, n)) : raw;
+                                  setEditForms((prev) => ({
+                                    ...prev,
+                                    [v.id]: { ...prev[v.id], [key]: stored },
+                                  }));
+                                }}
+                                className="mt-1 w-full rounded-lg border border-iv-border bg-iv-surface px-2 py-1.5 text-xs text-iv-text"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const f = (editForms[v.id] ?? {}) as unknown as Record<string, string | number | null>;
+                            const calData: Record<string, number | null> = {};
+                            Object.keys(CALIBRATION_FALLBACK_DEFAULTS).forEach((k) => {
+                              const raw = f[k];
+                              if (raw === undefined) return;
+                              if (raw === "" || raw === null) {
+                                calData[k] = null;
+                                return;
+                              }
+                              const num = Number(raw);
+                              if (!isNaN(num)) calData[k] = num;
+                            });
+                            await api.updateVehicle(v.id, calData);
+                            await loadVehicles();
+                            setCalibrationExpanded(null);
+                            showToast("success", "Calibration saved");
+                          }}
+                          className="rounded-lg bg-iv-green px-3 py-1.5 text-xs font-semibold text-iv-bg"
+                        >
+                          Save calibration
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCalibrationExpanded(null)}
+                          className="rounded-lg border border-iv-border px-3 py-1.5 text-xs text-iv-muted"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null
+                }
+              />
             ))
 
           )}
@@ -2064,20 +1878,13 @@ export default function SettingsPage() {
 
                 <label htmlFor="2fa-disable-pwd" className="block text-xs font-medium text-iv-muted mb-1.5">Current Password</label>
 
-                <input
-
+                <PasswordInput
                   id="2fa-disable-pwd"
-
-                  type="password"
-
                   value={twoFactorPassword}
-
                   onChange={(e) => setTwoFactorPassword(e.target.value)}
-
                   placeholder="Password"
-
+                  wrapperClassName="w-full"
                   className={inputClasses}
-
                 />
 
               </div>
@@ -2415,10 +2222,6 @@ export default function SettingsPage() {
 
       {/* Official MyŠkoda Public API */}
       <Cat active={category} id="integrations">
-      <SectionCard icon={KeyRound} title="Škoda official API">
-        <SkodaPublicSection />
-      </SectionCard>
-
       <SectionCard icon={PlugZap} title="Integrations — ABRP">
         <AbrpSection />
       </SectionCard>
@@ -2638,11 +2441,11 @@ export default function SettingsPage() {
 
           <div className="glass relative w-full max-w-sm rounded-2xl p-6">
 
-            <h2 className="text-lg font-semibold text-iv-text mb-2 flex items-center gap-2"><KeyRound size={18} className="text-iv-cyan" /> Re-authenticate</h2>
+            <h2 className="text-lg font-semibold text-iv-text mb-2 flex items-center gap-2"><KeyRound size={18} className="text-iv-cyan" /> MyŠkoda login</h2>
 
             <p className="text-xs text-iv-muted mb-4">
 
-              Your Skoda token expired. Leave fields blank to re-login with saved credentials, or provide new ones if they changed.
+              Change the email and password used for this car anytime — not only when login fails.
 
             </p>
 
@@ -2650,9 +2453,25 @@ export default function SettingsPage() {
 
               <input type="text" placeholder="Email (optional)" value={reauthUsername} onChange={(e) => setReauthUsername(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
 
-              <input type="password" placeholder="Password (optional)" value={reauthPassword} onChange={(e) => setReauthPassword(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
+              <PasswordInput
+                placeholder="Password (optional)"
+                value={reauthPassword}
+                onChange={(e) => setReauthPassword(e.target.value)}
+                disabled={reauthLoading}
+                autoComplete="new-password"
+                wrapperClassName="w-full"
+                className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors"
+              />
 
-              <input type="password" placeholder="S-PIN (optional)" value={reauthSpin} onChange={(e) => setReauthSpin(e.target.value)} disabled={reauthLoading} className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors" />
+              <PasswordInput
+                placeholder="S-PIN (optional)"
+                value={reauthSpin}
+                onChange={(e) => setReauthSpin(e.target.value)}
+                disabled={reauthLoading}
+                autoComplete="off"
+                wrapperClassName="w-full"
+                className="w-full rounded-lg bg-iv-surface border border-iv-border px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted/60 focus:outline-none focus:border-iv-cyan/50 transition-colors"
+              />
 
             </div>
 

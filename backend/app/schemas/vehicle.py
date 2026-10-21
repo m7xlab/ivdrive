@@ -59,6 +59,13 @@ class VehicleResponse(BaseModel):
     consecutive_auth_failures: int = 0
     backoff_until: datetime | None = None
     created_at: datetime
+    # Per-car Škoda connection (for settings UI badges / errors)
+    telemetry_source: str | None = None
+    has_skoda_login: bool = False
+    has_api_key: bool = False
+    api_key_expires_at: datetime | None = None
+    api_key_expired: bool = False
+    api_key_expires_in_days: int | None = None
     # Efficiency calibration
     charger_power_kw: float | None = None
     ice_l_per_100km: float | None = None

@@ -25,6 +25,7 @@ from app.schemas.abrp import (
     AbrpSettingsUpdate,
 )
 from app.schemas.skoda_public import (
+    SkodaLoginConnect,
     SkodaPublicSettingsOut,
     SkodaPublicSettingsUpdate,
     SkodaPublicVehicleOut,
@@ -243,14 +244,21 @@ async def _load_skoda_settings(user: User, db: AsyncSession) -> SkodaPublicSetti
         if days_left <= 0:
             expiry_warning = (
                 "Your MyŠkoda API key has expired. Create a new one in the MyŠkoda app "
-                "(they last about 3 months) and save it here."
+                "or connect MyŠkoda Login and use “Create official key”."
             )
         elif days_left <= 14:
             expiry_warning = (
                 f"Your MyŠkoda API key expires in {days_left} day"
                 f"{'s' if days_left != 1 else ''}. "
-                "Create a new key in the MyŠkoda app soon — keys cannot be renewed automatically."
+                "Create a new key in the MyŠkoda app or via MyŠkoda Login soon — "
+                "keys cannot be renewed automatically."
             )
+
+    has_login = bool(user.skoda_login_access_encrypted or user.skoda_login_password_encrypted)
+    login_hint = None
+    if user.skoda_login_email:
+        email = user.skoda_login_email
+        login_hint = email[:2] + "***" + email[email.find("@") :] if "@" in email else "***"
 
     return SkodaPublicSettingsOut(
         has_api_key=has_key,
@@ -259,6 +267,8 @@ async def _load_skoda_settings(user: User, db: AsyncSession) -> SkodaPublicSetti
         expires_in_days=days_left,
         expiry_warning=expiry_warning,
         last_error=user.skoda_public_last_error,
+        has_login=has_login,
+        login_email_hint=login_hint,
         vehicles=[
             SkodaPublicVehicleOut(
                 vehicle_id=str(v.id),
@@ -305,9 +315,157 @@ async def update_skoda_vehicle_source(
 ):
     vehicle = await _get_owned_vehicle(vehicle_id, user, db)
     source = (body.telemetry_source or "auto").lower()
-    if source not in ("auto", "legacy", "public"):
-        raise HTTPException(status_code=400, detail="telemetry_source must be auto, legacy, or public")
+    if source == "legacy":
+        source = "login"
+    if source not in ("auto", "login", "public"):
+        raise HTTPException(status_code=400, detail="telemetry_source must be auto, MyŠkoda Public API (public), or MyŠkoda Login (login)")
     vehicle.telemetry_source = source
+    await db.commit()
+    await db.refresh(user)
+    return await _load_skoda_settings(user, db)
+
+
+@router.post("/skoda/login", response_model=SkodaPublicSettingsOut)
+async def connect_skoda_login(
+    body: SkodaLoginConnect,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Connect optional MyŠkoda Login."""
+    from app.services.skoda_bff_auth import (
+        BFFAuthInvalidCredentials,
+        login_with_password,
+    )
+    from app.services.skoda_bff_api import SkodaBFFClient
+
+    try:
+        tokens = await login_with_password(body.email.strip(), body.password)
+    except BFFAuthInvalidCredentials:
+        raise HTTPException(
+            status_code=400,
+            detail="MyŠkoda email or password is incorrect.",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach MyŠkoda login right now. Please try again.",
+        )
+
+    user.skoda_login_email = body.email.strip()
+    user.skoda_login_password_encrypted = encrypt_field(body.password)
+    user.skoda_login_access_encrypted = encrypt_field(tokens.get("accessToken") or "")
+    refresh = tokens.get("refreshToken") or ""
+    user.skoda_login_refresh_encrypted = encrypt_field(refresh) if refresh else None
+
+    # Keys are created per vehicle (POST /skoda/vehicles/{id}/mint-key),
+    # not from this account-level connect call.
+
+    await db.commit()
+    await db.refresh(user)
+    return await _load_skoda_settings(user, db)
+
+
+@router.delete("/skoda/login", response_model=SkodaPublicSettingsOut)
+async def disconnect_skoda_login(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove MyŠkoda Login credentials. Keeps any official API key."""
+    user.skoda_login_email = None
+    user.skoda_login_password_encrypted = None
+    user.skoda_login_access_encrypted = None
+    user.skoda_login_refresh_encrypted = None
+    await db.commit()
+    await db.refresh(user)
+    return await _load_skoda_settings(user, db)
+
+
+@router.put("/skoda/vehicles/{vehicle_id}/api-key", response_model=SkodaPublicSettingsOut)
+async def set_vehicle_api_key(
+    vehicle_id: uuid.UUID,
+    body: SkodaPublicSettingsUpdate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or clear the official API key for one vehicle (encrypted on the car)."""
+    import json as _json
+
+    vehicle = await _get_owned_vehicle(vehicle_id, user, db)
+    config: dict = {}
+    if vehicle.connector_config_encrypted:
+        try:
+            config = _json.loads(decrypt_field(vehicle.connector_config_encrypted))
+        except Exception:
+            config = {}
+    key = (body.api_key or "").strip()
+    if key:
+        config["api_key"] = key
+    else:
+        config.pop("api_key", None)
+    vehicle.connector_config_encrypted = encrypt_field(_json.dumps(config))
+    await db.commit()
+    await db.refresh(user)
+    return await _load_skoda_settings(user, db)
+
+
+@router.post("/skoda/vehicles/{vehicle_id}/mint-key", response_model=SkodaPublicSettingsOut)
+async def mint_vehicle_api_key(
+    vehicle_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an official API key for one vehicle using that car's MyŠkoda login."""
+    import json as _json
+
+    from app.services.skoda_auth import SkodaAuthClient
+    from app.services.skoda_bff_api import SkodaBFFClient
+
+    vehicle = await _get_owned_vehicle(vehicle_id, user, db)
+    config: dict = {}
+    if vehicle.connector_config_encrypted:
+        try:
+            config = _json.loads(decrypt_field(vehicle.connector_config_encrypted))
+        except Exception:
+            config = {}
+    username = config.get("username")
+    password = config.get("password")
+    if not username or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Save MyŠkoda email and password for this car first.",
+        )
+    vin = decrypt_field(vehicle.vin_encrypted)
+
+    auth = SkodaAuthClient()
+    try:
+        tokens = await auth.login(username, password)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not log in to MyŠkoda for this car. Check email and password.",
+        )
+    finally:
+        await auth.close()
+
+    access = tokens.get("accessToken") or tokens.get("access_token") or ""
+    if not access:
+        raise HTTPException(status_code=502, detail="MyŠkoda login returned no session.")
+
+    bff = SkodaBFFClient(access)
+    try:
+        minted = await bff.mint_public_api_key(vin, name="iVDrive")
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not create an API key right now. Try again or paste a key from the MyŠkoda app.",
+        )
+    finally:
+        await bff.close()
+
+    config["api_key"] = minted["key"]
+    if minted.get("validUntil"):
+        config["api_key_expires_at"] = str(minted["validUntil"])
+    vehicle.connector_config_encrypted = encrypt_field(_json.dumps(config))
     await db.commit()
     await db.refresh(user)
     return await _load_skoda_settings(user, db)

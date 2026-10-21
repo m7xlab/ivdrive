@@ -172,6 +172,8 @@ class SkodaPublicSettingsOut(BaseModel):
     expires_in_days: int | None = None
     expiry_warning: str | None = None
     last_error: str | None = None
+    has_login: bool = False
+    login_email_hint: str | None = None
     docs_url: str = "https://public.api.connect.skoda-auto.cz/docs"
     key_qr_url: str = "https://public.api.connect.skoda-auto.cz/docs/api-keys-qr.svg"
     vehicles: list[SkodaPublicVehicleOut] = Field(default_factory=list)
@@ -181,5 +183,11 @@ class SkodaPublicSettingsUpdate(BaseModel):
     api_key: str | None = None  # empty string clears
 
 
+class SkodaLoginConnect(BaseModel):
+    email: str
+    password: str
+    mint_key: bool = True
+
+
 class SkodaVehicleSourceUpdate(BaseModel):
-    telemetry_source: str = "auto"  # auto | legacy | public
+    telemetry_source: str = "auto"  # auto | login | public

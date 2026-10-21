@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, KeyRound, Loader2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Vehicle } from "@/lib/hooks/use-vehicles";
+import { PasswordInput } from "@/components/password-input";
 
 /**
  * Shown at the top of a vehicle card (or above the dashboard) when the
@@ -75,13 +76,13 @@ export function AuthReauthBanner({ vehicle }: { vehicle: Vehicle }) {
               required
               className="w-full bg-iv-surface border border-iv-border rounded-lg px-3 py-2 text-sm"
             />
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Škoda password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
+              wrapperClassName="w-full"
               className="w-full bg-iv-surface border border-iv-border rounded-lg px-3 py-2 text-sm"
             />
             {err && <p className="text-xs text-red-300">{err}</p>}

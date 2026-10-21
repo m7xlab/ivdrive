@@ -123,6 +123,7 @@ import {
 } from "recharts";
 
 import { api } from "@/lib/api";
+import { PasswordInput } from "@/components/password-input";
 
 import { useLocale } from "@/lib/locale";
 
@@ -2980,9 +2981,13 @@ export default function VehicleDetailPage() {
 
                  <div className="flex gap-2 mt-3">
 
-                    <input type="password" placeholder="S-PIN" value={unlockSpin} onChange={(e) => setUnlockSpin(e.target.value)}
-
-                      className="flex-1 rounded-xl bg-iv-surface border border-iv-border px-3 text-sm text-iv-text text-center focus:outline-none focus:border-iv-warning/50 transition-all" />
+                    <PasswordInput
+                      placeholder="S-PIN"
+                      value={unlockSpin}
+                      onChange={(e) => setUnlockSpin(e.target.value)}
+                      wrapperClassName="flex-1"
+                      className="w-full rounded-xl bg-iv-surface border border-iv-border px-3 text-sm text-iv-text text-center focus:outline-none focus:border-iv-warning/50 transition-all"
+                    />
 
                     <button type="button" onClick={() => runCommand("unlock", { spin: unlockSpin })} disabled={cmdLoading !== null || !unlockSpin}
 

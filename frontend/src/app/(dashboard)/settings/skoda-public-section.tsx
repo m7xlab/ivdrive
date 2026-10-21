@@ -12,6 +12,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { skodaApi, type SkodaPublicSettings } from "@/lib/api/integrations";
+import { vehiclesApi } from "@/lib/api/vehicles";
+import { PasswordInput } from "@/components/password-input";
 
 const DOCS_URL = "https://public.api.connect.skoda-auto.cz/docs";
 // Bundled locally — remote QR is blocked by CSP img-src
@@ -153,6 +155,12 @@ export function SkodaPublicSection() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [editLoginFor, setEditLoginFor] = useState<string | null>(null);
+  const [carEmail, setCarEmail] = useState("");
+  const [carPassword, setCarPassword] = useState("");
+  const [carSpin, setCarSpin] = useState("");
+  const [carApiKey, setCarApiKey] = useState("");
+  const [carLoginBusy, setCarLoginBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -199,6 +207,68 @@ export function SkodaPublicSection() {
       setToast({ status: "error", message: "Failed to update source" });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openCarLogin = (vehicleId: string) => {
+    setEditLoginFor(vehicleId);
+    setCarEmail("");
+    setCarPassword("");
+    setCarSpin("");
+    setCarApiKey("");
+  };
+
+  const saveCarLogin = async (vehicleId: string) => {
+    setCarLoginBusy(true);
+    try {
+      if (carEmail.trim() && carPassword) {
+        await vehiclesApi.reauthenticateVehicle(vehicleId, {
+          skoda_username: carEmail.trim(),
+          skoda_password: carPassword,
+          skoda_spin: carSpin.trim() || undefined,
+        });
+      }
+      if (carApiKey.trim()) {
+        await skodaApi.setVehicleApiKey(vehicleId, carApiKey.trim());
+      }
+      const s = await skodaApi.getSettings();
+      setSettings(s);
+      setEditLoginFor(null);
+      setCarEmail("");
+      setCarPassword("");
+      setCarSpin("");
+      setCarApiKey("");
+      setToast({
+        status: "success",
+        message: "Saved connection for this car",
+      });
+    } catch (e) {
+      setToast({
+        status: "error",
+        message:
+          e instanceof Error
+            ? e.message
+            : "Could not save — check email, password, and API key",
+      });
+    } finally {
+      setCarLoginBusy(false);
+    }
+  };
+
+  const mintCarKey = async (vehicleId: string) => {
+    setCarLoginBusy(true);
+    try {
+      await skodaApi.mintVehicleKey(vehicleId);
+      const s = await skodaApi.getSettings();
+      setSettings(s);
+      setToast({ status: "success", message: "Official API key created for this car" });
+    } catch (e) {
+      setToast({
+        status: "error",
+        message: e instanceof Error ? e.message : "Could not create API key",
+      });
+    } finally {
+      setCarLoginBusy(false);
     }
   };
 
@@ -283,13 +353,13 @@ export function SkodaPublicSection() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="password"
+              <PasswordInput
                 className={inputClasses}
                 placeholder={settings?.has_api_key ? "••••••  (enter to replace)" : "msk_…"}
                 value={apiKeyDraft}
                 onChange={(e) => setApiKeyDraft(e.target.value)}
                 autoComplete="off"
+                wrapperClassName="flex-1"
               />
               <div className="flex items-center gap-2">
                 <button
@@ -344,36 +414,144 @@ export function SkodaPublicSection() {
               {(settings?.vehicles ?? []).map((v) => (
                 <div
                   key={v.vehicle_id}
-                  className="rounded-lg border border-iv-border bg-iv-surface/40 p-3 flex flex-col sm:flex-row sm:items-center gap-3"
+                  className="rounded-lg border border-iv-border bg-iv-surface/40 p-3 space-y-3"
                 >
-                  <div className="flex-1">
-                    <p className="text-sm text-iv-text">{v.display_name || "Vehicle"}</p>
-                    <p className="text-xs text-iv-muted">Where live data is collected from</p>
-                  </div>
-                  <div className="flex gap-1.5">
-                    {(["auto", "legacy", "public"] as const).map((opt) => (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm text-iv-text">{v.display_name || "Vehicle"}</p>
+                      <p className="text-xs text-iv-muted">Where live data is collected from</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["auto", "login", "public"] as const).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          disabled={busyId === v.vehicle_id}
+                          onClick={() => setSource(v.vehicle_id, opt)}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                            (v.telemetry_source === opt ||
+                              (opt === "login" && v.telemetry_source === "legacy"))
+                              ? "bg-iv-green/15 text-iv-green border border-iv-green/25"
+                              : "border border-iv-border text-iv-muted hover:text-iv-text"
+                          }`}
+                        >
+                          {opt === "auto"
+                            ? "Auto"
+                            : opt === "login"
+                              ? "MyŠkoda Login"
+                              : "MyŠkoda Public API"}
+                        </button>
+                      ))}
                       <button
-                        key={opt}
                         type="button"
-                        disabled={busyId === v.vehicle_id}
-                        onClick={() => setSource(v.vehicle_id, opt)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                          v.telemetry_source === opt
-                            ? "bg-iv-green/15 text-iv-green border border-iv-green/25"
-                            : "border border-iv-border text-iv-muted hover:text-iv-text"
-                        }`}
+                        onClick={() =>
+                          editLoginFor === v.vehicle_id
+                            ? setEditLoginFor(null)
+                            : openCarLogin(v.vehicle_id)
+                        }
+                        className="rounded-lg border border-iv-border px-3 py-1.5 text-xs text-iv-cyan hover:border-iv-cyan/40"
                       >
-                        {opt === "auto" ? "Auto" : opt === "legacy" ? "Login" : "Official"}
+                        {editLoginFor === v.vehicle_id ? "Close" : "Edit login"}
                       </button>
-                    ))}
+                    </div>
                   </div>
+
+                  {editLoginFor === v.vehicle_id && (
+                    <div className="rounded-lg border border-iv-border/60 bg-iv-surface/60 p-3 space-y-3">
+                      <p className="text-xs text-iv-muted">
+                        Connection for <strong className="text-iv-text">{v.display_name || "this car"}</strong>.
+                        Leave a field blank to keep the saved value. Everything is stored encrypted
+                        and applies only to this vehicle.
+                      </p>
+
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-medium text-iv-muted uppercase tracking-wide">
+                          MyŠkoda login (optional — enables wake / lock / climate)
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="email"
+                            autoComplete="username"
+                            placeholder="MyŠkoda email"
+                            value={carEmail}
+                            onChange={(e) => setCarEmail(e.target.value)}
+                            disabled={carLoginBusy}
+                            className="flex-1 rounded-lg border border-iv-border bg-iv-surface px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted"
+                          />
+                          <PasswordInput
+                            autoComplete="new-password"
+                            placeholder="MyŠkoda password"
+                            value={carPassword}
+                            onChange={(e) => setCarPassword(e.target.value)}
+                            disabled={carLoginBusy}
+                            wrapperClassName="flex-1"
+                            className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted"
+                          />
+                          <PasswordInput
+                            autoComplete="off"
+                            placeholder="S-PIN (optional)"
+                            value={carSpin}
+                            onChange={(e) => setCarSpin(e.target.value)}
+                            disabled={carLoginBusy}
+                            wrapperClassName="w-full sm:w-36"
+                            className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-medium text-iv-muted uppercase tracking-wide">
+                          Official API key (for this car)
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <PasswordInput
+                            autoComplete="off"
+                            placeholder="msk_… (paste key or leave blank)"
+                            value={carApiKey}
+                            onChange={(e) => setCarApiKey(e.target.value)}
+                            disabled={carLoginBusy}
+                            wrapperClassName="flex-1"
+                            className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2 text-sm text-iv-text placeholder:text-iv-muted"
+                          />
+                          <button
+                            type="button"
+                            disabled={carLoginBusy || !carEmail.trim() || !carPassword}
+                            onClick={() => mintCarKey(v.vehicle_id)}
+                            title="Requires MyŠkoda email + password saved for this car"
+                            className="rounded-lg border border-iv-green/30 bg-iv-green/10 px-3 py-2 text-xs font-medium text-iv-green hover:bg-iv-green/15 disabled:opacity-40"
+                          >
+                            Create key from login
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={carLoginBusy}
+                          onClick={() => saveCarLogin(v.vehicle_id)}
+                          className="rounded-lg bg-iv-green px-3 py-1.5 text-xs font-medium text-iv-bg hover:opacity-90 disabled:opacity-50"
+                        >
+                          {carLoginBusy ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={carLoginBusy}
+                          onClick={() => setEditLoginFor(null)}
+                          className="rounded-lg border border-iv-border px-3 py-1.5 text-xs text-iv-muted hover:text-iv-text"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
             <p className="text-[11px] text-iv-muted mt-2">
-              <strong>Auto</strong> = official when a key is saved (login as fallback).{" "}
-              <strong>Login</strong> = existing Škoda Connect account.{" "}
-              <strong>Official</strong> = Public API only.
+              <strong>Auto</strong> = MyŠkoda Login when connected, otherwise official Public API.{" "}
+              <strong>MyŠkoda Login</strong> = advanced (wake, lock, climate).{" "}
+              <strong>MyŠkoda Public API</strong> = official key only.
             </p>
           </div>
         </>

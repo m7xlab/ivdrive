@@ -167,6 +167,28 @@ async def _get_user_vehicle(
 
 def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
     cs = v.connector_session
+    import json as _json
+
+    cfg: dict = {}
+    if v.connector_config_encrypted:
+        try:
+            cfg = _json.loads(decrypt_field(v.connector_config_encrypted))
+        except Exception:
+            cfg = {}
+    has_login = bool(cfg.get("username") and cfg.get("password"))
+    has_api_key = bool(cfg.get("api_key"))
+    expires_at = None
+    expired = False
+    days_left = None
+    raw_exp = cfg.get("api_key_expires_at")
+    if raw_exp:
+        try:
+            expires_at = datetime.fromisoformat(str(raw_exp).replace("Z", "+00:00"))
+            days_left = max(0, (expires_at - datetime.now(UTC)).days)
+            expired = days_left <= 0
+        except Exception:
+            expires_at = None
+
     return VehicleResponse(
         id=v.id,
         display_name=v.display_name,
@@ -203,6 +225,12 @@ def _vehicle_to_response(v: UserVehicle) -> VehicleResponse:
         consecutive_auth_failures=cs.consecutive_auth_failures if cs else 0,
         backoff_until=cs.backoff_until if cs else None,
         created_at=v.created_at,
+        telemetry_source=v.telemetry_source or "auto",
+        has_skoda_login=has_login,
+        has_api_key=has_api_key,
+        api_key_expires_at=expires_at,
+        api_key_expired=expired,
+        api_key_expires_in_days=days_left,
     )
 
 
@@ -431,56 +459,6 @@ async def refresh_vehicle(
     return {"status": "queued", "message": "Manual refresh triggered successfully"}
 
 
-@router.post("/{vehicle_id}/reauthenticate", status_code=status.HTTP_200_OK)
-async def reauthenticate_vehicle(
-    vehicle_id: uuid.UUID,
-    payload: VehicleReauth,
-    user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Force a new login attempt on the next cycle, clearing the backoff state."""
-    vehicle = await _get_user_vehicle(vehicle_id, user, db)
-    
-    # Update credentials if provided
-    if payload.skoda_username or payload.skoda_password or payload.skoda_spin:
-        if vehicle.connector_config_encrypted:
-            config_str = decrypt_field(vehicle.connector_config_encrypted)
-            try:
-                config = json.loads(config_str)
-            except Exception:
-                config = {}
-        else:
-            config = {}
-            
-        if payload.skoda_username is not None:
-            config["username"] = payload.skoda_username
-        if payload.skoda_password is not None:
-            config["password"] = payload.skoda_password
-        if payload.skoda_spin is not None:
-            config["spin"] = payload.skoda_spin
-            
-        vehicle.connector_config_encrypted = encrypt_field(json.dumps(config))
-    
-    if not vehicle.connector_session:
-        raise HTTPException(status_code=400, detail="Vehicle has no connector session")
-        
-    cs = vehicle.connector_session
-    cs.status = "active"
-    cs.consecutive_auth_failures = 0
-    cs.consecutive_failures = 0
-    cs.force_login_next = True
-    cs.needs_user_reauth_reason = None
-    cs.last_error_text = None
-    cs.backoff_until = None
-    
-    await db.commit()
-    
-    # Trigger a refresh immediately so the user doesn't have to wait 5 minutes
-    await publish_vehicle_refresh(str(vehicle_id))
-    
-    return {"status": "success", "message": "Re-authentication triggered"}
-
-
 @router.get("/{vehicle_id}/data-health", response_model=VehicleDataHealthResponse)
 async def get_vehicle_data_health(
     vehicle_id: uuid.UUID,
@@ -506,45 +484,80 @@ async def reauthenticate_vehicle(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update MyŠkoda login credentials and log in immediately.
+
+    Works for any vehicle (not only when auth already failed). Blank fields
+    keep the stored value; new values replace the encrypted connector config.
+    """
     vehicle = await _get_user_vehicle(vehicle_id, user, db)
-    
-    config_str = decrypt_field(vehicle.connector_config_encrypted)
-    config = json.loads(config_str)
-    
-    username = body.skoda_username or config.get("username")
-    password = body.skoda_password or config.get("password")
-    spin = body.skoda_spin or config.get("spin")
-    
+
+    config: dict = {}
+    if vehicle.connector_config_encrypted:
+        try:
+            config = json.loads(decrypt_field(vehicle.connector_config_encrypted))
+        except Exception:
+            config = {}
+
+    if body.skoda_username is not None and body.skoda_username.strip():
+        config["username"] = body.skoda_username.strip()
+    if body.skoda_password is not None and body.skoda_password:
+        config["password"] = body.skoda_password
+    if body.skoda_spin is not None:
+        config["spin"] = body.skoda_spin.strip() or None
+
+    username = config.get("username")
+    password = config.get("password")
+    if not username or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="MyŠkoda email and password are required to connect this vehicle.",
+        )
+
+    vehicle.connector_config_encrypted = encrypt_field(json.dumps(config))
+
     auth = SkodaAuthClient()
     try:
         tokens = await auth.login(username, password)
     except Exception as e:
         logger.warning("Re-auth failed for vehicle %s", vehicle.id, exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
+        # Credentials are saved even if login fails this second — user can retry.
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Could not log in to MyŠkoda with these credentials. Check email and password.",
+        )
     finally:
         await auth.close()
-
-    if body.skoda_username or body.skoda_password or body.skoda_spin:
-        new_config = json.dumps({"username": username, "password": password, "spin": spin})
-        vehicle.connector_config_encrypted = encrypt_field(new_config)
 
     access_token = tokens.get("accessToken") or tokens.get("access_token", "")
     refresh_token = tokens.get("refreshToken") or tokens.get("refresh_token", "")
     expires_in = tokens.get("expiresIn") or tokens.get("expires_in", 3600)
     token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
-    
-    # Needs to eagerly load connector session or use execute
-    cs_res = await db.execute(select(ConnectorSession).where(ConnectorSession.user_vehicle_id == vehicle.id))
+
+    cs_res = await db.execute(
+        select(ConnectorSession).where(ConnectorSession.user_vehicle_id == vehicle.id)
+    )
     cs = cs_res.scalar_one_or_none()
-    if cs:
-        cs.access_token_encrypted = encrypt_field(access_token)
-        cs.refresh_token_encrypted = encrypt_field(refresh_token)
-        cs.token_expires_at = token_expires_at
-        cs.status = "active"
-    
+    if not cs:
+        cs = ConnectorSession(user_vehicle_id=vehicle.id, status="active")
+        db.add(cs)
+    cs.access_token_encrypted = encrypt_field(access_token)
+    cs.refresh_token_encrypted = encrypt_field(refresh_token)
+    cs.token_expires_at = token_expires_at
+    cs.status = "active"
+    cs.consecutive_auth_failures = 0
+    cs.consecutive_failures = 0
+    cs.force_login_next = False
+    cs.needs_user_reauth_reason = None
+    cs.last_error_text = None
+    cs.backoff_until = None
+
     await db.commit()
     await publish_vehicle_refresh(str(vehicle.id))
-    return {"status": "success", "message": "Re-authenticated successfully and queued for refresh"}
+    return {
+        "status": "success",
+        "message": "MyŠkoda login saved and re-authenticated successfully.",
+    }
 
 
 @router.get("/{vehicle_id}/status", response_model=VehicleStatusResponse)
