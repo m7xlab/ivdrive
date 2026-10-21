@@ -36,10 +36,8 @@ class BFFAuthExpired(BFFAuthError):
 
 
 def _pkce() -> tuple[str, str]:
-    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    verifier = "".join(secrets.choice(chars) for _ in range(64))
-    raw = base64.b64encode(verifier.encode()).decode()
-    verifier = raw.replace("+", "-").replace("/", "_").replace("=", "")
+    """RFC 7636 PKCE verifier + S256 challenge."""
+    verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     return verifier, challenge
 

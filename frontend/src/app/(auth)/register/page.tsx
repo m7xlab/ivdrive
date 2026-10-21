@@ -670,7 +670,7 @@ function RegisterForm() {
 
               className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors"
 
-              tabIndex={-1}
+             
 
             >
 
@@ -730,7 +730,7 @@ function RegisterForm() {
 
               className="absolute right-3 top-1/2 -translate-y-1/2 text-iv-muted hover:text-iv-text transition-colors"
 
-              tabIndex={-1}
+             
 
             >
 
