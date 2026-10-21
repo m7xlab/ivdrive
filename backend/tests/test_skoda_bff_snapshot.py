@@ -89,5 +89,6 @@ def test_snapshot_from_bff_does_not_invent_zero_longitude():
         now=datetime.now(UTC),
         vin="TESTVIN0000000001",
     )
-    assert snap.lat == 54.6
-    assert snap.lon is None  # missing lon must stay missing
+    # Incomplete GPS (missing lon) must not become (54.6, 0.0)
+    assert snap.lat is None
+    assert snap.lon is None
