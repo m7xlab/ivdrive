@@ -49,7 +49,7 @@ class User(TimestampMixin, Base):
     skoda_public_key_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Human-readable last API problem (e.g. “Your key has expired…”)
     skoda_public_last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # Optional MyŠkoda Login (BFF) — advanced channel; password + tokens encrypted
+    # Optional MyŠkoda Login — optional advanced channel; password + tokens encrypted
     skoda_login_email: Mapped[str | None] = mapped_column(String(320), nullable=True, default=None)
     skoda_login_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     skoda_login_access_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)

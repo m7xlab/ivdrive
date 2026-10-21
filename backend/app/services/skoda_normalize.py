@@ -157,7 +157,7 @@ def snapshot_from_bff(
     now: datetime,
     vin: str | None = None,
 ) -> NormalizedSnapshot:
-    """Map mysmob BFF payloads → NormalizedSnapshot (same contract as public)."""
+    """Map MyŠkoda Login payloads → NormalizedSnapshot (same contract as public)."""
     snap = NormalizedSnapshot(captured_at=now, source="login", vin=vin)
     st = (charging or {}).get("status") or {}
     batt = st.get("battery") or {}

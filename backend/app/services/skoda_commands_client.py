@@ -17,14 +17,14 @@ _OP_MAP = {
     "lock": "lock",
     "unlock": "unlock",
     "wake": "wake",
-    "honk_flash": "lock",  # no honk on BFF yet; refuse below
+    "honk_flash": "lock",  # not supported yet; refuse below
 }
 
 
 class SkodaCommandClient:
-    """Remote commands via MyŠkoda Login (BFF) when connected, else Public API.
+    """Remote commands via MyŠkoda Login when connected, else Public API.
 
-    Replaces the unofficial myskoda library command path.
+    Uses MyŠkoda Login or the official API.
     """
 
     def __init__(

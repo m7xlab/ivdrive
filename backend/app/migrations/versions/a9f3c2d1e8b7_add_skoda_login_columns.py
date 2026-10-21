@@ -1,4 +1,4 @@
-"""Add MyŠkoda Login (BFF) credential columns on users.
+"""Add MyŠkoda Login credential columns on users.
 
 Revision ID: a9f3c2d1e8b7
 Revises: c3d5e7f9a1b2

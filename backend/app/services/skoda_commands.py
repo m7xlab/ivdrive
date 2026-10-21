@@ -1,4 +1,4 @@
-"""Command router — MyŠkoda Login (BFF) wins when present, else official Public API."""
+"""Command router — MyŠkoda Login wins when present, else official Public API."""
 
 from __future__ import annotations
 

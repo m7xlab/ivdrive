@@ -1,4 +1,4 @@
-"""Vehicle telemetry source port — Login (BFF) and official Public API."""
+"""Vehicle telemetry source port — MyŠkoda Login and official Public API."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class PublicVehicleSource:
 
 
 class LoginVehicleSource:
-    """MyŠkoda Login (BFF / mysmob). Optional advanced source — wins when connected."""
+    """MyŠkoda Login. Optional advanced source — wins when connected."""
 
     kind = "login"
 

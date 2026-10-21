@@ -331,7 +331,7 @@ async def connect_skoda_login(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Connect optional MyŠkoda Login (advanced BFF channel)."""
+    """Connect optional MyŠkoda Login."""
     from app.services.skoda_bff_auth import (
         BFFAuthInvalidCredentials,
         login_with_password,
