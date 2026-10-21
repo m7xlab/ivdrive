@@ -1,7 +1,4 @@
-"""MyŠkoda BFF authentication (IdentityKit PKCE → mysmob CONNECT token).
-
-Private API used only when the user connects MyŠkoda Login (optional advanced source).
-"""
+"""MyŠkoda Login authentication (sign-in → access token)."""
 
 from __future__ import annotations
 
@@ -14,23 +11,16 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 
-MYSMOB_BASE = "https://mysmob.api.connect.skoda-auto.cz"
-IDENTITY = "https://identity.vwgroup.io"
-TOKEN_TYPE = "CONNECT"
-CLIENT_ID = "7f045eee-7003-4379-9968-9355ed2adb06@apps_vw-dilab_com"
-X_CLIENT_ID = "afb0473b-6d82-42b8-bfea-cead338c46ef"
-SCOPE = (
-    "address badge birthdate cars driversLicense dealers email mileage mbb "
-    "nationalIdentifier openid phone profession profile vin"
-)
-REDIRECT_URI = "myskoda://redirect/login/"
+from app.config import settings
 
-try:
-    from app.config import settings as _settings
-
-    UA = _settings.skoda_client_user_agent
-except Exception:  # pragma: no cover - import-time fallback
-    UA = "MySkoda/Android/8.17.0/260911002"
+MYSMOB_BASE = settings.skoda_base_url
+IDENTITY = settings.skoda_identity_base_url
+TOKEN_TYPE = settings.skoda_auth_token_type
+CLIENT_ID = settings.skoda_auth_client_id
+X_CLIENT_ID = settings.skoda_auth_x_client_id
+SCOPE = settings.skoda_auth_scope
+REDIRECT_URI = settings.skoda_auth_redirect_uri
+UA = settings.skoda_client_user_agent
 
 
 class BFFAuthError(Exception):
@@ -201,7 +191,12 @@ async def login_with_password(email: str, password: str) -> dict:
         code = None
         for _ in range(12):
             if "code=" in next_url or next_url.startswith("myskoda:"):
-                code = (parse_qs(urlparse(next_url).query).get("code") or [None])[0]
+                parsed = urlparse(next_url)
+                code = (
+                    parse_qs(parsed.query).get("code")
+                    or parse_qs(parsed.fragment).get("code")
+                    or [None]
+                )[0]
                 if code:
                     break
             rr = await client.get(next_url)

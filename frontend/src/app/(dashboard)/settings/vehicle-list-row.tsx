@@ -118,7 +118,18 @@ export function VehicleListRow({
   const mintKey = async () => {
     setBusy(true);
     try {
+      // Save new credentials first so mint uses the latest login
+      if (email.trim() && password) {
+        await vehiclesApi.reauthenticateVehicle(v.id, {
+          skoda_username: email.trim(),
+          skoda_password: password,
+          skoda_spin: spin.trim() || undefined,
+        });
+      }
       await skodaApi.mintVehicleKey(v.id);
+      setEmail("");
+      setPassword("");
+      setSpin("");
       onToast("success", "API key created");
       onSaved();
     } catch (e) {
@@ -294,7 +305,7 @@ export function VehicleListRow({
               />
               <button
                 type="button"
-                disabled={busy || !email.trim() || !password}
+                disabled={busy || (!v.has_skoda_login && (!email.trim() || !password))}
                 onClick={mintKey}
                 className="rounded-lg border border-iv-border px-3 py-2 text-xs text-iv-muted hover:text-iv-green hover:border-iv-green/40 disabled:opacity-40 whitespace-nowrap"
               >

@@ -178,6 +178,7 @@ def snapshot_from_bff(
         if eng.get("currentSoCInPercent") is not None:
             snap.soc = float(eng["currentSoCInPercent"])
         if eng.get("remainingRangeInKm") is not None:
+            snap.remaining_range_m = float(eng["remainingRangeInKm"]) * 1000.0
             snap.range_km = float(eng["remainingRangeInKm"])
 
     park = (parking or {}).get("parkingPosition") or {}
