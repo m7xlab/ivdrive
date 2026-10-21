@@ -401,13 +401,22 @@ class DataCollector:
             # any active polling back to parked every 90 seconds.
             if current is not None:
                 continue
-            # Register public-API-only cars too (no connector session required).
+            # Register cars that have any Škoda connection (login and/or API key).
             has_login = bool(
                 vehicle.connector_session and vehicle.connector_session.access_token_encrypted
             )
-            has_public = bool(
-                vehicle.user and getattr(vehicle.user, "skoda_public_api_key_encrypted", None)
-            )
+            has_public = False
+            if vehicle.connector_config_encrypted:
+                try:
+                    has_public = bool(
+                        json.loads(decrypt_field(vehicle.connector_config_encrypted)).get("api_key")
+                    )
+                except Exception:
+                    has_public = False
+            if not has_public:
+                has_public = bool(
+                    vehicle.user and getattr(vehicle.user, "skoda_public_api_key_encrypted", None)
+                )
             if not has_login and not has_public:
                 continue
             self.register_vehicle(vehicle.id, vehicle.parked_interval_seconds)

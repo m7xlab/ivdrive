@@ -77,3 +77,17 @@ def test_snapshot_from_bff_driving_range_fallback_soc():
     assert snap.soc == 55.0
     assert snap.range_km == 200.0
     assert snap.is_online is True
+
+
+def test_snapshot_from_bff_does_not_invent_zero_longitude():
+    snap = snapshot_from_bff(
+        charging={"status": {"battery": {"stateOfChargeInPercent": 50}}},
+        vehicle_status={},
+        parking={"parkingPosition": {"gpsCoordinates": {"latitude": 54.6}}},
+        driving_range=None,
+        readiness=None,
+        now=datetime.now(UTC),
+        vin="TESTVIN0000000001",
+    )
+    assert snap.lat == 54.6
+    assert snap.lon is None  # missing lon must stay missing

@@ -183,9 +183,10 @@ def snapshot_from_bff(
 
     park = (parking or {}).get("parkingPosition") or {}
     gps = park.get("gpsCoordinates") or {}
-    if gps.get("latitude") is not None:
+    # Both coordinates required — never invent lon=0 when lon is missing.
+    if gps.get("latitude") is not None and gps.get("longitude") is not None:
         snap.lat = float(gps["latitude"])
-        snap.lon = float(gps.get("longitude") or 0)
+        snap.lon = float(gps["longitude"])
     if readiness is not None:
         snap.is_online = not bool(readiness.get("unreachable"))
         snap.is_moving = bool(readiness.get("inMotion"))

@@ -30,7 +30,15 @@ class SkodaBFFClient:
         resp = await self._client.get(path)
         if resp.status_code >= 400:
             raise SkodaBFFError(f"BFF GET {path} -> HTTP {resp.status_code}", resp.status_code)
-        return resp.json()
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise SkodaBFFError(
+                f"BFF GET {path} returned non-JSON response", resp.status_code
+            ) from exc
+        if not isinstance(data, dict):
+            raise SkodaBFFError(f"BFF GET {path} returned unexpected JSON shape", resp.status_code)
+        return data
 
     async def _post(self, path: str, json_body: dict | None = None) -> dict | None:
         resp = await self._client.post(path, json=json_body or {})
