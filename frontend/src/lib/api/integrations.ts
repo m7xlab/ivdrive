@@ -97,6 +97,8 @@ export interface SkodaPublicSettings {
   expires_in_days: number | null;
   expiry_warning: string | null;
   last_error: string | null;
+  has_login: boolean;
+  login_email_hint: string | null;
   docs_url: string;
   key_qr_url: string;
   vehicles: SkodaPublicVehicle[];
@@ -112,6 +114,47 @@ export const skodaApi = {
     const res = await apiFetch("/api/v1/integrations/skoda", {
       method: "PUT",
       body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+
+  async connectLogin(body: {
+    email: string;
+    password: string;
+    mint_key?: boolean;
+  }): Promise<SkodaPublicSettings> {
+    const res = await apiFetch("/api/v1/integrations/skoda/login", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+
+  async disconnectLogin(): Promise<SkodaPublicSettings> {
+    const res = await apiFetch("/api/v1/integrations/skoda/login", {
+      method: "DELETE",
+    });
+    return res.json();
+  },
+
+  async mintKey(): Promise<SkodaPublicSettings> {
+    const res = await apiFetch("/api/v1/integrations/skoda/mint-key", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async setVehicleApiKey(vehicleId: string, apiKey: string): Promise<SkodaPublicSettings> {
+    const res = await apiFetch(`/api/v1/integrations/skoda/vehicles/${vehicleId}/api-key`, {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    return res.json();
+  },
+
+  async mintVehicleKey(vehicleId: string): Promise<SkodaPublicSettings> {
+    const res = await apiFetch(`/api/v1/integrations/skoda/vehicles/${vehicleId}/mint-key`, {
+      method: "POST",
     });
     return res.json();
   },

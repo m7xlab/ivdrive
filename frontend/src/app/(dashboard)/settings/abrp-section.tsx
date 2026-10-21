@@ -16,6 +16,7 @@ import {
   type AbrpConnectionUpdate,
   type AbrpSettings,
 } from "@/lib/api/integrations";
+import { PasswordInput } from "@/components/password-input";
 
 function MiniToast({
   status,
@@ -282,13 +283,13 @@ export function AbrpSection() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="password"
+              <PasswordInput
                 className={inputClasses}
                 placeholder={hasApiKey ? "••••••  (enter to replace)" : "Paste ABRP API key"}
                 value={apiKeyDraft}
                 onChange={(e) => setApiKeyDraft(e.target.value)}
                 autoComplete="off"
+                wrapperClassName="flex-1"
               />
               <div className="flex items-center gap-2">
                 <button
@@ -398,8 +399,7 @@ export function AbrpSection() {
                             ABRP car token{" "}
                             {row.has_token && row.token_hint ? `(saved: ${row.token_hint})` : ""}
                           </label>
-                          <input
-                            type="password"
+                          <PasswordInput
                             className={inputClasses}
                             placeholder={
                               row.has_token ? "••••••  (enter to replace)" : "Paste car token"
@@ -409,6 +409,7 @@ export function AbrpSection() {
                               setTokenDrafts((p) => ({ ...p, [row.vehicle_id]: e.target.value }))
                             }
                             autoComplete="off"
+                            wrapperClassName="w-full"
                           />
                         </div>
                         <div>

@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from app.schemas.skoda_public import VehicleResponse
 
-SourceKind = Literal["legacy", "public"]
+SourceKind = Literal["legacy", "public", "login"]
 
 
 @dataclass
@@ -145,3 +145,55 @@ def snapshot_from_legacy(
         hvac_state=hvac_state,
         hvac_setpoint_c=hvac_setpoint_c,
     )
+
+
+def snapshot_from_bff(
+    *,
+    charging: dict,
+    vehicle_status: dict,
+    parking: dict,
+    driving_range: dict | None = None,
+    readiness: dict | None = None,
+    now: datetime,
+    vin: str | None = None,
+) -> NormalizedSnapshot:
+    """Map mysmob BFF payloads → NormalizedSnapshot (same contract as public)."""
+    snap = NormalizedSnapshot(captured_at=now, source="login", vin=vin)
+    st = (charging or {}).get("status") or {}
+    batt = st.get("battery") or {}
+    if batt.get("stateOfChargeInPercent") is not None:
+        snap.soc = float(batt["stateOfChargeInPercent"])
+    if batt.get("remainingCruisingRangeInMeters") is not None:
+        snap.remaining_range_m = float(batt["remainingCruisingRangeInMeters"])
+    if st.get("chargePowerInKw") is not None:
+        snap.charge_power_kw = float(st["chargePowerInKw"])
+    snap.charge_state = st.get("state")
+    snap.charge_type = st.get("chargeType")
+    settings = (charging or {}).get("settings") or {}
+    if settings.get("targetStateOfChargeInPercent") is not None:
+        snap.target_soc = float(settings["targetStateOfChargeInPercent"])
+
+    if snap.soc is None and driving_range:
+        eng = driving_range.get("primaryEngineRange") or {}
+        if eng.get("currentSoCInPercent") is not None:
+            snap.soc = float(eng["currentSoCInPercent"])
+        if eng.get("remainingRangeInKm") is not None:
+            snap.range_km = float(eng["remainingRangeInKm"])
+
+    park = (parking or {}).get("parkingPosition") or {}
+    gps = park.get("gpsCoordinates") or {}
+    if gps.get("latitude") is not None:
+        snap.lat = float(gps["latitude"])
+        snap.lon = float(gps.get("longitude") or 0)
+    if readiness is not None:
+        snap.is_online = not bool(readiness.get("unreachable"))
+        snap.is_moving = bool(readiness.get("inMotion"))
+        snap.is_parked = not snap.is_moving
+    else:
+        snap.is_online = True
+
+    vs = (vehicle_status or {}).get("overall") or {}
+    snap.extra["doors_locked"] = vs.get("doorsLocked") or vs.get("locked")
+    snap.extra["doors"] = vs.get("doors")
+    snap.extra["windows"] = vs.get("windows")
+    return snap

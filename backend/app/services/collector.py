@@ -71,6 +71,11 @@ class DataCollector:
         self._last_connection_state: dict[UUID, bool | None] = {}
         # "active" | "sleep" — deep sleep is the default until something wakes us.
         self._poll_mode: dict[UUID, str] = {}
+        self._last_odometer_km: dict[UUID, float] = {}
+        self._last_position: dict[UUID, tuple[float, float]] = {}
+        # Vehicles paused after credential failure — job stays registered but
+        # runs at a long interval until the user fixes login in Settings.
+        self._auth_paused: set[UUID] = set()
         # How many parked ticks since we entered deep sleep (for the wake window).
         self._sleep_ticks: dict[UUID, int] = {}
         # Climate was recently on — keep probing AC briefly after it stops.
@@ -280,6 +285,95 @@ class DataCollector:
             return None
         return int(job.trigger.interval.total_seconds())
 
+    #: Poll interval while credentials are rejected (almost stop the poller).
+    AUTH_FAILED_INTERVAL_SECONDS = 3600
+
+    def pause_for_reauth(self, user_vehicle_id: UUID, reason: str) -> None:
+        """Stop normal polling until the user fixes MyŠkoda login."""
+        self._auth_paused.add(user_vehicle_id)
+        self._poll_mode[user_vehicle_id] = "sleep"
+        job_id = f"collect_{user_vehicle_id}"
+        try:
+            self._scheduler.reschedule_job(
+                job_id, trigger="interval", seconds=self.AUTH_FAILED_INTERVAL_SECONDS
+            )
+        except Exception:
+            logger.warning("Could not pause job %s", job_id, exc_info=True)
+        logger.warning(
+            "Smart poll: PAUSED vehicle %s — %s (next attempt in %ss)",
+            user_vehicle_id,
+            reason,
+            self.AUTH_FAILED_INTERVAL_SECONDS,
+        )
+
+    def resume_after_reauth(self, user_vehicle_id: UUID, parked_interval: int) -> None:
+        """Restore normal polling after successful credential update."""
+        self._auth_paused.discard(user_vehicle_id)
+        self._poll_mode.pop(user_vehicle_id, None)
+        self._sleep_ticks.pop(user_vehicle_id, None)
+        self._stale_active_counters.pop(user_vehicle_id, None)
+        job_id = f"collect_{user_vehicle_id}"
+        try:
+            self._scheduler.reschedule_job(job_id, trigger="interval", seconds=int(parked_interval))
+        except Exception:
+            logger.warning("Could not resume job %s", job_id, exc_info=True)
+        logger.info(
+            "Smart poll: RESUMED vehicle %s after re-auth (parked interval %ss)",
+            user_vehicle_id,
+            parked_interval,
+        )
+
+    def _note_vehicle_activity(
+        self,
+        user_vehicle_id: UUID,
+        vehicle: UserVehicle,
+        *,
+        active: bool,
+        reason: str = "",
+    ) -> bool:
+        """Switch poll mode + job interval between active and parked rates.
+
+        Returns True when the car should be treated as Active this cycle
+        (includes short stabilization after activity ends).
+        """
+        STABILIZATION_CYCLES = 3
+        if active:
+            self._poll_mode[user_vehicle_id] = "active"
+            self._sleep_ticks[user_vehicle_id] = 0
+            self._stale_active_counters[user_vehicle_id] = STABILIZATION_CYCLES
+            car_active = True
+        else:
+            count = self._stale_active_counters.get(user_vehicle_id, 0)
+            if count > 0:
+                self._stale_active_counters[user_vehicle_id] = count - 1
+                self._poll_mode[user_vehicle_id] = "active"
+                car_active = True
+            else:
+                self._poll_mode[user_vehicle_id] = "sleep"
+                car_active = False
+
+        desired = (
+            vehicle.active_interval_seconds if car_active else vehicle.parked_interval_seconds
+        )
+        job_id = f"collect_{user_vehicle_id}"
+        current = self._get_job_interval_seconds(job_id)
+        if current != desired:
+            try:
+                self._scheduler.reschedule_job(job_id, trigger="interval", seconds=desired)
+                logger.info(
+                    "Smart poll: rescheduled vehicle %s %s → %ss (active=%s%s)",
+                    user_vehicle_id,
+                    current,
+                    desired,
+                    car_active,
+                    f", {reason}" if reason else "",
+                )
+            except Exception:
+                logger.warning(
+                    "Smart poll: failed to reschedule %s to %ss", job_id, desired, exc_info=True
+                )
+        return car_active
+
     async def _sync_vehicles_from_db(self) -> None:
         """Re-load enabled vehicles from DB and re-register scheduler jobs with current intervals.
         Called periodically and on pub/sub connect/reconnect so interval changes in user_vehicles
@@ -291,20 +385,30 @@ class DataCollector:
             stmt = (
                 select(UserVehicle)
                 .where(UserVehicle.collection_enabled.is_(True))
-                .options(selectinload(UserVehicle.connector_session))
+                .options(
+                    selectinload(UserVehicle.connector_session),
+                    selectinload(UserVehicle.user),
+                )
             )
             result = await session.execute(stmt)
             vehicles = result.scalars().all()
         updated = 0
         for vehicle in vehicles:
-            if not (vehicle.connector_session and vehicle.connector_session.access_token_encrypted):
-                continue
             job_id = f"collect_{vehicle.id}"
             current = self._get_job_interval_seconds(job_id)
             # v2.3.2: If the job already exists with a valid interval (either parked or active),
-            # leave it alone. Re-registering with parked_interval_seconds here would reset 
+            # leave it alone. Re-registering with parked_interval_seconds here would reset
             # any active polling back to parked every 90 seconds.
             if current is not None:
+                continue
+            # Register public-API-only cars too (no connector session required).
+            has_login = bool(
+                vehicle.connector_session and vehicle.connector_session.access_token_encrypted
+            )
+            has_public = bool(
+                vehicle.user and getattr(vehicle.user, "skoda_public_api_key_encrypted", None)
+            )
+            if not has_login and not has_public:
                 continue
             self.register_vehicle(vehicle.id, vehicle.parked_interval_seconds)
             updated += 1
@@ -477,11 +581,36 @@ class DataCollector:
                 logger.warning("Vehicle %s not found", user_vehicle_id)
                 return
 
-            # ── Official MyŠkoda Public API (v1.3.0 dual-stack) ────────────
-            # Preferred when telemetry_source is public, or auto with a saved key.
-            public_done = await self._try_collect_public(session, vehicle, force=force)
-            if public_done:
-                return
+            # ── Source policy (v1.3.1): MyŠkoda Login wins when connected ──
+            # Official Public API is the default/official path when there is no Login.
+            pref = (vehicle.telemetry_source or "auto").lower()
+            if pref == "legacy":
+                pref = "login"
+                vehicle.telemetry_source = "login"
+
+            has_login = vehicle.connector_session is not None
+            has_public = False
+            if vehicle.connector_config_encrypted:
+                try:
+                    has_public = bool(json.loads(decrypt_field(vehicle.connector_config_encrypted)).get("api_key"))
+                except Exception:
+                    has_public = False
+            if not has_public:
+                has_public = bool(
+                    vehicle.user and getattr(vehicle.user, "skoda_public_api_key_encrypted", None)
+                )
+            use_login = pref == "login" or (pref == "auto" and has_login)
+
+            if not use_login:
+                public_done = await self._try_collect_public(session, vehicle, force=force)
+                if public_done:
+                    return
+                if not has_public:
+                    logger.warning(
+                        "Vehicle %s has no MyŠkoda Login and no Public API key",
+                        user_vehicle_id,
+                    )
+                    return
 
             if not vehicle.connector_session:
                 logger.warning("Vehicle %s not found or no session", user_vehicle_id)
@@ -496,7 +625,21 @@ class DataCollector:
 
             cs: ConnectorSession = vehicle.connector_session
 
+            # Credentials were fixed in Settings → restore a normal poll rate.
+            if user_vehicle_id in self._auth_paused and cs.status not in (
+                "token_error",
+                "auth_failed",
+            ):
+                self.resume_after_reauth(user_vehicle_id, vehicle.parked_interval_seconds)
+
             if cs.status in ("token_error", "auth_failed") and not force:
+                # Keep the poller almost stopped so a wrong password does not
+                # hammer the API every few minutes.
+                if user_vehicle_id not in self._auth_paused:
+                    self.pause_for_reauth(
+                        user_vehicle_id,
+                        cs.needs_user_reauth_reason or f"status={cs.status}",
+                    )
                 logger.debug("Skipping scheduled fetch for vehicle %s (status: %s)", user_vehicle_id, cs.status)
                 return
 
@@ -522,7 +665,17 @@ class DataCollector:
                 cs.force_login_next = False
                 await session.flush()
             except AuthRequiredError as e:
-                logger.warning("Skipping scheduled fetch for vehicle %s: %s", user_vehicle_id, e)
+                # Credentials rejected or missing — surface to the user and stop polling.
+                if cs.status not in ("auth_failed", "token_error"):
+                    cs.status = "auth_failed"
+                if not cs.needs_user_reauth_reason:
+                    cs.needs_user_reauth_reason = (
+                        "Could not log in to MyŠkoda with the saved email and password. "
+                        "Update your login in Settings → Vehicles → Login."
+                    )
+                cs.last_error_text = str(e)[:255]
+                self.pause_for_reauth(user_vehicle_id, str(e))
+                logger.warning("Auth failed for vehicle %s: %s", user_vehicle_id, e)
                 await session.commit()
                 return
             except Exception as e:
@@ -555,7 +708,15 @@ class DataCollector:
                 conn_resp = await _safe(api.get_connection_status(vin), "connection_status", user_vehicle_id, cycle_errors)
 
                 is_online = conn_resp and not conn_resp.unreachable
-                is_moving = conn_resp and (conn_resp.in_motion or conn_resp.ignition_on)
+                is_moving = bool(conn_resp and (conn_resp.in_motion or conn_resp.ignition_on))
+                # If the readiness ping fails while we were Active, do not instantly
+                # drop to parked — let stabilization keep the Active interval.
+                if (
+                    conn_resp is None
+                    and self._poll_mode.get(user_vehicle_id) == "active"
+                    and self._stale_active_counters.get(user_vehicle_id, 0) > 0
+                ):
+                    is_moving = True
 
                 logger.info(
                     "Smart poll: vehicle %s status check [online=%s, moving=%s, mode=%s, sleep_tick=%s, stale_count=%d]",
@@ -661,39 +822,15 @@ class DataCollector:
                     self._poll_mode[user_vehicle_id] = "active"
                     self._sleep_ticks[user_vehicle_id] = 0
 
-                # ── Stabilization: full fetch a few cycles after activity ends ──
-                STABILIZATION_CYCLES = 3
-
-                if car_active:
-                    self._stale_active_counters[user_vehicle_id] = STABILIZATION_CYCLES
-                else:
-                    count = self._stale_active_counters.get(user_vehicle_id, 0)
-                    if count > 0:
-                        car_active = True  # Force active mode for final snapshots
-                        self._stale_active_counters[user_vehicle_id] = count - 1
-                        self._poll_mode[user_vehicle_id] = "active"
-                        logger.info(
-                            "Smart poll: vehicle %s stabilizing (%d extra active polls remaining)",
-                            user_vehicle_id, count - 1,
-                        )
-                        if count - 1 == 0:
-                            logger.info(
-                                "Smart poll: stabilization complete for vehicle %s, will deep-sleep next cycle",
-                                user_vehicle_id,
-                            )
-                if not car_active and not force:
-                    self._poll_mode[user_vehicle_id] = "sleep"
-
-                # ── Dynamic interval rescheduling ──────────────────────────
-                job_id = f"collect_{user_vehicle_id}"
-                desired_interval = vehicle.active_interval_seconds if car_active else vehicle.parked_interval_seconds
-                current_interval = self._get_job_interval_seconds(job_id)
-                if current_interval and current_interval != desired_interval:
-                    self._scheduler.reschedule_job(job_id, trigger='interval', seconds=desired_interval)
-                    logger.info(
-                        "Smart poll: rescheduled vehicle %s from %ds → %ds (active=%s)",
-                        user_vehicle_id, current_interval, desired_interval, car_active,
-                    )
+                # ── Stabilization + interval (shared helper) ───────────────
+                # `car_active` already includes motion/charge/AC; pass that as
+                # "active" so the helper also runs the 3-cycle tail.
+                car_active = self._note_vehicle_activity(
+                    user_vehicle_id,
+                    vehicle,
+                    active=car_active,
+                    reason="login-poll",
+                )
 
                 # ── Parked/inactive: persist only on change, then bail ─────
                 if not car_active and not force:
@@ -1333,16 +1470,28 @@ class DataCollector:
     ) -> bool:
         """One official GET snapshot. Returns True if handled (success or clean fail)."""
         user = vehicle.user
-        if user is None or not user.skoda_public_api_key_encrypted:
+        # Prefer per-car API key (connector_config.api_key), then account-level key.
+        vehicle_api_key = None
+        if vehicle.connector_config_encrypted:
+            try:
+                cfg = json.loads(decrypt_field(vehicle.connector_config_encrypted))
+                vehicle_api_key = cfg.get("api_key")
+            except Exception:
+                vehicle_api_key = None
+        account_key = getattr(user, "skoda_public_api_key_encrypted", None) if user else None
+        if not vehicle_api_key and not account_key:
             return False
         pref = (vehicle.telemetry_source or "auto").lower()
-        if pref not in ("public", "auto") and not force:
+        if pref == "legacy":
+            pref = "login"
+        # Public is used when selected, or auto without Login (Login wins in auto).
+        if pref == "login" and not force:
             return False
-        if pref == "legacy" and not force:
+        if pref not in ("public", "auto") and not force:
             return False
 
         vin = decrypt_field(vehicle.vin_encrypted)
-        api_key = decrypt_field(user.skoda_public_api_key_encrypted)
+        api_key = vehicle_api_key or decrypt_field(account_key)
         client = SkodaPublicAPIClient(api_key)
         try:
             resp, meta = await client.get_vehicle_snapshot(vin)
@@ -1466,16 +1615,45 @@ class DataCollector:
                 outside_temp_celsius=snap.outside_temp_c,
             ))
 
-        # Smart-poll: treat official IN_MOTION as active
-        if snap.is_moving:
-            self._poll_mode[vid] = "active"
-            self._sleep_ticks[vid] = 0
-            self._stale_active_counters[vid] = 3
-            job_id = f"collect_{vid}"
-            desired = vehicle.active_interval_seconds
-            current = self._get_job_interval_seconds(job_id)
-            if current and current != desired:
-                self._scheduler.reschedule_job(job_id, trigger="interval", seconds=desired)
+        # ── Smart-poll activity from official snapshot ─────────────────────
+        # IN_MOTION is not the only signal: charging, HVAC, and odometer
+        # movement must also flip the job to the Active interval (e.g. 3 min).
+        charge_power = snap.charge_power_kw or 0.0
+        charging_now = bool(
+            snap.is_moving
+            or charge_power > 0
+            or (snap.charge_state or "").upper() in ("CHARGING", "CHARGE")
+            or (snap.hvac_state or "").upper() in ("ON", "HEATING", "COOLING", "VENTILATION")
+        )
+        last_odo = self._last_odometer_km.get(vid)
+        odo_moved = (
+            snap.odometer_km is not None
+            and last_odo is not None
+            and snap.odometer_km > last_odo + 0.2
+        )
+        if snap.odometer_km is not None:
+            self._last_odometer_km[vid] = snap.odometer_km
+
+        # Position change is a strong motion signal when state is missing/stale.
+        last_pos = self._last_position.get(vid)
+        pos_moved = False
+        if snap.lat is not None and snap.lon is not None:
+            if last_pos is not None:
+                dlat = abs(snap.lat - last_pos[0])
+                dlon = abs(snap.lon - last_pos[1])
+                pos_moved = dlat > 0.0003 or dlon > 0.0003  # ~30 m+
+            self._last_position[vid] = (snap.lat, snap.lon)
+
+        active = charging_now or odo_moved or pos_moved or bool(snap.is_moving)
+        self._note_vehicle_activity(
+            vid,
+            vehicle,
+            active=active,
+            reason=(
+                f"public snap moving={snap.is_moving} chg={charging_now} "
+                f"odo_moved={odo_moved} pos_moved={pos_moved}"
+            ),
+        )
 
     async def _flush_abrp_outbox(self) -> None:
         try:
@@ -1658,6 +1836,8 @@ class DataCollector:
         self._ac_probe_hold.pop(user_vehicle_id, None)
         self._last_connection_state.pop(user_vehicle_id, None)
         self._stale_active_counters.pop(user_vehicle_id, None)
+        self._last_odometer_km.pop(user_vehicle_id, None)
+        self._last_position.pop(user_vehicle_id, None)
 
 
 async def _get_or_create_sample_drive(
@@ -1841,20 +2021,24 @@ def _apply_health(cs: ConnectorSession, reached: bool, cycle_errors: list, now: 
     consecutive_failures + last_error_text without forcing reauth.
     """
     auth_rejected_count = sum(1 for e in cycle_errors if e.get("status") in (401, 403, 400))
-    
+    has_401 = any(e.get("status") == 401 for e in cycle_errors)
+
     if auth_rejected_count > 0:
-        if auth_rejected_count >= 2:
+        # 401 means the token/password is wrong — stop immediately and tell the user.
+        if has_401 or auth_rejected_count >= 2:
             cs.consecutive_auth_failures = (cs.consecutive_auth_failures or 0) + 1
-            if cs.consecutive_auth_failures >= 3:
-                cs.status = "auth_failed"
-                cs.needs_user_reauth_reason = "Consistent 403s across multiple endpoints"
-                cs.last_error_text = "Škoda rejected the saved login after multiple attempts."
-            else:
-                cs.last_error_text = f"Multiple auth rejections (HTTP 403). Retrying full login next cycle ({cs.consecutive_auth_failures}/3)."
-                cs.force_login_next = True
+            cs.status = "auth_failed"
+            cs.needs_user_reauth_reason = (
+                "Could not log in to MyŠkoda with the saved email and password. "
+                "Update your login in Settings → Vehicles → Login."
+            )
+            cs.last_error_text = "MyŠkoda rejected the saved credentials (HTTP 401/403)."
         else:
-            cs.last_error_text = "Single endpoint auth rejection (HTTP 403). Forcing token refresh next cycle."
+            cs.last_error_text = (
+                "Single endpoint auth rejection (HTTP 403). Forcing token refresh next cycle."
+            )
             cs.token_expires_at = now - timedelta(minutes=5)
+            cs.force_login_next = True
         return
 
     if reached:

@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 
 import { useAuth } from "@/lib/auth-context";
+import { PasswordInput } from "@/components/password-input";
 
 import { VehicleCard, CardSkeleton } from "@/components/vehicle-card";
 
@@ -790,21 +791,25 @@ function FormField({
 
       </label>
 
-      <input
-
-        type={type}
-
-        required={required}
-
-        value={value}
-
-        onChange={(e) => onChange(e.target.value)}
-
-        placeholder={placeholder}
-
-        className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2.5 text-sm text-iv-text placeholder:text-iv-muted/50 outline-none transition-colors focus:border-iv-green/50 focus:ring-1 focus:ring-iv-green/20"
-
-      />
+      {type === "password" ? (
+        <PasswordInput
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          wrapperClassName="w-full"
+          className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2.5 text-sm text-iv-text placeholder:text-iv-muted/50 outline-none transition-colors focus:border-iv-green/50 focus:ring-1 focus:ring-iv-green/20"
+        />
+      ) : (
+        <input
+          type={type}
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-lg border border-iv-border bg-iv-surface px-3 py-2.5 text-sm text-iv-text placeholder:text-iv-muted/50 outline-none transition-colors focus:border-iv-green/50 focus:ring-1 focus:ring-iv-green/20"
+        />
+      )}
 
     </div>
 

@@ -246,9 +246,31 @@ class SkodaPublicAPIClient:
     async def stop_air_conditioning(self, vin: str) -> PublicResponseMeta:
         return await self._post(f"/api/v1/vehicles/{vin}/air-conditioning/stop")
 
+    async def set_charge_limit(self, vin: str, percent: int) -> PublicResponseMeta:
+        """PUT /charging/limit — body ChargingLimit.targetStateOfChargeInPercent."""
+        return await self._put(
+            f"/api/v1/vehicles/{vin}/charging/limit",
+            {"targetStateOfChargeInPercent": int(percent)},
+        )
+
+    async def set_charge_mode(self, vin: str, mode: str) -> PublicResponseMeta:
+        """PUT /charging/mode — body ChargeMode.chargeMode (MANUAL, TIMER, …)."""
+        return await self._put(
+            f"/api/v1/vehicles/{vin}/charging/mode",
+            {"chargeMode": mode},
+        )
+
     async def _post(self, path: str, json_body: dict | None = None) -> PublicResponseMeta:
         try:
             resp = await self._client.post(path, json=json_body)
+        except httpx.TimeoutException as exc:
+            raise SkodaPublicTimeoutError(str(exc)) from exc
+        self._raise_for_status(resp)
+        return self.last_meta
+
+    async def _put(self, path: str, json_body: dict | None = None) -> PublicResponseMeta:
+        try:
+            resp = await self._client.put(path, json=json_body)
         except httpx.TimeoutException as exc:
             raise SkodaPublicTimeoutError(str(exc)) from exc
         self._raise_for_status(resp)

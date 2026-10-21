@@ -96,10 +96,13 @@ class SkodaTokenLifecycle:
                         return await self._silent_login(cs, username, password)
                     else:
                         cs.status = "auth_failed"
-                        cs.needs_user_reauth_reason = f"Refresh rejected ({e.response.status_code}) and secure_mode is OFF."
+                        cs.needs_user_reauth_reason = (
+                            "Session expired and MyŠkoda login is not saved. "
+                            "Update your login in Settings → Vehicles → Login."
+                        )
                         cs.last_auth_error = str(e)
                         await self._record_event(cs, "auth_required", "secure_mode off")
-                        raise AuthRequiredError("Refresh failed, secure mode off")
+                        raise AuthRequiredError("MyŠkoda session expired — update login in Settings.")
                 elif e.response.status_code >= 500:
                     await self._record_event(cs, "refresh_transient_error", str(e))
                     raise
@@ -135,10 +138,15 @@ class SkodaTokenLifecycle:
                 raise AuthRequiredError("Throttled during silent login")
             elif e.response.status_code in (401, 403, 400):
                 cs.status = "auth_failed"
-                cs.needs_user_reauth_reason = "Password rejected or account locked by Skoda."
+                cs.needs_user_reauth_reason = (
+                    "Could not log in to MyŠkoda with the saved email and password. "
+                    "Update your login in Settings → Vehicles → Login."
+                )
                 cs.last_auth_error = str(e)
                 await self._record_event(cs, "silent_login_failed", str(e))
-                raise AuthRequiredError("Silent login completely failed")
+                raise AuthRequiredError(
+                    "MyŠkoda email or password is incorrect — update login in Settings."
+                )
             raise
         finally:
             await auth_client.close()
