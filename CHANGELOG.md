@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.3.3] - 2026-10-24
+**Smart polling finds your car again.** Short drives and remote heating no longer disappear between checks.
+
+### Fixed
+- **Activity detection** — charging and climate are checked on every Parked tick (Live/Parked Sync intervals work as labeled). A car that starts charging or heating is picked up within one Parked interval.
+- **Status ping is not the only signal** — if the online check fails or says unreachable, sensors still run so the car cannot hide.
+- **Short drives after remote heat/charge** — sending heat, charge, wake, or Refresh switches to **Live Sync** for several cycles so a 5–7 minute drive is not skipped.
+- **Climate Start / Stop** — complete command payload and automatic fallback to the official API key path when Login rejects the request. Failures log the real reason for support and show a clearer UI message.
+- Long low-power AC charging still stays open in charging sessions; idle cars still avoid heavy API calls.
+
+### Notes
+- Rebuild **collector** and **api**.
+- No database migration.
+- `SLEEP_WAKE_PROBE_EVERY_N` remains available but is no longer the detection bottleneck.
+
 ## [v1.3.2] - 2026-10-24
 **Modern remote controls and reliable charging history.** New Commands tab, session cleanup tools, and friendlier command errors.
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import uuid
 
@@ -19,6 +20,8 @@ try:
     from app.services.skoda_commands_client import SkodaCommandClient
 except ImportError:
     SkodaCommandClient = None
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -47,6 +50,8 @@ def humanize_command_error(exc: Exception) -> str:
         text,
     ):
         return "Couldn’t reach the car. Try again in a moment."
+    if re.search(r"public fallback|http\s*[45]\d\d|bff post|_post", text):
+        return "The car refused this command. Try again in a moment."
     return "Command failed. Try again."
 
 
@@ -126,10 +131,29 @@ async def _execute_command(
 
         await method(vin, **kwargs)
 
+        # Remote heat/charge/wake means the car is about to be busy — queue a
+        # refresh and let the collector flip to Live Sync so a short drive
+        # right after is not missed between parked ticks.
+        try:
+            from app.services.events import publish_vehicle_refresh
+
+            await publish_vehicle_refresh(str(vehicle_id))
+        except Exception:
+            pass
+
         return CommandResponse(status="completed", message="Command executed successfully")
     except CommandUnsupported as exc:
+        logger.info("Command %s unsupported for %s: %s", command_name, vehicle_id, exc)
         return CommandResponse(status="failed", message=str(exc))
     except Exception as exc:
+        # Real upstream error stays in server logs; UI gets a human sentence.
+        logger.warning(
+            "Command %s failed for vehicle %s: %s",
+            command_name,
+            vehicle_id,
+            exc,
+            exc_info=True,
+        )
         return CommandResponse(status="failed", message=humanize_command_error(exc))
 
 

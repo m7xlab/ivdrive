@@ -20,6 +20,15 @@ def test_sleep_wake_probe_default():
     assert settings.sleep_wake_probe_every_n == 4
 
 
+def test_actively_charging_detected_without_readiness():
+    """Readiness ping can fail while the car is charging — sensors must still see it."""
+    # Mirrors collector: charging probe runs even when conn status is None/unreachable.
+    charge_state, charge_power = "CHARGING", 11.0
+    assert is_actively_charging(charge_state, charge_power) is True
+    # Home AC at 1–2 kW must also count as active (not a 0 kW cable).
+    assert is_actively_charging("CONNECT_CABLE", 1.5) is True
+
+
 def test_update_vehicle_intervals_preserves_active_job():
     """vehicle_updated must not force an Active job down to parked rate."""
 

@@ -744,6 +744,10 @@ class DataCollector:
                 if force:
                     self._poll_mode[user_vehicle_id] = "active"
                     self._sleep_ticks[user_vehicle_id] = 0
+                    # Stay on Live Sync for a few cycles (stabilization) so a
+                    # short drive right after Refresh / remote heat is not
+                    # missed by the next parked tick.
+                    self._stale_active_counters[user_vehicle_id] = 3
 
                 mode = self._poll_mode.get(user_vehicle_id, "sleep")
                 wake_n = max(getattr(settings, "sleep_wake_probe_every_n", 4), 1)
@@ -755,7 +759,12 @@ class DataCollector:
                     car_active = True
                     self._poll_mode[user_vehicle_id] = "active"
                     self._sleep_ticks[user_vehicle_id] = 0
-                elif is_online and not is_moving:
+                else:
+                    # Parked OR readiness unknown/unreachable.
+                    # Always probe charging (and AC) — not only on the wake
+                    # window. v1.1.14 detected "car started doing something"
+                    # within one parked interval; deep-sleep was skipping these
+                    # probes and a failed status ping suppressed them entirely.
                     if mode == "sleep" and not force:
                         sleep_tick = self._sleep_ticks.get(user_vehicle_id, 0) + 1
                         self._sleep_ticks[user_vehicle_id] = sleep_tick
@@ -763,35 +772,16 @@ class DataCollector:
                     else:
                         wake_window = True  # active/stabilize always probe fully
 
-                    if mode == "sleep" and not force and not wake_window:
-                        # ── Status-only deep-sleep tick ─────────────────────
-                        logger.info(
-                            "Smart poll: vehicle %s DEEP_SLEEP ping=connection_status tick=%d/%d interval=%ds",
-                            user_vehicle_id, sleep_tick, wake_n, vehicle.parked_interval_seconds,
-                        )
-                        last_known = self._last_connection_state.get(user_vehicle_id)
-                        state_changed = (last_known is None) or (last_known != is_online)
-                        if state_changed and conn_resp is not None:
-                            session.add(ConnectionState(
-                                user_vehicle_id=user_vehicle_id,
-                                captured_at=now,
-                                is_online=is_online,
-                                in_motion=False,
-                                ignition_on=conn_resp.ignition_on if conn_resp else None,
-                            ))
-                            self._last_connection_state[user_vehicle_id] = is_online
-                        _apply_health(cs, conn_resp is not None, cycle_errors, now)
-                        await session.commit()
-                        return
-
-                    # Wake window / not sleeping: probe charging (and AC).
                     charging = await _safe(api.get_charging(vin), "charging", user_vehicle_id, cycle_errors)
                     charge_state = charging.status.state if charging and charging.status else None
                     charge_power = charging.status.charge_power_in_kw if charging and charging.status else None
                     is_charging = is_actively_charging(charge_state, charge_power)
 
                     ac_hold = self._ac_probe_hold.get(user_vehicle_id, 0)
-                    if not is_charging and (mode != "sleep" or wake_window or ac_hold > 0 or force):
+                    # AC probe every parked tick (v1.1.14). Do not skip it just
+                    # because readiness said offline — the ping can fail while
+                    # the car is preconditioning or charging.
+                    if not is_charging and (wake_window or ac_hold > 0 or force or not is_moving):
                         ac_resp = await _safe(api.get_air_conditioning(vin), "air_conditioning", user_vehicle_id, cycle_errors)
                         is_ac_on = (
                             ac_resp is not None
@@ -805,10 +795,10 @@ class DataCollector:
 
                     car_active = bool(is_moving or is_charging or is_ac_on)
                     if not car_active and mode == "sleep" and not force:
-                        # Wake window found nothing interesting — still deep sleep.
+                        # Sensors saw nothing interesting — still deep sleep.
                         logger.info(
-                            "Smart poll: vehicle %s DEEP_SLEEP wake-probe tick=%d/%d (no activity)",
-                            user_vehicle_id, sleep_tick, wake_n,
+                            "Smart poll: vehicle %s DEEP_SLEEP sensors tick=%d/%d (no activity, online=%s)",
+                            user_vehicle_id, sleep_tick, wake_n, is_online,
                         )
                         last_known = self._last_connection_state.get(user_vehicle_id)
                         state_changed = (last_known is None) or (last_known != is_online)
@@ -824,8 +814,6 @@ class DataCollector:
                         _apply_health(cs, conn_resp is not None, cycle_errors, now)
                         await session.commit()
                         return
-                else:
-                    car_active = False
 
                 if car_active:
                     self._poll_mode[user_vehicle_id] = "active"

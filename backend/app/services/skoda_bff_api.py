@@ -118,7 +118,10 @@ class SkodaBFFClient:
     async def start_climate(self, vin: str, temp_c: float) -> None:
         await self._post(
             f"/api/v2/air-conditioning/{vin}/start",
-            {"targetTemperature": {"value": float(temp_c), "unit": "CELSIUS"}},
+            {
+                "targetTemperature": {"value": float(temp_c), "unit": "CELSIUS"},
+                "airConditioningWithoutExternalPower": True,
+            },
         )
 
     async def stop_climate(self, vin: str) -> None:
