@@ -65,3 +65,27 @@ def test_new_charge_after_gap_closes_old():
         last_activity_at=datetime(2026, 10, 23, 22, 0, tzinfo=UTC),
         now=datetime(2026, 10, 25, 18, 0, tzinfo=UTC),
     ) is True
+
+
+def test_zero_soc_is_valid_last_level():
+    # 0% must not be treated as missing
+    assert should_close_open_session(
+        state="DISCONNECTED",
+        charge_power_kw=None,
+        last_soc=0.0,
+        new_soc=0.0,
+        last_activity_at=datetime(2026, 10, 24, 22, 0, tzinfo=UTC),
+        now=datetime(2026, 10, 24, 23, 0, tzinfo=UTC),
+    ) is True
+
+
+def test_naive_db_timestamp_with_aware_now_does_not_crash():
+    # DB may return naive datetimes; comparison must not raise TypeError
+    assert should_close_open_session(
+        state="CONNECT_CABLE",
+        charge_power_kw=0.0,
+        last_soc=100.0,
+        new_soc=100.0,
+        last_activity_at=datetime(2026, 10, 24, 23, 0),  # naive
+        now=datetime(2026, 10, 25, 8, 0, tzinfo=UTC),  # aware
+    ) is True

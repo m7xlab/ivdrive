@@ -151,15 +151,20 @@ async def create_charging_session(
 ):
     """Manually record a charge that was not captured automatically (missed or forgotten session)."""
     await get_user_vehicle(user.id, vehicle_id, db)
-    if payload.session_end is not None:
-        end = payload.session_end.replace(tzinfo=None)
-        start = payload.session_start.replace(tzinfo=None)
-        if end < start:
-            raise HTTPException(status_code=400, detail="End time must be after the start time")
+
+    def _naive_utc(dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    start = _naive_utc(payload.session_start)
+    end = _naive_utc(payload.session_end) if payload.session_end is not None else None
+    if end is not None and end < start:
+        raise HTTPException(status_code=400, detail="End time must be after the start time")
     row = ChargingSession(
         user_vehicle_id=vehicle_id,
-        session_start=payload.session_start,
-        session_end=payload.session_end,
+        session_start=start,
+        session_end=end,
         start_level=payload.start_level,
         end_level=payload.end_level,
         energy_kwh=payload.energy_kwh,

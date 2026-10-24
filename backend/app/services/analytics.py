@@ -59,6 +59,15 @@ def is_actively_charging(state: str | None, charge_power_kw: float | None = None
 FLAT_SOC_MINUTES = 30
 
 
+def _as_naive_utc(dt: datetime | None) -> datetime | None:
+    """Compare DB timestamps safely whether the driver returns naive or aware."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC).replace(tzinfo=None)
+    return dt
+
+
 def should_close_open_session(
     *,
     state: str | None,
@@ -77,14 +86,16 @@ def should_close_open_session(
     """
     if not is_plugged_in(state):
         return True
+    now_c = _as_naive_utc(now)
+    last_c = _as_naive_utc(last_activity_at)
     # New charge after a gap: SoC dropped significantly, so the open row
     # belongs to a previous charge. Close it even though power is flowing.
     if (
         last_soc is not None
         and new_soc is not None
         and (last_soc - new_soc) >= 0.5
-        and last_activity_at is not None
-        and (now - last_activity_at) >= timedelta(minutes=FLAT_SOC_MINUTES)
+        and last_c is not None
+        and (now_c - last_c) >= timedelta(minutes=FLAT_SOC_MINUTES)
     ):
         return True
     if is_actively_charging(state, charge_power_kw):
@@ -93,9 +104,9 @@ def should_close_open_session(
     soc_flat = last_soc is None or new_soc is None or abs(new_soc - last_soc) < 0.5
     if not soc_flat:
         return False
-    if last_activity_at is None:
+    if last_c is None:
         return True
-    return (now - last_activity_at) >= timedelta(minutes=FLAT_SOC_MINUTES)
+    return (now_c - last_c) >= timedelta(minutes=FLAT_SOC_MINUTES)
 
 
 async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
@@ -230,6 +241,12 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
             extras = open_charges[1:]
 
             now = datetime.now(UTC)
+
+            # Vehicle capacity/country is constant — fetch once for this run.
+            v_res = await session.execute(
+                select(UserVehicle).where(UserVehicle.id == user_vehicle_id)
+            )
+            veh = v_res.scalar_one_or_none()
             charge_state = latest_charge.state if latest_charge else None
             charge_power = getattr(latest_charge, "charge_power_kw", None) if latest_charge else None
             new_soc = (
@@ -262,10 +279,8 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                 if set_end_level:
                     ch.end_level = latest_charge.battery_pct if latest_charge else ch.end_level
 
-                if ch.start_level and ch.end_level:
+                if ch.start_level is not None and ch.end_level is not None:
                     soc_added = ch.end_level - ch.start_level
-                    v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
-                    veh = v_res.scalar_one_or_none()
                     capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
                     if capacity_kwh is None:
                         capacity_kwh = 77.0
@@ -304,10 +319,10 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                 logger.info("Ended ChargingSession for %s (Cost: %s EUR)", user_vehicle_id, ch.base_cost_eur)
 
             if is_charging:
-                # Keep the newest open row; close older extras with the same rules.
+                # Keep the newest open row; older duplicates are inconsistent
+                # state and must not stay open (they blocked later charges).
                 for extra in extras:
-                    if _should_close(extra):
-                        await _close_session(extra, set_end_level=False)
+                    await _close_session(extra, set_end_level=False)
 
                 start_new_session = True
                 if open_charge and _should_close(open_charge):
@@ -336,10 +351,8 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                     # Update live charging variables
                     open_charge.end_level = latest_charge.battery_pct if latest_charge else open_charge.end_level
 
-                    if open_charge.start_level and open_charge.end_level:
+                    if open_charge.start_level is not None and open_charge.end_level is not None:
                         soc_added = open_charge.end_level - open_charge.start_level
-                        v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
-                        veh = v_res.scalar_one_or_none()
                         capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
                         if capacity_kwh is None:
                             capacity_kwh = 77.0
