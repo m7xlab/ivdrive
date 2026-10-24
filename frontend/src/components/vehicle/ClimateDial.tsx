@@ -15,11 +15,12 @@ const ARC = ARC_DEG / 360;
 /** Rotate so the gap is centered at the bottom (6 o'clock). */
 const ROTATE = 90 + (360 - ARC_DEG) / 2;
 
-function toF(c: number) {
+export function toF(c: number) {
   return Math.round(((c * 9) / 5 + 32) * 10) / 10;
 }
 
-function formatTemp(c: number, usesFahrenheit: boolean) {
+/** Display-only temperature; keep Restart labels in sync with the dial readout. */
+export function formatTemp(c: number, usesFahrenheit: boolean) {
   if (usesFahrenheit) return `${toF(c)}`;
   return c.toFixed(1).replace(/\.0$/, "");
 }

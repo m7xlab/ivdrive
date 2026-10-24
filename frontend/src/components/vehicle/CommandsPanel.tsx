@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ElementType, type ReactNode } from "react";
+import { useId, useState, type ElementType, type ReactNode } from "react";
 import {
   CheckCircle2,
   Loader2,
@@ -17,7 +17,7 @@ import {
 import { PasswordInput } from "@/components/password-input";
 import { cn } from "@/lib/cn";
 
-import { ClimateDial } from "./ClimateDial";
+import { ClimateDial, formatTemp } from "./ClimateDial";
 
 type CmdResult = { status: "success" | "error"; message: string };
 
@@ -35,16 +35,6 @@ export type CommandsPanelProps = {
   onCommand: (command: string, body?: object) => void;
   onRetry: () => void;
 };
-
-/** Match ClimateDial’s display so Restart label numbers agree with the dial. */
-function toF(c: number) {
-  return Math.round(((c * 9) / 5 + 32) * 10) / 10;
-}
-
-function formatTemp(c: number, usesFahrenheit: boolean) {
-  if (usesFahrenheit) return `${toF(c)}`;
-  return c.toFixed(1).replace(/\.0$/, "");
-}
 
 function ActionRow({
   icon: Icon,
@@ -70,6 +60,7 @@ function ActionRow({
   children?: ReactNode;
   actionAriaLabel?: string;
 }) {
+  const hintId = useId();
   return (
     <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-4">
       <div
@@ -83,7 +74,11 @@ function ActionRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-iv-text">{label}</p>
-        {hint ? <p className="text-xs text-iv-muted">{hint}</p> : null}
+        {hint ? (
+          <p id={hintId} className="text-xs text-iv-muted">
+            {hint}
+          </p>
+        ) : null}
       </div>
       {children}
       <button
@@ -91,6 +86,7 @@ function ActionRow({
         onClick={onClick}
         disabled={disabled || loading}
         aria-label={actionAriaLabel}
+        aria-describedby={hint ? hintId : undefined}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
           danger
@@ -119,8 +115,10 @@ export function CommandsPanel({
   onCommand,
   onRetry,
 }: CommandsPanelProps): JSX.Element {
-  const [spin, setSpin] = useState("");
+  const [sPin, setSPin] = useState("");
 
+  /** Global busy gate: one command at a time so spinner/toast/Retry can't clobber each other. */
+  const busy = cmdLoading !== null;
   const canAnyCommand = hasLogin || hasApiKey;
   const canLoginActions = hasLogin;
   const noSourceHint = "Connect MyŠkoda Login or add an API key first.";
@@ -138,7 +136,7 @@ export function CommandsPanel({
           tempC={climateTempC}
           onChangeC={onClimateTempC}
           usesFahrenheit={usesFahrenheit}
-          disabled={!canAnyCommand}
+          disabled={!canAnyCommand || busy}
           running={climateRunning}
           startLabel={climateRunning ? restartLabel : undefined}
           loadingStart={cmdLoading === "climatization/start"}
@@ -175,7 +173,8 @@ export function CommandsPanel({
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="mt-1.5 inline-flex items-center gap-1 rounded-md text-xs font-semibold underline underline-offset-2 hover:opacity-80"
+                  disabled={busy}
+                  className="mt-1.5 inline-flex items-center gap-1 rounded-md text-xs font-semibold underline underline-offset-2 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <RotateCcw size={12} aria-hidden="true" />
                   Retry
@@ -202,7 +201,7 @@ export function CommandsPanel({
           }
           actionLabel={charging ? "Stop" : "Start"}
           actionAriaLabel={charging ? "Stop charging" : "Start charging"}
-          disabled={!canAnyCommand}
+          disabled={!canAnyCommand || busy}
           loading={cmdLoading === chargingCommand}
           onClick={() => onCommand(chargingCommand)}
         />
@@ -218,7 +217,7 @@ export function CommandsPanel({
                 : "Lock the vehicle remotely."
           }
           actionLabel="Lock"
-          disabled={!canLoginActions || locked === true}
+          disabled={!canLoginActions || locked === true || busy}
           loading={cmdLoading === "lock"}
           onClick={() => onCommand("lock")}
         />
@@ -227,19 +226,23 @@ export function CommandsPanel({
           icon={LockOpen}
           label="Unlock"
           hint={
-            canLoginActions
-              ? "Needs your vehicle S-PIN."
-              : "Connect MyŠkoda Login to unlock."
+            !canLoginActions
+              ? "Connect MyŠkoda Login to unlock."
+              : locked === false
+                ? "Already unlocked."
+                : "Needs your vehicle S-PIN."
           }
           actionLabel="Unlock"
           danger
-          disabled={!canLoginActions || spin.trim().length === 0}
+          disabled={
+            !canLoginActions || locked === false || sPin.trim().length === 0 || busy
+          }
           loading={cmdLoading === "unlock"}
-          onClick={() => onCommand("unlock", { spin: spin.trim() })}
+          onClick={() => onCommand("unlock", { spin: sPin.trim() })}
         >
           <PasswordInput
-            value={spin}
-            onChange={(e) => setSpin(e.target.value)}
+            value={sPin}
+            onChange={(e) => setSPin(e.target.value)}
             placeholder="S-PIN"
             aria-label="Vehicle S-PIN"
             autoComplete="off"
@@ -267,7 +270,7 @@ export function CommandsPanel({
               : "Connect MyŠkoda Login to wake the car."
           }
           actionLabel="Wake"
-          disabled={!canLoginActions}
+          disabled={!canLoginActions || busy}
           loading={cmdLoading === "wake"}
           onClick={() => onCommand("wake")}
         />
