@@ -93,8 +93,9 @@ class SkodaBFFClient:
     async def lock(self, vin: str) -> None:
         await self._post(f"/api/v1/vehicle-access/{vin}/lock")
 
-    async def unlock(self, vin: str) -> None:
-        await self._post(f"/api/v1/vehicle-access/{vin}/unlock")
+    async def unlock(self, vin: str, spin: str | None = None) -> None:
+        body = {"spin": spin} if spin else None
+        await self._post(f"/api/v1/vehicle-access/{vin}/unlock", body)
 
     async def start_charging(self, vin: str) -> None:
         await self._post(f"/api/v1/charging/{vin}/start")

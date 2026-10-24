@@ -37,6 +37,17 @@ class ChargingSessionItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChargingSessionCreate(BaseModel):
+    session_start: datetime
+    session_end: datetime | None = None
+    start_level: float | None = Field(default=None, ge=0, le=100)
+    end_level: float | None = Field(default=None, ge=0, le=100)
+    energy_kwh: float | None = Field(default=None, ge=0)
+    actual_cost_eur: float | None = Field(default=None, ge=0)
+    provider_name: str | None = None
+    charging_type: str | None = None
+
+
 class ChargingStateItem(BaseModel):
     first_date: datetime
     last_date: datetime

@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,12 +13,41 @@ from app.models.vehicle import ConnectorSession, UserVehicle
 from app.schemas.commands import ClimatizationStartRequest, CommandResponse, UnlockRequest
 from app.services.crypto import decrypt_field
 
+from app.services.skoda_commands import CommandUnsupported
+
 try:
     from app.services.skoda_commands_client import SkodaCommandClient
 except ImportError:
     SkodaCommandClient = None
 
 router = APIRouter()
+
+
+def humanize_command_error(exc: Exception) -> str:
+    """User-facing sentence for a failed command — never raw upstream text."""
+    if isinstance(exc, CommandUnsupported):
+        return str(exc)
+    text = str(exc).lower()
+    if re.search(r"\b(?:s-?pin|spin|pin)\b", text) and re.search(
+        r"invalid|reject|wrong|incorrect", text
+    ):
+        return "That S-PIN was not accepted. Check it and try again."
+    if re.search(r"api\s*key|x-api-key", text):
+        return (
+            "Your official API key was rejected or expired. "
+            "Open Vehicles and save a new API key for this car."
+        )
+    if re.search(
+        r"\b40[13]\b|expired|unauthorized|invalid token|token rejected|not authorized",
+        text,
+    ):
+        return "MyŠkoda Login expired — reconnect in Vehicles."
+    if isinstance(exc, (TimeoutError, ConnectionError)) or re.search(
+        r"timeout|timed out|unreachable|connection refused|connection reset|connection attempt",
+        text,
+    ):
+        return "Couldn’t reach the car. Try again in a moment."
+    return "Command failed. Try again."
 
 
 async def _get_user_vehicle(
@@ -97,8 +127,10 @@ async def _execute_command(
         await method(vin, **kwargs)
 
         return CommandResponse(status="completed", message="Command executed successfully")
-    except Exception as exc:
+    except CommandUnsupported as exc:
         return CommandResponse(status="failed", message=str(exc))
+    except Exception as exc:
+        return CommandResponse(status="failed", message=humanize_command_error(exc))
 
 
 @router.post(

@@ -8,18 +8,6 @@ from app.services.skoda_public_api import SkodaPublicAPIClient
 
 logger = logging.getLogger(__name__)
 
-# API command method name → router op
-_OP_MAP = {
-    "start_climatization": "climate_start",
-    "stop_climatization": "climate_stop",
-    "start_charging": "charge_start",
-    "stop_charging": "charge_stop",
-    "lock": "lock",
-    "unlock": "unlock",
-    "wake": "wake",
-    "honk_flash": "lock",  # not supported yet; refuse below
-}
-
 
 class SkodaCommandClient:
     """Remote commands via MyŠkoda Login when connected, else Public API.
@@ -71,7 +59,10 @@ class SkodaCommandClient:
         await self._run(vin, "lock")
 
     async def unlock(self, vin: str, spin: str | None = None):
-        await self._run(vin, "unlock")
+        pin = spin.strip() if isinstance(spin, str) and spin.strip() else None
+        if pin is None and self.spin:
+            pin = self.spin.strip() or None
+        await self._run(vin, "unlock", spin=pin)
 
     async def honk_flash(self, vin: str):
         raise CommandUnsupported("Honk and flash is not available on this connection.")

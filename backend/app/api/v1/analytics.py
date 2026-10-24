@@ -7,6 +7,7 @@ import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, text, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -15,12 +16,12 @@ from app.database import get_db
 from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError, BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
-from app.schemas.telemetry import PulseResponse
+from app.schemas.telemetry import ChargingSessionCreate, PulseResponse
 from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.cache import invalidate_vehicle_cache
 from app.services.vampire_drain import vampire_drain_for_vehicle
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.charging_plan import UserChargingPlan
 from app.schemas.charging_plan import SuggestCostResponse
@@ -43,6 +44,10 @@ class ChargingSessionUpdate(BaseModel):
     energy_kwh: float | None = None
     provider_name: str | None = None
     charging_plan_id: UUID | None = None
+    session_start: datetime | None = None
+    session_end: datetime | None = None
+    start_level: float | None = Field(default=None, ge=0, le=100)
+    end_level: float | None = Field(default=None, ge=0, le=100)
 
 async def get_user_vehicle(user_id: UUID, vehicle_id: UUID, db: AsyncSession) -> UserVehicle:
     stmt = select(UserVehicle).where(UserVehicle.id == vehicle_id, UserVehicle.user_id == user_id)
@@ -137,6 +142,69 @@ async def get_charging_sessions(
         for s in sessions
     ]
 
+@router.post("/{vehicle_id}/analytics/charging-sessions")
+async def create_charging_session(
+    vehicle_id: UUID,
+    payload: ChargingSessionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Manually record a charge that was not captured automatically (missed or forgotten session)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+
+    def _naive_utc(dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    start = _naive_utc(payload.session_start)
+    end = _naive_utc(payload.session_end) if payload.session_end is not None else None
+    if end is not None and end < start:
+        raise HTTPException(status_code=400, detail="End time must be after the start time")
+    row = ChargingSession(
+        user_vehicle_id=vehicle_id,
+        session_start=start,
+        session_end=end,
+        start_level=payload.start_level,
+        end_level=payload.end_level,
+        energy_kwh=payload.energy_kwh,
+        actual_cost_eur=payload.actual_cost_eur,
+        provider_name=payload.provider_name,
+        charging_type=payload.charging_type,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="A charging session already starts at that time")
+    await invalidate_vehicle_cache(str(vehicle_id))
+    return {"status": "success", "id": row.id, "message": "Charging session saved"}
+
+
+@router.delete("/{vehicle_id}/analytics/charging-sessions/{session_id}")
+async def delete_charging_session(
+    vehicle_id: UUID,
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Remove a charging session (glitch rows, duplicate starts, manual cleanup)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+    stmt = select(ChargingSession).where(
+        ChargingSession.id == session_id,
+        ChargingSession.user_vehicle_id == vehicle_id,
+    )
+    result = await db.execute(stmt)
+    session_obj = result.scalar_one_or_none()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="Charging session not found")
+    await db.delete(session_obj)
+    await db.commit()
+    await invalidate_vehicle_cache(str(vehicle_id))
+    return {"status": "success", "message": "Charging session deleted"}
+
+
 @router.patch("/{vehicle_id}/analytics/charging-sessions/{session_id}")
 async def update_charging_session(
     vehicle_id: UUID,
@@ -175,6 +243,14 @@ async def update_charging_session(
             if plan_res.scalar_one_or_none() is None:
                 raise HTTPException(status_code=404, detail="Charging plan not found")
         session_obj.charging_plan_id = payload.charging_plan_id
+    if "session_start" in payload.model_fields_set:
+        session_obj.session_start = payload.session_start
+    if "session_end" in payload.model_fields_set:
+        session_obj.session_end = payload.session_end
+    if "start_level" in payload.model_fields_set:
+        session_obj.start_level = payload.start_level
+    if "end_level" in payload.model_fields_set:
+        session_obj.end_level = payload.end_level
         
     await db.commit()
     # Bust the server-side Valkey cache so the edit is reflected immediately.

@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Plug, Zap, Banknote, Edit, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { Plug, Zap, Banknote, Edit, Plus, Trash2, X } from "lucide-react";
+import { api, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
+import { useToast } from "@/components/ui/feedback";
 
 interface ChargingPlan {
   id: string;
@@ -50,6 +51,46 @@ function suggestionNote(
   return `Suggested from ${s.plan_name}`;
 }
 
+type FormFields = {
+  session_start: string;
+  session_end: string;
+  start_level: string;
+  end_level: string;
+  energy_kwh: string;
+  actual_cost_eur: string;
+  provider_name: string;
+  charging_plan_id: string;
+};
+
+const EMPTY_FORM: FormFields = {
+  session_start: "",
+  session_end: "",
+  start_level: "",
+  end_level: "",
+  energy_kwh: "",
+  actual_cost_eur: "",
+  provider_name: "",
+  charging_plan_id: "",
+};
+
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = parseISO(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return format(d, "yyyy-MM-dd'T'HH:mm");
+}
+
+function parseOptionalNumber(value: string): number | null {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function humanError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.status === 422) return "Please check the values you entered.";
+  if (err instanceof Error && err.message && err.message !== "An error occurred") return err.message;
+  return fallback;
+}
+
 export function ChargingSessionsDashboard({
   vehicleId,
   onChanged,
@@ -58,17 +99,17 @@ export function ChargingSessionsDashboard({
   onChanged?: () => void;
 }) {
   const { currency, fromEur, toEur, formatMoneyFromEur } = useLocale();
+  const toast = useToast();
   const [sessions, setSessions] = useState<any[]>([]);
   const [plans, setPlans] = useState<ChargingPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingSession, setEditingSession] = useState<any>(null);
   const editingIdRef = useRef<string | number | null>(null);
-  const [editForm, setEditForm] = useState({
-    actual_cost_eur: "",
-    energy_kwh: "",
-    provider_name: "",
-    charging_plan_id: "",
-  });
+  const [editForm, setEditForm] = useState<FormFields>(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const [suggestion, setSuggestion] = useState<SuggestCost | null>(null);
 
   const fetchSessions = async () => {
@@ -89,6 +130,23 @@ export function ChargingSessionsDashboard({
   useEffect(() => {
     api.getChargingPlans().then(setPlans).catch(() => setPlans([]));
   }, []);
+
+  const closeForm = () => {
+    setFormMode(null);
+    setEditingSession(null);
+    setFormError(null);
+    setSuggestion(null);
+    editingIdRef.current = null;
+  };
+
+  const openCreate = () => {
+    editingIdRef.current = null;
+    setEditingSession(null);
+    setSuggestion(null);
+    setFormError(null);
+    setEditForm(EMPTY_FORM);
+    setFormMode("create");
+  };
 
   const applySuggestion = (s: SuggestCost, session: any, overwriteCost: boolean) => {
     setSuggestion(s);
@@ -112,11 +170,17 @@ export function ChargingSessionsDashboard({
     const sessionId = session.id;
     editingIdRef.current = sessionId;
     setEditingSession(session);
+    setFormMode("edit");
+    setFormError(null);
     setSuggestion(null);
     const hasPaid = session.actual_cost_eur != null;
     setEditForm({
-      actual_cost_eur: hasPaid ? String(fromEur(session.actual_cost_eur) ?? "") : "",
+      session_start: toDatetimeLocal(session.session_start),
+      session_end: toDatetimeLocal(session.session_end),
+      start_level: session.start_level != null ? String(session.start_level) : "",
+      end_level: session.end_level != null ? String(session.end_level) : "",
       energy_kwh: session.energy_kwh != null ? String(session.energy_kwh) : "",
+      actual_cost_eur: hasPaid ? String(fromEur(session.actual_cost_eur) ?? "") : "",
       provider_name: session.provider_name || "",
       charging_plan_id: session.charging_plan_id || "",
     });
@@ -161,24 +225,97 @@ export function ChargingSessionsDashboard({
     }
   };
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
+  const validateForm = (): string | null => {
+    if (!editForm.session_start) return "Please pick a start time for the charge.";
+    const start = new Date(editForm.session_start);
+    if (Number.isNaN(start.getTime())) return "Please pick a valid start time.";
+    if (editForm.session_end) {
+      const end = new Date(editForm.session_end);
+      if (Number.isNaN(end.getTime())) return "Please pick a valid end time, or leave it empty for an ongoing charge.";
+      if (end.getTime() < start.getTime()) return "The end time must be after the start time.";
+    }
+    for (const key of ["start_level", "end_level"] as const) {
+      const raw = editForm[key];
+      if (raw === "") continue;
+      const n = Number.parseFloat(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) return "State of charge must be between 0 and 100.";
+    }
+    for (const key of ["energy_kwh", "actual_cost_eur"] as const) {
+      const raw = editForm[key];
+      if (raw === "") continue;
+      const n = Number.parseFloat(raw);
+      if (!Number.isFinite(n) || n < 0) return "Energy and cost cannot be negative.";
+    }
+    return null;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingSession) return;
+    setFormError(null);
+    const problem = validateForm();
+    if (problem) {
+      setFormError(problem);
+      return;
+    }
     const costDisplay = Number.parseFloat(editForm.actual_cost_eur);
-    const energy = Number.parseFloat(editForm.energy_kwh);
     const costEur = Number.isNaN(costDisplay) ? null : (toEur(costDisplay, 2) ?? null);
+    const body = {
+      session_start: new Date(editForm.session_start).toISOString(),
+      session_end: editForm.session_end ? new Date(editForm.session_end).toISOString() : null,
+      start_level: parseOptionalNumber(editForm.start_level),
+      end_level: parseOptionalNumber(editForm.end_level),
+      energy_kwh: parseOptionalNumber(editForm.energy_kwh),
+      actual_cost_eur: costEur,
+      provider_name: editForm.provider_name || "",
+    };
     try {
-      await api.updateChargingSession(vehicleId, editingSession.id, {
-        actual_cost_eur: costEur,
-        energy_kwh: Number.isNaN(energy) ? (editingSession.energy_kwh ?? null) : energy,
-        provider_name: editForm.provider_name || "",
-        charging_plan_id: editForm.charging_plan_id || null,
-      });
-      setEditingSession(null);
+      if (formMode === "create") {
+        await api.createChargingSession(vehicleId, {
+          ...body,
+          provider_name: editForm.provider_name || null,
+        });
+        toast.success("Charge added");
+      } else if (editingSession) {
+        await api.updateChargingSession(vehicleId, editingSession.id, {
+          ...body,
+          charging_plan_id: editForm.charging_plan_id || null,
+        });
+        toast.success("Charge updated");
+      }
+      closeForm();
       await fetchSessions();
       onChanged?.();
     } catch (err) {
-      console.error("Update failed", err);
+      setFormError(humanError(err, "Could not save this charge. Please try again."));
+    }
+  };
+
+  const endCharge = async (session: any) => {
+    const body: Record<string, unknown> = { session_end: new Date().toISOString() };
+    if (session.end_level != null) body.end_level = session.end_level;
+    try {
+      await api.updateChargingSession(vehicleId, session.id, body);
+      toast.success("Charge ended");
+      await fetchSessions();
+      onChanged?.();
+    } catch (err) {
+      toast.error(humanError(err, "Could not end this charge. Please try again."));
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteChargingSession(vehicleId, deleteTarget.id);
+      toast.success("Charge deleted");
+      setDeleteTarget(null);
+      await fetchSessions();
+      onChanged?.();
+    } catch (err) {
+      toast.error(humanError(err, "Could not delete this charge. Please try again."));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -188,6 +325,21 @@ export function ChargingSessionsDashboard({
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 rounded-xl bg-iv-cyan px-4 py-2 text-sm font-medium text-white hover:bg-iv-cyan/90 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Add charge
+        </button>
+      </div>
+
+      {sessions.length === 0 && (
+        <p className="text-sm text-iv-text-muted">No charging sessions recorded yet.</p>
+      )}
+
       {sessions.map((session) => {
         const hasPlanCost = session.plan_cost_eur != null;
         const hasPaid = session.actual_cost_eur != null && Number(session.actual_cost_eur) > 0;
@@ -220,11 +372,28 @@ export function ChargingSessionsDashboard({
                     >
                       <Edit className="h-4 w-4" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(session)}
+                      aria-label="Delete charge"
+                      className="text-iv-text-muted hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </p>
                   <div className="flex items-center gap-2 text-sm text-iv-text-muted">
                     <span>{session.session_start ? format(parseISO(session.session_start), "MMM d, HH:mm") : "Unknown"}</span>
                     <span>&rarr;</span>
                     <span>{session.session_end ? format(parseISO(session.session_end), "HH:mm") : "Ongoing"}</span>
+                    {!session.session_end && (
+                      <button
+                        type="button"
+                        onClick={() => endCharge(session)}
+                        className="rounded-md border border-iv-border px-2 py-0.5 text-xs font-medium text-iv-cyan hover:bg-iv-surface transition-colors"
+                      >
+                        End charge
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -251,38 +420,68 @@ export function ChargingSessionsDashboard({
         );
       })}
 
-      {editingSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      {formMode && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl bg-iv-charcoal p-6 shadow-2xl border border-iv-border">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-iv-text">Edit Receipt Data</h3>
-              <button type="button" onClick={() => setEditingSession(null)} className="text-iv-text-muted hover:text-iv-text">
+              <h3 className="text-lg font-bold text-iv-text">{formMode === "create" ? "Add Charge" : "Edit Charge"}</h3>
+              <button type="button" onClick={closeForm} className="text-iv-text-muted hover:text-iv-text">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleEditSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="cs-plan" className="block text-sm font-medium text-iv-text-muted mb-1">Charging plan</label>
-                <select
-                  id="cs-plan"
-                  value={editForm.charging_plan_id}
-                  onChange={(e) => onPlanChange(e.target.value)}
-                  className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
-                >
-                  <option value="">Custom (no plan)</option>
-                  {plans.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.plan_type})</option>
-                  ))}
-                </select>
-                {selectedPlan && (
-                  <p className="mt-1 text-xs text-iv-text-muted capitalize">{selectedPlan.plan_type}</p>
-                )}
-                {suggestionNote(suggestion, formatMoneyFromEur) && (
-                  <p className="mt-1 text-xs text-iv-cyan">{suggestionNote(suggestion, formatMoneyFromEur)}</p>
-                )}
-                <Link href="/settings" className="mt-1 inline-block text-xs text-iv-cyan hover:underline">
-                  Add plan in Settings
-                </Link>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="cs-start" className="block text-sm font-medium text-iv-text-muted mb-1">Start</label>
+                  <input
+                    id="cs-start"
+                    type="datetime-local"
+                    required
+                    value={editForm.session_start}
+                    onChange={(e) => setEditForm({ ...editForm, session_start: e.target.value })}
+                    className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cs-end" className="block text-sm font-medium text-iv-text-muted mb-1">End (empty = ongoing)</label>
+                  <input
+                    id="cs-end"
+                    type="datetime-local"
+                    value={editForm.session_end}
+                    onChange={(e) => setEditForm({ ...editForm, session_end: e.target.value })}
+                    className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="cs-start-level" className="block text-sm font-medium text-iv-text-muted mb-1">Start SoC (%)</label>
+                  <input
+                    id="cs-start-level"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={editForm.start_level}
+                    onChange={(e) => setEditForm({ ...editForm, start_level: e.target.value })}
+                    className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
+                    placeholder="40"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cs-end-level" className="block text-sm font-medium text-iv-text-muted mb-1">End SoC (%)</label>
+                  <input
+                    id="cs-end-level"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={editForm.end_level}
+                    onChange={(e) => setEditForm({ ...editForm, end_level: e.target.value })}
+                    className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
+                    placeholder="80"
+                  />
+                </div>
               </div>
               <div>
                 <label htmlFor="cs-provider-name" className="block text-sm font-medium text-iv-text-muted mb-1">Provider Name</label>
@@ -302,6 +501,7 @@ export function ChargingSessionsDashboard({
                     id="cs-energy-kwh"
                     type="number"
                     step="0.01"
+                    min="0"
                     value={editForm.energy_kwh}
                     onChange={(e) => setEditForm({ ...editForm, energy_kwh: e.target.value })}
                     onBlur={() => {
@@ -325,22 +525,100 @@ export function ChargingSessionsDashboard({
                   />
                 </div>
               </div>
-              {suggestion?.suggested_cost_eur != null &&
+              {formMode === "edit" && (
+                <div>
+                  <label htmlFor="cs-plan" className="block text-sm font-medium text-iv-text-muted mb-1">Charging plan</label>
+                  <select
+                    id="cs-plan"
+                    value={editForm.charging_plan_id}
+                    onChange={(e) => onPlanChange(e.target.value)}
+                    className="w-full rounded-lg bg-iv-surface border border-iv-border px-4 py-2.5 text-iv-text focus:border-iv-cyan focus:ring-1 focus:ring-iv-cyan outline-none transition-all"
+                  >
+                    <option value="">Custom (no plan)</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.plan_type})</option>
+                    ))}
+                  </select>
+                  {selectedPlan && (
+                    <p className="mt-1 text-xs text-iv-text-muted capitalize">{selectedPlan.plan_type}</p>
+                  )}
+                  {suggestionNote(suggestion, formatMoneyFromEur) && (
+                    <p className="mt-1 text-xs text-iv-cyan">{suggestionNote(suggestion, formatMoneyFromEur)}</p>
+                  )}
+                  <Link href="/settings" className="mt-1 inline-block text-xs text-iv-cyan hover:underline">
+                    Add plan in Settings
+                  </Link>
+                </div>
+              )}
+              {formMode === "edit" &&
+                suggestion?.suggested_cost_eur != null &&
                 (suggestion.reason === "within_allotment" || suggestion.reason === "mixed") && (
                 <p className="text-sm text-iv-text">
                   On plan: <span className="font-semibold tabular-nums">{formatMoneyFromEur(suggestion.suggested_cost_eur)}</span>
                   <span className="text-iv-text-muted"> (counted from the subscription, not as paid at the charger)</span>
                 </p>
               )}
+              {formError && (
+                <p className="text-sm text-red-400">{formError}</p>
+              )}
               <div className="mt-6 flex justify-end gap-3">
-                <button type="button" onClick={() => setEditingSession(null)} className="px-4 py-2 rounded-xl text-sm font-medium text-iv-text bg-iv-surface hover:bg-iv-border transition-colors">
+                <button type="button" onClick={closeForm} className="px-4 py-2 rounded-xl text-sm font-medium text-iv-text bg-iv-surface hover:bg-iv-border transition-colors">
                   Cancel
                 </button>
                 <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-iv-cyan hover:bg-iv-cyan/90 transition-colors">
-                  Save Receipt
+                  {formMode === "create" ? "Add Charge" : "Save Changes"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Close dialog"
+            className="absolute inset-0"
+            onClick={() => { if (!deleting) setDeleteTarget(null); }}
+            onKeyDown={(e) => { if (e.key === "Escape" && !deleting) setDeleteTarget(null); }}
+          />
+          <div className="relative w-full max-w-sm rounded-2xl bg-iv-charcoal p-6 shadow-2xl border border-iv-border">
+            <h3 className="text-lg font-semibold text-iv-text mb-2">Delete this charge?</h3>
+            <p className="text-sm text-iv-text-muted mb-1">
+              {deleteTarget.session_start
+                ? format(parseISO(deleteTarget.session_start), "MMM d, HH:mm")
+                : "Unknown start"}
+              {" → "}
+              {deleteTarget.session_end
+                ? format(parseISO(deleteTarget.session_end), "HH:mm")
+                : "Ongoing"}
+            </p>
+            <p className="text-sm text-iv-text-muted mb-6">
+              {deleteTarget.energy_kwh != null ? `${deleteTarget.energy_kwh} kWh` : "No energy"}
+              {deleteTarget.actual_cost_eur != null ? ` · ${formatMoneyFromEur(deleteTarget.actual_cost_eur)}` : ""}
+              {" · "}
+              This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-text-muted hover:bg-iv-surface transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete charge"}
+              </button>
+            </div>
           </div>
         </div>
       )}

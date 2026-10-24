@@ -67,7 +67,7 @@ async def run_command(
         op, has_login=login_client is not None, has_public=public_client is not None
     ):
         if op in LOGIN_ONLY_OPS:
-            raise CommandUnsupported("Connect MyŠkoda Login for this action.")
+            raise CommandUnsupported("Connect MyŠkoda Login to lock / unlock / wake the car.")
         raise CommandUnsupported("Connect MyŠkoda Public API or MyŠkoda Login first.")
 
     try:
@@ -88,7 +88,7 @@ async def _run_bff(client: SkodaBFFClient, op: str, vin: str, **params: Any) -> 
     elif op == "lock":
         await client.lock(vin)
     elif op == "unlock":
-        await client.unlock(vin)
+        await client.unlock(vin, spin=params.get("spin"))
     elif op == "charge_start":
         await client.start_charging(vin)
     elif op == "charge_stop":
