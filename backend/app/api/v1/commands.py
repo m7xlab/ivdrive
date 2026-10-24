@@ -31,7 +31,7 @@ def humanize_command_error(exc: Exception) -> str:
         s in text for s in ("invalid", "reject", "wrong", "incorrect")
     ):
         return "That S-PIN was not accepted. Check it and try again."
-    if any(s in text for s in ("401", "403", "expired", "unauthorized", "invalid token")):
+    if any(s in text for s in ("401", "403", "expired", "unauthorized", "invalid token", "token rejected", "rejected", "not authorized")):
         return "MyŠkoda Login expired — reconnect in Vehicles."
     if any(s in text for s in ("timeout", "timed out", "unreachable")):
         return "Couldn’t reach the car. Try again in a moment."

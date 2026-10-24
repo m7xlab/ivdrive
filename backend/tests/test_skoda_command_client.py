@@ -76,6 +76,18 @@ def test_humanize_auth_style_error():
     assert "BFF" not in msg
 
 
+def test_humanize_token_rejected():
+    msg = humanize_command_error(CommandError("token rejected"))
+    assert "reconnect" in msg.lower() or "expired" in msg.lower()
+    assert "rejected" not in msg.lower()
+
+
+def test_humanize_timeout():
+    msg = humanize_command_error(TimeoutError("timed out waiting"))
+    assert "reach the car" in msg.lower() or "try again" in msg.lower()
+    assert "timed out" not in msg.lower()
+
+
 def test_humanize_pin_error():
     msg = humanize_command_error(CommandError("spin rejected"))
     assert "pin" in msg.lower() or "s-pin" in msg.lower()

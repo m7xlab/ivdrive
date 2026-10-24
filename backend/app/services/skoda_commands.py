@@ -67,7 +67,7 @@ async def run_command(
         op, has_login=login_client is not None, has_public=public_client is not None
     ):
         if op in LOGIN_ONLY_OPS:
-            raise CommandUnsupported("Connect MyŠkoda Login for this action.")
+            raise CommandUnsupported("Connect MyŠkoda Login to unlock / wake the car.")
         raise CommandUnsupported("Connect MyŠkoda Public API or MyŠkoda Login first.")
 
     try:
