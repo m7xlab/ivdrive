@@ -8,18 +8,6 @@ from app.services.skoda_public_api import SkodaPublicAPIClient
 
 logger = logging.getLogger(__name__)
 
-# API command method name → router op
-_OP_MAP = {
-    "start_climatization": "climate_start",
-    "stop_climatization": "climate_stop",
-    "start_charging": "charge_start",
-    "stop_charging": "charge_stop",
-    "lock": "lock",
-    "unlock": "unlock",
-    "wake": "wake",
-    "honk_flash": "lock",  # not supported yet; refuse below
-}
-
 
 class SkodaCommandClient:
     """Remote commands via MyŠkoda Login when connected, else Public API.

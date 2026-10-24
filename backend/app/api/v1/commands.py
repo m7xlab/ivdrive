@@ -12,12 +12,30 @@ from app.models.vehicle import ConnectorSession, UserVehicle
 from app.schemas.commands import ClimatizationStartRequest, CommandResponse, UnlockRequest
 from app.services.crypto import decrypt_field
 
+from app.services.skoda_commands import CommandUnsupported
+
 try:
     from app.services.skoda_commands_client import SkodaCommandClient
 except ImportError:
     SkodaCommandClient = None
 
 router = APIRouter()
+
+
+def humanize_command_error(exc: Exception) -> str:
+    """User-facing sentence for a failed command — never raw upstream text."""
+    if isinstance(exc, CommandUnsupported):
+        return str(exc)
+    text = str(exc).lower()
+    if any(s in text for s in ("spin", "pin")) and any(
+        s in text for s in ("invalid", "reject", "wrong", "incorrect")
+    ):
+        return "That S-PIN was not accepted. Check it and try again."
+    if any(s in text for s in ("401", "403", "expired", "unauthorized", "invalid token")):
+        return "MyŠkoda Login expired — reconnect in Vehicles."
+    if any(s in text for s in ("timeout", "timed out", "unreachable")):
+        return "Couldn’t reach the car. Try again in a moment."
+    return "Command failed. Try again."
 
 
 async def _get_user_vehicle(
@@ -97,8 +115,10 @@ async def _execute_command(
         await method(vin, **kwargs)
 
         return CommandResponse(status="completed", message="Command executed successfully")
-    except Exception as exc:
+    except CommandUnsupported as exc:
         return CommandResponse(status="failed", message=str(exc))
+    except Exception as exc:
+        return CommandResponse(status="failed", message=humanize_command_error(exc))
 
 
 @router.post(
