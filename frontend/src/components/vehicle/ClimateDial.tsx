@@ -1,6 +1,9 @@
 "use client";
 
-import { Loader2, Minus, Plus, Power, Wind } from "lucide-react";
+import { useId } from "react";
+import { Loader2, Minus, Plus, Power, Square, Wind } from "lucide-react";
+
+import { cn } from "@/lib/cn";
 
 const MIN_DEFAULT = 16;
 const MAX_DEFAULT = 30;
@@ -34,6 +37,10 @@ export type ClimateDialProps = {
   startLabel?: string;
   loadingStart?: boolean;
   loadingStop?: boolean;
+  /** Extra classes merged onto the root element. */
+  className?: string;
+  /** Drop the self-framing chrome so a parent card can own the frame. */
+  unframed?: boolean;
 };
 
 export function ClimateDial({
@@ -49,7 +56,13 @@ export function ClimateDial({
   startLabel,
   loadingStart = false,
   loadingStop = false,
+  className,
+  unframed = false,
 }: ClimateDialProps): JSX.Element {
+  const reactId = useId();
+  const gradientId = `iv-climate-ring-${reactId}`;
+  const readoutId = `${reactId}-temp`;
+
   const span = maxC - minC;
   const t = Math.min(maxC, Math.max(minC, tempC));
   const pct = span <= 0 ? 0 : (t - minC) / span;
@@ -68,18 +81,27 @@ export function ClimateDial({
 
   const step = (dir: 1 | -1) => {
     if (disabled) return;
-    const next = Math.min(maxC, Math.max(minC, Math.round((t + dir * STEP) * 2) / 2));
-    if (next !== t) onChangeC(next);
+    // Snap to the 0.5 grid first so an off-grid parent value lands on-grid in one press.
+    const snapped = Math.round(t * 2) / 2;
+    const next = Math.min(maxC, Math.max(minC, snapped + dir * STEP));
+    if (next !== tempC) onChangeC(next);
   };
 
   return (
-    <div className="glass rounded-2xl p-6 flex flex-col items-center gap-5">
+    <div
+      className={cn(
+        "flex flex-col items-center gap-5",
+        !unframed && "glass rounded-2xl p-6",
+        className
+      )}
+    >
       {/* ── Dial ring + center readout + steppers ───────────────── */}
       <div className="relative flex items-center justify-center gap-4">
         {/* − stepper */}
         <button
           type="button"
           aria-label="Decrease temperature"
+          aria-describedby={readoutId}
           onClick={() => step(-1)}
           disabled={disabled || t <= minC}
           className="z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-iv-border bg-iv-surface/60 text-iv-text transition-colors hover:border-iv-cyan hover:text-iv-cyan disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-iv-border disabled:hover:text-iv-text"
@@ -96,7 +118,7 @@ export function ClimateDial({
             focusable="false"
           >
             <defs>
-              <linearGradient id="iv-climate-ring" x1="0%" y1="100%" x2="100%" y2="0%">
+              <linearGradient id={gradientId} x1="0%" y1="100%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="var(--iv-cyan)" />
                 <stop offset="50%" stopColor="var(--iv-green)" />
                 <stop offset="100%" stopColor="var(--iv-warning)" />
@@ -122,7 +144,7 @@ export function ClimateDial({
               cy={CY}
               r={R}
               fill="none"
-              stroke="url(#iv-climate-ring)"
+              stroke={`url(#${gradientId})`}
               strokeWidth={STROKE}
               strokeLinecap="round"
               strokeDasharray={`${filled} ${C - filled}`}
@@ -135,7 +157,11 @@ export function ClimateDial({
             <span className="text-xs font-medium uppercase tracking-wider text-iv-muted">
               Temperature
             </span>
-            <span className="mt-1 text-5xl font-semibold tabular-nums leading-none text-iv-text">
+            <span
+              id={readoutId}
+              aria-live="polite"
+              className="mt-1 text-5xl font-semibold tabular-nums leading-none text-iv-text"
+            >
               {display}°
             </span>
             <span className="mt-1.5 text-xs text-iv-muted">{unit}</span>
@@ -153,6 +179,7 @@ export function ClimateDial({
         <button
           type="button"
           aria-label="Increase temperature"
+          aria-describedby={readoutId}
           onClick={() => step(1)}
           disabled={disabled || t >= maxC}
           className="z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-iv-border bg-iv-surface/60 text-iv-text transition-colors hover:border-iv-cyan hover:text-iv-cyan disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-iv-border disabled:hover:text-iv-text"
@@ -186,7 +213,7 @@ export function ClimateDial({
           {loadingStop ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <Power className="h-4 w-4" />
+            <Square className="h-4 w-4" />
           )}
           {loadingStop ? "Stopping…" : "Stop"}
         </button>
