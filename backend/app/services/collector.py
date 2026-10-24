@@ -744,6 +744,10 @@ class DataCollector:
                 if force:
                     self._poll_mode[user_vehicle_id] = "active"
                     self._sleep_ticks[user_vehicle_id] = 0
+                    # Stay on Live Sync for a few cycles (stabilization) so a
+                    # short drive right after Refresh / remote heat is not
+                    # missed by the next parked tick.
+                    self._stale_active_counters[user_vehicle_id] = 3
 
                 mode = self._poll_mode.get(user_vehicle_id, "sleep")
                 wake_n = max(getattr(settings, "sleep_wake_probe_every_n", 4), 1)

@@ -126,6 +126,16 @@ async def _execute_command(
 
         await method(vin, **kwargs)
 
+        # Remote heat/charge/wake means the car is about to be busy — queue a
+        # refresh and let the collector flip to Live Sync so a short drive
+        # right after is not missed between parked ticks.
+        try:
+            from app.services.events import publish_vehicle_refresh
+
+            await publish_vehicle_refresh(str(vehicle_id))
+        except Exception:
+            pass
+
         return CommandResponse(status="completed", message="Command executed successfully")
     except CommandUnsupported as exc:
         return CommandResponse(status="failed", message=str(exc))
