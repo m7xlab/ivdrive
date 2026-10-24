@@ -147,3 +147,7 @@ TemporaryItems/
 *.tgz
 *.tar.gz
 !frontend/public/**/*.tar.gz
+
+# Internal design notes — never commit
+specs/
+plans/
