@@ -1,5 +1,33 @@
 # Changelog
 
+## [v1.3.2] - 2026-10-24
+**Modern remote controls and reliable charging history.** New Commands tab, session cleanup tools, and friendlier command errors.
+
+### Added
+- **Commands tab redesign** — circular climate dial (temperature ring with °C/°F), Start / Stop, and compact action rows for charging, lock, unlock, and wake.
+- **Capability hints** — actions that need MyŠkoda Login or an API key say so up front instead of failing after a click.
+- **Add charge** — record a missed session from Charging history (start/end, SoC, kWh, cost, provider).
+- **Delete charge** — remove glitch or duplicate rows with a confirmation step.
+- **End charge** — close an Ongoing session from the list when the car is done.
+
+### Changed
+- Command results show as a short toast with **Retry** that reuses the current S-PIN / temperature.
+- Climate card matches the height of the action list on desktop (no gap).
+
+### Fixed
+- **Unlock** now sends the vehicle S-PIN so remote unlock can work with MyŠkoda Login.
+- **Honk & Flash** is clearly marked as not available on this connection (it never silently did something else).
+- Command failures use plain language (expired API key, login expired, wrong S-PIN, car unreachable) instead of raw error text.
+- Finished charges with the cable still connected no longer stay **Ongoing** forever; long low-power AC charging is left open.
+- A stuck open session no longer swallows later charges.
+- Lock state (`YES`/`NO`) correctly enables Lock / Unlock actions.
+- Modals no longer show map buttons and coordinates through the backdrop.
+
+### Notes
+- Rebuild **api + web + collector**.
+- No database migration.
+- Passwords, API keys, and S-PINs stay encrypted at rest.
+
 ## [v1.3.1] - 2026-10-21
 **Official API key or MyŠkoda Login — per car.** Cleaner vehicle settings, clearer connection status, and smarter polling.
 
