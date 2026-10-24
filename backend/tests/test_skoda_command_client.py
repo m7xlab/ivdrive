@@ -84,8 +84,7 @@ def test_humanize_token_rejected():
 
 def test_humanize_timeout():
     msg = humanize_command_error(TimeoutError("timed out waiting"))
-    assert "reach the car" in msg.lower() or "try again" in msg.lower()
-    assert "timed out" not in msg.lower()
+    assert msg == "Couldn’t reach the car. Try again in a moment."
 
 
 def test_humanize_pin_error():
