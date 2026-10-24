@@ -177,6 +177,29 @@ async def create_charging_session(
     return {"status": "success", "id": row.id, "message": "Charging session saved"}
 
 
+@router.delete("/{vehicle_id}/analytics/charging-sessions/{session_id}")
+async def delete_charging_session(
+    vehicle_id: UUID,
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Remove a charging session (glitch rows, duplicate starts, manual cleanup)."""
+    await get_user_vehicle(user.id, vehicle_id, db)
+    stmt = select(ChargingSession).where(
+        ChargingSession.id == session_id,
+        ChargingSession.user_vehicle_id == vehicle_id,
+    )
+    result = await db.execute(stmt)
+    session_obj = result.scalar_one_or_none()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="Charging session not found")
+    await db.delete(session_obj)
+    await db.commit()
+    await invalidate_vehicle_cache(str(vehicle_id))
+    return {"status": "success", "message": "Charging session deleted"}
+
+
 @router.patch("/{vehicle_id}/analytics/charging-sessions/{session_id}")
 async def update_charging_session(
     vehicle_id: UUID,

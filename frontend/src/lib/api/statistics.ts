@@ -188,6 +188,13 @@ export const statisticsApi = {
     return res.json();
   },
 
+  async deleteChargingSession(id: string, sessionId: string | number) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-sessions/${sessionId}`, {
+      method: "DELETE",
+    });
+    return res.json();
+  },
+
   async getTimeBudget(id: string, fromDate?: string, toDate?: string): Promise<{ parked_seconds: number; driving_seconds: number; charging_seconds: number; ignition_seconds: number; offline_seconds: number; total_seconds: number }> {
     const params = new URLSearchParams();
     if (fromDate) params.set("from_date", fromDate);

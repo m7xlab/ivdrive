@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Plug, Zap, Banknote, Edit, Plus, X } from "lucide-react";
+import { Plug, Zap, Banknote, Edit, Plus, Trash2, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { useToast } from "@/components/ui/feedback";
@@ -108,6 +108,8 @@ export function ChargingSessionsDashboard({
   const editingIdRef = useRef<string | number | null>(null);
   const [editForm, setEditForm] = useState<FormFields>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const [suggestion, setSuggestion] = useState<SuggestCost | null>(null);
 
   const fetchSessions = async () => {
@@ -301,6 +303,22 @@ export function ChargingSessionsDashboard({
     }
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteChargingSession(vehicleId, deleteTarget.id);
+      toast.success("Charge deleted");
+      setDeleteTarget(null);
+      await fetchSessions();
+      onChanged?.();
+    } catch (err) {
+      toast.error(humanError(err, "Could not delete this charge. Please try again."));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-iv-text-muted">Loading charging history...</div>;
 
   const selectedPlan = plans.find((p) => p.id === editForm.charging_plan_id);
@@ -353,6 +371,14 @@ export function ChargingSessionsDashboard({
                       className="text-iv-text-muted hover:text-iv-cyan transition-colors"
                     >
                       <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(session)}
+                      aria-label="Delete charge"
+                      className="text-iv-text-muted hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </p>
                   <div className="flex items-center gap-2 text-sm text-iv-text-muted">
@@ -544,6 +570,55 @@ export function ChargingSessionsDashboard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Close dialog"
+            className="absolute inset-0"
+            onClick={() => { if (!deleting) setDeleteTarget(null); }}
+            onKeyDown={(e) => { if (e.key === "Escape" && !deleting) setDeleteTarget(null); }}
+          />
+          <div className="relative w-full max-w-sm rounded-2xl bg-iv-charcoal p-6 shadow-2xl border border-iv-border">
+            <h3 className="text-lg font-semibold text-iv-text mb-2">Delete this charge?</h3>
+            <p className="text-sm text-iv-text-muted mb-1">
+              {deleteTarget.session_start
+                ? format(parseISO(deleteTarget.session_start), "MMM d, HH:mm")
+                : "Unknown start"}
+              {" → "}
+              {deleteTarget.session_end
+                ? format(parseISO(deleteTarget.session_end), "HH:mm")
+                : "Ongoing"}
+            </p>
+            <p className="text-sm text-iv-text-muted mb-6">
+              {deleteTarget.energy_kwh != null ? `${deleteTarget.energy_kwh} kWh` : "No energy"}
+              {deleteTarget.actual_cost_eur != null ? ` · ${formatMoneyFromEur(deleteTarget.actual_cost_eur)}` : ""}
+              {" · "}
+              This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl border border-iv-border px-4 py-2.5 text-sm font-medium text-iv-text-muted hover:bg-iv-surface transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete charge"}
+              </button>
+            </div>
           </div>
         </div>
       )}

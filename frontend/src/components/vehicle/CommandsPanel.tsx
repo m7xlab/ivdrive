@@ -147,10 +147,11 @@ export function CommandsPanel({
   const chargingCommand = charging ? "charging/stop" : "charging/start";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+    <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch">
       {/* ── Climate hero + result toast ─────────────────────────── */}
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <ClimateDial
+          className="flex-1"
           tempC={climateTempC}
           onChangeC={onClimateTempC}
           usesFahrenheit={usesFahrenheit}

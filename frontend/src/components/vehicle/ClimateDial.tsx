@@ -91,7 +91,7 @@ export function ClimateDial({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-5",
+        "flex h-full flex-col items-center justify-between gap-5",
         !unframed && "glass rounded-2xl p-6",
         className
       )}
