@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ElementType, type ReactNode } from "react";
+import { useId, useRef, useState, type ElementType, type ReactNode } from "react";
 import {
   CheckCircle2,
   Loader2,
@@ -33,7 +33,6 @@ export type CommandsPanelProps = {
   cmdLoading: string | null;
   cmdResult: CmdResult | null;
   onCommand: (command: string, body?: object) => void;
-  onRetry: () => void;
 };
 
 function ActionRow({
@@ -113,9 +112,28 @@ export function CommandsPanel({
   cmdLoading,
   cmdResult,
   onCommand,
-  onRetry,
 }: CommandsPanelProps): JSX.Element {
   const [sPin, setSPin] = useState("");
+  /** Last command name only — Retry rebuilds the body from current field values. */
+  const lastCommandRef = useRef<string | null>(null);
+
+  const sendCommand = (command: string, body?: object) => {
+    lastCommandRef.current = command;
+    onCommand(command, body);
+  };
+
+  /** Re-derive body from current inputs so Retry never replays a stale S-PIN. */
+  const handleRetry = () => {
+    const command = lastCommandRef.current;
+    if (!command) return;
+    if (command === "unlock") {
+      onCommand(command, { spin: sPin.trim() });
+    } else if (command === "climatization/start") {
+      onCommand(command, { target_temperature: climateTempC });
+    } else {
+      onCommand(command);
+    }
+  };
 
   /** Global busy gate: one command at a time so spinner/toast/Retry can't clobber each other. */
   const busy = cmdLoading !== null;
@@ -142,9 +160,9 @@ export function CommandsPanel({
           loadingStart={cmdLoading === "climatization/start"}
           loadingStop={cmdLoading === "climatization/stop"}
           onStart={() =>
-            onCommand("climatization/start", { target_temperature: climateTempC })
+            sendCommand("climatization/start", { target_temperature: climateTempC })
           }
-          onStop={() => onCommand("climatization/stop")}
+          onStop={() => sendCommand("climatization/stop")}
         />
 
         {!canAnyCommand ? (
@@ -172,7 +190,7 @@ export function CommandsPanel({
               {cmdResult.status === "error" ? (
                 <button
                   type="button"
-                  onClick={onRetry}
+                  onClick={handleRetry}
                   disabled={busy}
                   className="mt-1.5 inline-flex items-center gap-1 rounded-md text-xs font-semibold underline underline-offset-2 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -203,7 +221,7 @@ export function CommandsPanel({
           actionAriaLabel={charging ? "Stop charging" : "Start charging"}
           disabled={!canAnyCommand || busy}
           loading={cmdLoading === chargingCommand}
-          onClick={() => onCommand(chargingCommand)}
+          onClick={() => sendCommand(chargingCommand)}
         />
 
         <ActionRow
@@ -219,7 +237,7 @@ export function CommandsPanel({
           actionLabel="Lock"
           disabled={!canLoginActions || locked === true || busy}
           loading={cmdLoading === "lock"}
-          onClick={() => onCommand("lock")}
+          onClick={() => sendCommand("lock")}
         />
 
         <ActionRow
@@ -238,7 +256,7 @@ export function CommandsPanel({
             !canLoginActions || locked === false || sPin.trim().length === 0 || busy
           }
           loading={cmdLoading === "unlock"}
-          onClick={() => onCommand("unlock", { spin: sPin.trim() })}
+          onClick={() => sendCommand("unlock", { spin: sPin.trim() })}
         >
           <PasswordInput
             value={sPin}
@@ -258,7 +276,7 @@ export function CommandsPanel({
           hint="Honk and flash is not available on this connection."
           actionLabel="Honk & Flash"
           disabled
-          onClick={() => onCommand("honk-flash")}
+          onClick={() => sendCommand("honk-flash")}
         />
 
         <ActionRow
@@ -272,7 +290,7 @@ export function CommandsPanel({
           actionLabel="Wake"
           disabled={!canLoginActions || busy}
           loading={cmdLoading === "wake"}
-          onClick={() => onCommand("wake")}
+          onClick={() => sendCommand("wake")}
         />
       </div>
     </div>

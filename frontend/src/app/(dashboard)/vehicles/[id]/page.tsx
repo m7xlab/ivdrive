@@ -2,7 +2,7 @@
 
 
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 import { useParams, useRouter } from "next/navigation";
 
@@ -209,8 +209,6 @@ interface Vehicle {
   specifications: Record<string, any> | null;
 
   connector_status: string | null;
-
-  telemetry_source?: string | null;
 
   has_skoda_login?: boolean;
 
@@ -446,6 +444,33 @@ function formatChargingState(state: string | null | undefined): string {
 
   return state.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 
+}
+
+/** doors_locked is "YES"/"NO" (or LOCKED/UNLOCKED). Unknown → null so actions stay enabled. */
+function parseLockState(v: string | null | undefined): boolean | null {
+  if (v == null || v === "") return null;
+  const s = v.trim().toUpperCase();
+  if (s === "YES" || s === "LOCKED") return true;
+  if (s === "NO" || s === "UNLOCKED") return false;
+  return null;
+}
+
+/** True only while actively charging — not merely plugged in / ready. */
+function parseChargingState(
+  state: string | null | undefined,
+  powerKw: number | null | undefined,
+): boolean | null {
+  if (state == null || state === "") return null;
+  const s = state.trim().toUpperCase();
+  if (s === "CHARGING") return true;
+  if (powerKw != null && powerKw > 0 && s !== "DISCONNECTED" && s !== "NOT_CHARGING") return true;
+  return false;
+}
+
+function parseClimateActive(state: string | null | undefined): boolean {
+  if (state == null || state === "") return false;
+  const s = state.trim().toUpperCase();
+  return s === "ON" || s === "HEATING" || s === "COOLING" || s === "VENTILATION";
 }
 
 
@@ -914,10 +939,7 @@ export default function VehicleDetailPage() {
 
 
 
-  const lastCmdRef = useRef<{ command: string; body?: object } | null>(null);
-
   const runCommand = async (command: string, body?: object) => {
-    lastCmdRef.current = { command, body };
     setCmdLoading(command);
     setCmdResult(null);
     try {
@@ -941,11 +963,6 @@ export default function VehicleDetailPage() {
     } finally {
       setCmdLoading(null);
     }
-  };
-
-  const retryCommand = () => {
-    const last = lastCmdRef.current;
-    if (last) void runCommand(last.command, last.body);
   };
 
 
@@ -1352,7 +1369,7 @@ export default function VehicleDetailPage() {
 
           value={status.climate_state === "INVALID" ? "OFF" : (status.climate_state || (status.outside_temp != null ? formatTemp(status.outside_temp) : null))} />
 
-        <StatusPill label="Lock" icon={Lock} accent={status.doors_locked?.toLowerCase().includes("locked") ? "green" : "warning"}
+        <StatusPill label="Lock" icon={Lock} accent={parseLockState(status.doors_locked) ? "green" : "warning"}
 
           value={status.doors_locked || status.latest_vehicle_state} />
 
@@ -2811,25 +2828,14 @@ export default function VehicleDetailPage() {
           climateTempC={parseFloat(climateTemp) || 21}
           onClimateTempC={(c) => setClimateTemp(String(c))}
           usesFahrenheit={usesFahrenheit}
-          climateRunning={Boolean(
-            status?.climate_state && status.climate_state.toLowerCase().includes("on")
-          )}
-          charging={
-            status?.latest_charging_state
-              ? status.latest_charging_state.toLowerCase().includes("charg")
-              : null
-          }
-          locked={
-            status?.doors_locked == null
-              ? null
-              : status.doors_locked.toLowerCase().includes("locked")
-          }
+          climateRunning={parseClimateActive(status?.climate_state)}
+          charging={parseChargingState(status?.latest_charging_state, status?.charging_power_kw)}
+          locked={parseLockState(status?.doors_locked)}
           hasLogin={Boolean(vehicle?.has_skoda_login)}
           hasApiKey={Boolean(vehicle?.has_api_key)}
           cmdLoading={cmdLoading}
           cmdResult={cmdResult}
           onCommand={runCommand}
-          onRetry={retryCommand}
         />
       )}
 
