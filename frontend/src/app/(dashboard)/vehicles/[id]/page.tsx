@@ -2,7 +2,7 @@
 
 
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 import { useParams, useRouter } from "next/navigation";
 
@@ -33,10 +33,6 @@ import {
   ZapOff,
 
   Lock,
-
-  Unlock,
-
-  Volume2,
 
   Power,
 
@@ -123,11 +119,8 @@ import {
 } from "recharts";
 
 import { api } from "@/lib/api";
-import { PasswordInput } from "@/components/password-input";
 
 import { useLocale } from "@/lib/locale";
-
-import { cToF, fToC } from "@/lib/units";
 
 import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangePicker";
 
@@ -156,6 +149,8 @@ import { TripsDashboard } from "@/components/statistics/TripsDashboard";
 import { HVACCostCard } from "@/components/statistics/HVACCostCard";
 
 import { VehicleCarousel } from "@/components/vehicle/VehicleCarousel";
+
+import { CommandsPanel } from "@/components/vehicle/CommandsPanel";
 
 
 
@@ -214,6 +209,12 @@ interface Vehicle {
   specifications: Record<string, any> | null;
 
   connector_status: string | null;
+
+  telemetry_source?: string | null;
+
+  has_skoda_login?: boolean;
+
+  has_api_key?: boolean;
 
   created_at: string;
 
@@ -521,98 +522,6 @@ function StatusPill({ label, value, icon: Icon, accent = "green" }: {
 
 
 
-function CommandButton({ icon: Icon, label, onClick, loading, variant = "default" }: {
-
-  icon: React.ElementType; label: string; onClick: () => void; loading: boolean; variant?: "default" | "danger";
-
-}) {
-
-  return (
-
-    <button type="button" onClick={onClick} disabled={loading}
-
-      className={`relative group h-32 w-full rounded-2xl p-4 flex flex-col items-start justify-between transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed border backdrop-blur-md shadow-sm overflow-hidden ${
-
-        variant === "danger" 
-
-          ? "bg-iv-danger/5 border-iv-danger/20 hover:bg-iv-danger/10 hover:border-iv-danger/30" 
-
-          : "bg-iv-surface/60 border-iv-border/50 hover:bg-iv-surface hover:border-iv-border"
-
-      }`}>
-
-      
-
-      {/* Background Gradient Blob for visual interest */}
-
-      <div className={`absolute -right-4 -top-4 h-16 w-16 rounded-full blur-2xl transition-opacity duration-500 opacity-0 group-hover:opacity-20 ${
-
-        variant === "danger" ? "bg-iv-danger" : "bg-iv-green"
-
-      }`} />
-
-
-
-      {/* Icon Area */}
-
-      <div className={`p-2.5 rounded-full transition-colors ${
-
-        variant === "danger" 
-
-          ? "bg-iv-danger/10 text-iv-danger group-hover:bg-iv-danger group-hover:text-white" 
-
-          : "bg-iv-text/5 text-iv-text group-hover:bg-iv-text group-hover:text-iv-black"
-
-      }`}>
-
-        {loading ? <Loader2 size={20} className="animate-spin" /> : <Icon size={20} />}
-
-      </div>
-
-
-
-      {/* Label */}
-
-      <span className={`text-sm font-semibold tracking-tight ${
-
-        variant === "danger" ? "text-iv-danger" : "text-iv-text"
-
-      }`}>
-
-        {label}
-
-      </span>
-
-    </button>
-
-  );
-
-}
-
-
-
-function CommandResult({ status, message }: { status: "success" | "error"; message: string }) {
-
-  return (
-
-    <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${
-
-      status === "success" ? "bg-iv-green/10 text-iv-green" : "bg-iv-danger/10 text-iv-danger"
-
-    }`}>
-
-      {status === "success" ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-
-      {message}
-
-    </div>
-
-  );
-
-}
-
-
-
 function WarningLightPill({ category, defects }: { category: string; defects: any[] }) {
 
   const isOk = !defects || defects.length === 0;
@@ -844,8 +753,6 @@ export default function VehicleDetailPage() {
 
   const [climateTemp, setClimateTemp] = useState("21");
 
-  const [unlockSpin, setUnlockSpin] = useState("");
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -1007,22 +914,38 @@ export default function VehicleDetailPage() {
 
 
 
+  const lastCmdRef = useRef<{ command: string; body?: object } | null>(null);
+
   const runCommand = async (command: string, body?: object) => {
-
-    setCmdLoading(command); setCmdResult(null);
-
+    lastCmdRef.current = { command, body };
+    setCmdLoading(command);
+    setCmdResult(null);
     try {
-
       const res = await api.sendCommand(vehicleId, command, body);
-
-      setCmdResult({ status: "success", message: res.message || "Command sent successfully" });
-
+      if (res.status === "failed") {
+        setCmdResult({
+          status: "error",
+          message: res.message || "Command failed. Try again.",
+        });
+      } else {
+        setCmdResult({
+          status: "success",
+          message: res.message || "Command sent successfully",
+        });
+      }
     } catch (err) {
+      setCmdResult({
+        status: "error",
+        message: err instanceof Error ? err.message : "Command failed. Try again.",
+      });
+    } finally {
+      setCmdLoading(null);
+    }
+  };
 
-      setCmdResult({ status: "error", message: err instanceof Error ? err.message : "Command failed" });
-
-    } finally { setCmdLoading(null); }
-
+  const retryCommand = () => {
+    const last = lastCmdRef.current;
+    if (last) void runCommand(last.command, last.body);
   };
 
 
@@ -2884,143 +2807,30 @@ export default function VehicleDetailPage() {
       {/* ===== COMMANDS ===== */}
 
       {tab === "commands" && (
-
-        <div className="space-y-6">
-
-          {cmdResult && <CommandResult status={cmdResult.status} message={cmdResult.message} />}
-
-          
-
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-
-            
-
-            {/* Climate Control - Double Height/Width on mobile, square on desktop */}
-
-            <div className="col-span-2 lg:col-span-2 row-span-1 lg:row-span-1 relative overflow-hidden rounded-2xl bg-iv-surface/40 border border-iv-border/50 backdrop-blur-md p-5 flex flex-col justify-between group hover:border-iv-green/30 transition-all">
-
-               <div className="flex justify-between items-start">
-
-                 <div className="p-2.5 rounded-full bg-iv-green/10 text-iv-green">
-
-                   <Thermometer size={20} />
-
-                 </div>
-
-                 <div className="flex items-center gap-1 bg-iv-surface rounded-lg px-2 py-1 border border-iv-border/50">
-
-                    <input type="number" min={usesFahrenheit ? 61 : 16} max={usesFahrenheit ? 86 : 30} value={usesFahrenheit ? String(Math.round(cToF(parseFloat(climateTemp) || 21))) : climateTemp} onChange={(e) => {
-                      const n = parseFloat(e.target.value);
-                      if (Number.isNaN(n)) { setClimateTemp(e.target.value); return; }
-                      setClimateTemp(String(usesFahrenheit ? Math.round(fToC(n) * 10) / 10 : n));
-                    }}
-
-                      className="w-8 bg-transparent text-center font-bold text-lg text-iv-text focus:outline-none" />
-
-                    <span className="text-xs text-iv-muted">{tempLabel}</span>
-
-                 </div>
-
-               </div>
-
-               
-
-               <div>
-
-                 <h3 className="font-semibold text-iv-text">Climate Control</h3>
-
-                 <div className="flex gap-2 mt-3">
-
-                    <button type="button" onClick={() => runCommand("climatization/start", { target_temperature: parseFloat(climateTemp) })}
-
-                      disabled={cmdLoading !== null}
-
-                      className="flex-1 py-2.5 rounded-xl bg-iv-text text-iv-black font-semibold text-sm hover:bg-iv-text/90 transition-colors disabled:opacity-50">
-
-                      {cmdLoading === "climatization/start" ? "Starting..." : "Start"}
-
-                    </button>
-
-                    <button type="button" onClick={() => runCommand("climatization/stop")}
-
-                      disabled={cmdLoading !== null}
-
-                      className="px-4 py-2.5 rounded-xl bg-iv-surface border border-iv-border text-iv-text font-medium text-sm hover:bg-iv-border/50 transition-colors">
-
-                      Stop
-
-                    </button>
-
-                 </div>
-
-               </div>
-
-            </div>
-
-
-
-            {/* Unlock - Double Height/Width on mobile, square on desktop */}
-
-            <div className="col-span-2 lg:col-span-2 row-span-1 relative overflow-hidden rounded-2xl bg-iv-surface/40 border border-iv-border/50 backdrop-blur-md p-5 flex flex-col justify-between group hover:border-iv-warning/30 transition-all">
-
-               <div className="flex justify-between items-start">
-
-                 <div className="p-2.5 rounded-full bg-iv-warning/10 text-iv-warning">
-
-                   <Unlock size={20} />
-
-                 </div>
-
-               </div>
-
-               
-
-               <div>
-
-                 <h3 className="font-semibold text-iv-text">Security Unlock</h3>
-
-                 <div className="flex gap-2 mt-3">
-
-                    <PasswordInput
-                      placeholder="S-PIN"
-                      value={unlockSpin}
-                      onChange={(e) => setUnlockSpin(e.target.value)}
-                      wrapperClassName="flex-1"
-                      className="w-full rounded-xl bg-iv-surface border border-iv-border px-3 text-sm text-iv-text text-center focus:outline-none focus:border-iv-warning/50 transition-all"
-                    />
-
-                    <button type="button" onClick={() => runCommand("unlock", { spin: unlockSpin })} disabled={cmdLoading !== null || !unlockSpin}
-
-                      className="px-6 py-2.5 rounded-xl bg-iv-warning/10 text-iv-warning border border-iv-warning/20 font-semibold text-sm hover:bg-iv-warning/20 transition-colors disabled:opacity-50">
-
-                      {cmdLoading === "unlock" ? "..." : "Unlock"}
-
-                    </button>
-
-                 </div>
-
-               </div>
-
-            </div>
-
-
-
-            <CommandButton icon={Zap} label="Start Charging" onClick={() => runCommand("charging/start")} loading={cmdLoading === "charging/start"} />
-
-            <CommandButton icon={ZapOff} label="Stop Charging" onClick={() => runCommand("charging/stop")} loading={cmdLoading === "charging/stop"} />
-
-            <CommandButton icon={Lock} label="Lock Vehicle" onClick={() => runCommand("lock")} loading={cmdLoading === "lock"} />
-
-            <CommandButton icon={Volume2} label="Honk & Flash" onClick={() => runCommand("honk-flash")} loading={cmdLoading === "honk-flash"} />
-
-            <CommandButton icon={Power} label="Wake Up" onClick={() => runCommand("wake")} loading={cmdLoading === "wake"} />
-
-            
-
-          </div>
-
-        </div>
-
+        <CommandsPanel
+          climateTempC={parseFloat(climateTemp) || 21}
+          onClimateTempC={(c) => setClimateTemp(String(c))}
+          usesFahrenheit={usesFahrenheit}
+          climateRunning={Boolean(
+            status?.climate_state && status.climate_state.toLowerCase().includes("on")
+          )}
+          charging={
+            status?.latest_charging_state
+              ? status.latest_charging_state.toLowerCase().includes("charg")
+              : null
+          }
+          locked={
+            status?.doors_locked == null
+              ? null
+              : status.doors_locked.toLowerCase().includes("locked")
+          }
+          hasLogin={Boolean(vehicle?.has_skoda_login)}
+          hasApiKey={Boolean(vehicle?.has_api_key)}
+          cmdLoading={cmdLoading}
+          cmdResult={cmdResult}
+          onCommand={runCommand}
+          onRetry={retryCommand}
+        />
       )}
 
 
