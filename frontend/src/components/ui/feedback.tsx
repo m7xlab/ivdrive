@@ -212,7 +212,7 @@ function ConfirmDialog({ pending, onClose }: {
 
   return (
 
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
 
       <div
 
@@ -324,7 +324,7 @@ function ToastViewport({ toasts, onDismiss }: {
 
   return (
 
-    <div className="fixed top-4 right-4 z-[300] flex flex-col gap-2 w-full max-w-sm pointer-events-none">
+    <div className="fixed top-4 right-4 z-[700] flex flex-col gap-2 w-full max-w-sm pointer-events-none">
 
       {toasts.map((t) => {
 

@@ -421,7 +421,7 @@ export function ChargingSessionsDashboard({
       })}
 
       {formMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl bg-iv-charcoal p-6 shadow-2xl border border-iv-border">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-iv-text">{formMode === "create" ? "Add Charge" : "Edit Charge"}</h3>
@@ -575,7 +575,7 @@ export function ChargingSessionsDashboard({
       )}
 
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div
             role="button"
             tabIndex={0}

@@ -2845,7 +2845,7 @@ export default function VehicleDetailPage() {
 
       {showDeleteModal && (
 
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
 
           <div
             role="button"
