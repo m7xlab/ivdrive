@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,13 +28,24 @@ def humanize_command_error(exc: Exception) -> str:
     if isinstance(exc, CommandUnsupported):
         return str(exc)
     text = str(exc).lower()
-    if any(s in text for s in ("spin", "pin")) and any(
-        s in text for s in ("invalid", "reject", "wrong", "incorrect")
+    if re.search(r"\b(?:s-?pin|spin|pin)\b", text) and re.search(
+        r"invalid|reject|wrong|incorrect", text
     ):
         return "That S-PIN was not accepted. Check it and try again."
-    if any(s in text for s in ("401", "403", "expired", "unauthorized", "invalid token", "token rejected", "rejected", "not authorized")):
+    if re.search(r"api\s*key|x-api-key", text):
+        return (
+            "Your official API key was rejected or expired. "
+            "Open Vehicles and save a new API key for this car."
+        )
+    if re.search(
+        r"\b40[13]\b|expired|unauthorized|invalid token|token rejected|not authorized",
+        text,
+    ):
         return "MyŠkoda Login expired — reconnect in Vehicles."
-    if any(s in text for s in ("timeout", "timed out", "unreachable")):
+    if isinstance(exc, (TimeoutError, ConnectionError)) or re.search(
+        r"timeout|timed out|unreachable|connection refused|connection reset|connection attempt",
+        text,
+    ):
         return "Couldn’t reach the car. Try again in a moment."
     return "Command failed. Try again."
 

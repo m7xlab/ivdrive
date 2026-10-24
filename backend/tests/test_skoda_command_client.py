@@ -1,4 +1,4 @@
-"""Facade-level tests for SkodaCommandClient spin forwarding."""
+"""Facade-level tests for SkodaCommandClient spin forwarding, honk, and error humanizer."""
 
 from __future__ import annotations
 
@@ -96,3 +96,21 @@ def test_humanize_generic_error():
     msg = humanize_command_error(RuntimeError("boom stack"))
     assert "stack" not in msg
     assert "try again" in msg.lower()
+
+
+def test_vehicle_rejection_is_not_login_expired():
+    msg = humanize_command_error(CommandError('HTTP 400: {"detail":"request rejected by vehicle"}'))
+    assert "login expired" not in msg.lower()
+    assert "reconnect" not in msg.lower()
+
+
+def test_api_key_error_is_not_login_expired():
+    msg = humanize_command_error(CommandError("Invalid or expired X-API-Key"))
+    assert "login expired" not in msg.lower()
+    assert "api key" in msg.lower()
+
+
+def test_mapping_typo_is_not_spin():
+    msg = humanize_command_error(CommandError("response mapping invalid"))
+    assert "pin" not in msg.lower()
+    assert "s-pin" not in msg.lower()

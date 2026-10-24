@@ -77,7 +77,7 @@ async def test_wake_without_login_raises_human_error():
         await run_command(
             "wake", vin="TESTVIN0000000001", login_client=None, public_client=pub
         )
-    assert "Connect MyŠkoda Login to unlock / wake the car." in str(exc.value)
+    assert "Connect MyŠkoda Login to lock / unlock / wake the car." in str(exc.value)
 
 
 @pytest.mark.asyncio
