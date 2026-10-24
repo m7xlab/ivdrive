@@ -91,3 +91,21 @@ async def test_charge_limit_params_passed():
         percent=80,
     )
     assert ("charge_limit", "TESTVIN0000000001", 80) in bff.calls
+
+
+class FakeBFFUnlock(FakeBFF):
+    async def unlock(self, vin: str, spin: str | None = None) -> None:
+        self.calls.append(("unlock", vin, spin))
+
+
+@pytest.mark.asyncio
+async def test_unlock_forwards_spin():
+    bff = FakeBFFUnlock()
+    await run_command(
+        "unlock",
+        vin="TESTVIN0000000001",
+        login_client=bff,
+        public_client=None,
+        spin="1234",
+    )
+    assert ("unlock", "TESTVIN0000000001", "1234") in bff.calls

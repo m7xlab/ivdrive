@@ -71,7 +71,7 @@ class SkodaCommandClient:
         await self._run(vin, "lock")
 
     async def unlock(self, vin: str, spin: str | None = None):
-        await self._run(vin, "unlock")
+        await self._run(vin, "unlock", spin=spin or self.spin)
 
     async def honk_flash(self, vin: str):
         raise CommandUnsupported("Honk and flash is not available on this connection.")

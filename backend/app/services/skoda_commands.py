@@ -88,7 +88,7 @@ async def _run_bff(client: SkodaBFFClient, op: str, vin: str, **params: Any) -> 
     elif op == "lock":
         await client.lock(vin)
     elif op == "unlock":
-        await client.unlock(vin)
+        await client.unlock(vin, spin=params.get("spin"))
     elif op == "charge_start":
         await client.start_charging(vin)
     elif op == "charge_stop":
