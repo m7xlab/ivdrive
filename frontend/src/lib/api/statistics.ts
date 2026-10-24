@@ -171,6 +171,15 @@ export const statisticsApi = {
   },
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async createChargingSession(id: string, body: any) {
+    const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-sessions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async updateChargingSession(id: string, sessionId: string | number, data: any) {
     const res = await apiFetch(`/api/v1/vehicles/${id}/analytics/charging-sessions/${sessionId}`, {
       method: "PATCH",
