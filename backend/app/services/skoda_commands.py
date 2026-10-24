@@ -78,6 +78,16 @@ async def run_command(
     except CommandUnsupported:
         raise
     except Exception as exc:
+        # Shared ops: if the Login path fails, try the official Public API
+        # (climate start is better specified there).
+        if public_client is not None and op in SHARED_OPS and login_client is not None:
+            try:
+                await _run_public(public_client, op, vin, **params)
+                return _MESSAGES[op]
+            except Exception as fallback_exc:
+                raise CommandError(
+                    f"{exc} | public fallback: {fallback_exc}"
+                ) from exc
         raise CommandError(str(exc)) from exc
     return _MESSAGES[op]
 
