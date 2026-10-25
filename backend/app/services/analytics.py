@@ -59,6 +59,31 @@ def is_actively_charging(state: str | None, charge_power_kw: float | None = None
 FLAT_SOC_MINUTES = 30
 
 
+def should_start_session(
+    *,
+    state: str | None,
+    charge_power_kw: float | None,
+    new_soc: float | None,
+    prev_soc: float | None,
+) -> bool:
+    """True when a *new* ChargingSession may be opened.
+
+    A cable in the socket alone (CONNECT_CABLE / CONSERVING / READY_FOR_CHARGING
+    at 0 kW with flat SoC) is not a charge. Without this guard, the flat-SoC
+    auto-close and the next poll formed a close/reopen loop of empty sessions.
+    Home AC that reports 0 kW is still captured when SoC is rising.
+    """
+    if not is_plugged_in(state):
+        return False
+    if is_actively_charging(state, charge_power_kw):
+        return True
+    return (
+        new_soc is not None
+        and prev_soc is not None
+        and (new_soc - prev_soc) >= 0.5
+    )
+
+
 def _as_naive_utc(dt: datetime | None) -> datetime | None:
     """Compare DB timestamps safely whether the driver returns naive or aware."""
     if dt is None:
@@ -324,22 +349,30 @@ async def process_completed_trips_and_charges(user_vehicle_id: UUID) -> None:
                 for extra in extras:
                     await _close_session(extra, set_end_level=False)
 
-                start_new_session = True
+                prev_charge_res = await session.execute(
+                    select(ChargingState.battery_pct)
+                    .where(
+                        ChargingState.user_vehicle_id == user_vehicle_id,
+                        ChargingState.first_date < latest_charge.first_date,
+                    )
+                    .order_by(ChargingState.first_date.desc())
+                    .limit(1)
+                )
+                prev_soc = prev_charge_res.scalar_one_or_none()
+                prev_soc = float(prev_soc) if prev_soc is not None else None
+
+                start_new_session = should_start_session(
+                    state=charge_state,
+                    charge_power_kw=charge_power,
+                    new_soc=new_soc,
+                    prev_soc=prev_soc,
+                )
                 if open_charge and _should_close(open_charge):
                     # Gap (new charge after driving) or the previous charge
-                    # finished with the cable still in. Close it so a new
-                    # session can replace a stale one ("dropped charges").
-                    last_soc_val = _session_last_soc(open_charge)
-                    soc_dropped = (
-                        last_soc_val is not None
-                        and new_soc is not None
-                        and (last_soc_val - new_soc) >= 0.5
-                    )
-                    new_charge_starting = is_actively_charging(charge_state, charge_power) or soc_dropped
+                    # finished with the cable still in. Close it; a new session
+                    # opens only if energy is actually flowing again.
                     await _close_session(open_charge, set_end_level=False)
                     open_charge = None
-                    # Finished-but-still-plugged-in has nothing new to record.
-                    start_new_session = new_charge_starting
 
                 if open_charge:
                     if latest_pos and latest_pos.outside_temp_celsius:
