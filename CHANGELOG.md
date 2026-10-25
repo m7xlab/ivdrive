@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.3.4] - 2026-10-25
+**No more phantom charging sessions.** A parked car with the cable in no longer creates empty "Unknown Provider" sessions.
+
+### Fixed
+- **Mystery "Ongoing" charges (97% → 97%)** — a session opened whenever the car reported a plugged-in state (`CONNECT_CABLE`, `CONSERVING`, `READY_FOR_CHARGING`, `CHARGING_INTERRUPTED`) even at 0 kW with flat battery. After the flat-SoC auto-close the next poll reopened it, and deleting the row only started the cycle again.
+- New sessions now open only when energy is flowing (state `CHARGING`, power above 0, or battery rising). Home AC that reports 0 kW is still captured once the battery level rises.
+- A drive followed by a parked cable (lower SoC at 0 kW) is no longer treated as a new charge.
+
+### Notes
+- Rebuild **collector** and **api**.
+- No database migration. Existing empty sessions (start level = end level, no energy) can be removed with **Delete charge**.
+
 ## [v1.3.3] - 2026-10-24
 **Smart polling finds your car again.** Short drives and remote heating no longer disappear between checks.
 
