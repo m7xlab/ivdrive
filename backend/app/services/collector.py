@@ -1522,6 +1522,11 @@ class DataCollector:
                 "Public Škoda snapshot ok vehicle=%s soc=%s moving=%s rate_left=%s",
                 vehicle.id, snap.soc, snap.is_moving, meta.rate_limit_remaining,
             )
+            # Same as the Login path: derive trips / charging sessions from the data just
+            # stored. Without this a Public-API-only vehicle never gets trips (#204).
+            task = asyncio.create_task(process_completed_trips_and_charges(vehicle.id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._handle_task_result)
             return True
         except Exception:
             logger.warning("Public snapshot persist failed for %s", vehicle.id, exc_info=True)

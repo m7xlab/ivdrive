@@ -8,6 +8,7 @@
 - **Silent poll failures during home AC charging** — reopening a session reused the previous start time, hit the unique constraint and rolled back the whole poll (live SoC, close). It is now checked before insert.
 - **Flat-SoC auto-close measured from session start** — a long slow charge could close mid-charge. It now uses the time of the last SoC change.
 - **Missing trip kilometres (#204)** — a trip noticed one poll late started at the odometer of that poll and dropped the earlier distance (e.g. 17 of 21 km). It now starts from the last known odometer reading and is marked `estimated_start`.
+- **No trips or charges at all on Public API installs (#204)** — the Public API collection path stored telemetry but never started trip/charge processing (only the Login path did). It now does, after each successful snapshot.
 - **Trip end time** is the telemetry timestamp, not the processing time. A start/end odometer or SoC of `0` is no longer ignored.
 - **Second home charge never recorded (#185, #198)** — a charge that began while the state row had been merged for days (`CONNECT_CABLE`) reused that row's old start time, collided with the previous session and was skipped. New sessions now start at the current poll when the row start is not newer than the last session's end.
 - **0 km trips** — Škoda's odometer can lag the moving flag, so a trip closed with 0 km. The distance is now attributed from the next odometer reading (live, for the last 3 hours). Remaining one-poll "moving" flickers can be cleaned with the new backfill tool.
