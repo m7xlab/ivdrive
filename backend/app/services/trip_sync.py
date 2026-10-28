@@ -95,10 +95,34 @@ def _covers(trip: Trip, leg: Leg, now: datetime) -> bool:
     return overlap >= 0.5 * shorter
 
 
+def _enrich(trip: Trip, leg: Leg, capacity: float, now: datetime, apply: bool) -> bool:
+    """Fill NULL energy/SoC/coordinates on a trip that this leg fully accounts for."""
+    t_start = trip.start_date.astimezone(timezone.utc)
+    t_end = (trip.end_date or now).astimezone(timezone.utc)
+    dur = max((t_end - t_start).total_seconds(), 60.0)
+    if (min(t_end, leg.end) - max(t_start, leg.start)).total_seconds() < 0.8 * dur:
+        return False  # trip spans more than this leg: ambiguous, leave it
+    changes: dict = {}
+    if trip.start_soc is None and leg.start_soc is not None:
+        changes["start_soc"] = leg.start_soc
+    if trip.end_soc is None and leg.end_soc is not None:
+        changes["end_soc"] = leg.end_soc
+    if trip.kwh_consumed is None and leg.start_soc is not None and leg.end_soc is not None and leg.start_soc > leg.end_soc:
+        changes["kwh_consumed"] = (leg.start_soc - leg.end_soc) / 100.0 * capacity
+    for attr, val in (("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)):
+        if getattr(trip, attr) is None and val is not None:
+            changes[attr] = val
+    if changes and apply:
+        for k, v in changes.items():
+            setattr(trip, k, v)
+    return bool(changes)
+
+
 @dataclass
 class SyncResult:
     inserted: int = 0
     distance_filled: int = 0
+    enriched: int = 0
     skipped_covered: int = 0
     km_added: float = 0.0
 
@@ -124,7 +148,11 @@ async def sync_legs(
         )).scalars())
         overlapping = [t for t in cands if _covers(t, leg, now)]
         if overlapping:
-            # A recorded trip covers this leg. Only repair a trip that lost its distance.
+            # A recorded trip covers this leg. Fill what we never measured (energy, SoC,
+            # coordinates) from Škoda's record; never replace a value we measured.
+            for t in overlapping:
+                if _enrich(t, leg, capacity, now, apply):
+                    res.enriched += 1
             for t in overlapping:
                 if (t.distance_km in (None, 0)) and t.start_odometer is not None and leg.km > 0 and len(overlapping) == 1:
                     res.distance_filled += 1
@@ -151,9 +179,27 @@ async def sync_legs(
                 kwh_consumed=(used / 100.0 * capacity) if used and used > 0 else None,
                 data_quality="skoda_history",
             ))
-    if apply and (res.inserted or res.distance_filled):
+    if apply and (res.inserted or res.distance_filled or res.enriched):
         await session.flush()
     return res
+
+
+# Škoda's private API can change or be switched off at any time. Polling stays the primary
+# record; this layer only repairs. On failure: back off (30 min doubling to 24 h), say so once.
+_failures: dict[UUID, tuple[int, datetime]] = {}
+MAX_BACKOFF = timedelta(hours=24)
+
+
+def _note_failure(vid: UUID, why: str) -> None:
+    n = _failures.get(vid, (0, None))[0] + 1
+    wait = min(MAX_BACKOFF, timedelta(minutes=30) * 2 ** (n - 1))
+    _failures[vid] = (n, datetime.now(timezone.utc) + wait)
+    log = logger.warning if n == 1 else logger.info
+    log("trip sync paused for %s (%s); retry in %s. Polling is unaffected.", vid, why, wait)
+
+
+def _valid_payload(payload: object) -> bool:
+    return isinstance(payload, dict) and isinstance(payload.get("dailyTrips"), list)
 
 
 async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True, pause_s: float = 3.0) -> dict[str, SyncResult]:
@@ -180,6 +226,9 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
         ids = list((await s.execute(q)).scalars())
 
     for vid in ids:
+        retry_at = _failures.get(vid, (0, None))[1]
+        if retry_at and datetime.now(timezone.utc) < retry_at:
+            continue
         try:
             async with async_session() as s:
                 v = (await s.execute(
@@ -202,15 +251,24 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 api = SkodaAPIClient(token)
                 try:
                     payload = await api.get_single_trips(decrypt_field(v.vin_encrypted))
+                except Exception as e:
+                    _note_failure(vid, f"history request failed: {type(e).__name__} {str(e)[:60]}")
+                    continue
                 finally:
                     await api.close()
+                if not _valid_payload(payload):
+                    _note_failure(vid, "unexpected response format (Škoda may have changed the API)")
+                    continue
+                if vid in _failures:
+                    logger.info("trip sync recovered for %s", vid)
+                    _failures.pop(vid, None)
                 res = await sync_legs(s, vid, parse_legs(payload), capacity_kwh=v.battery_capacity_kwh, apply=apply)
                 if apply:
                     await s.commit()
                 out[str(vid)] = res
-                if res.inserted or res.distance_filled:
-                    logger.info("trip sync %s: +%d trips, %d distances filled, +%.0f km (apply=%s)",
-                                vid, res.inserted, res.distance_filled, res.km_added, apply)
+                if res.inserted or res.distance_filled or res.enriched:
+                    logger.info("trip sync %s: +%d trips, %d distances filled, %d enriched, +%.0f km (apply=%s)",
+                                vid, res.inserted, res.distance_filled, res.enriched, res.km_added, apply)
         except Exception as e:  # one vehicle must never stop the rest
             logger.warning("trip sync failed for %s: %s", vid, str(e)[:200])
         await asyncio.sleep(pause_s)

@@ -27,7 +27,7 @@ async def main() -> None:
     a = ap.parse_args()
     res = await run_trip_sync(a.vehicle, apply=a.apply)
     for vid, r in res.items():
-        print(f"{vid}: +{r.inserted} trips ({r.km_added:.0f} km), {r.distance_filled} distances filled, {r.skipped_covered} already covered")
+        print(f"{vid}: +{r.inserted} trips ({r.km_added:.0f} km), {r.distance_filled} distances filled, {r.enriched} enriched, {r.skipped_covered} already covered")
     print(f"\n{'APPLIED' if a.apply else 'DRY RUN (nothing written; use --apply)'}: {len(res)} vehicles checked")
 
 
