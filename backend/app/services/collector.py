@@ -179,6 +179,20 @@ class DataCollector:
 
 
         from app.scripts.fetch_fuel_prices import fetch_and_store_fuel_prices
+        # MyŠkoda server-side trip history: fills trips that polling missed. Own schedule
+        # (one GET per Login vehicle per run); does not touch the smart-poll intervals.
+        from app.services.trip_sync import run_trip_sync
+        self._scheduler.add_job(
+            run_trip_sync,
+            "interval",
+            hours=6,
+            id="skoda_trip_sync",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=10),
+        )
+
         self._scheduler.add_job(
             fetch_and_store_fuel_prices,
             "cron",
