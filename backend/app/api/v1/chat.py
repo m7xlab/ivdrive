@@ -22,35 +22,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db, get_current_user
 from app.services.ai_embeddings import generate_embedding, search_similar
+from app.services.llm_providers import LLMError, complete, provider_order
 from app.services.valkey_client import get_valkey, get_session_flag, set_session_flag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
-
-# ─── LLM providers ──────────────────────────────────────────────────────────────
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-LLM_URLS = {
-    "minimax": "https://api.minimax.io/v1/chat/completions",
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-    "openai": "https://api.openai.com/v1/chat/completions",
-}
-
-LLM_MODELS = {
-    "minimax": "MiniMax-M3",
-    "gemini": "gemini-2.5-flash",
-    "openai": "gpt-4o-mini",
-}
-
 
 # ─── Request/Response models ─────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     vehicle_id: str | None = None
     session_id: str | None = None
-    provider: Literal["minimax", "gemini", "openai"] = "minimax"
+    provider: str = Field("minimax", pattern=r"^[a-z0-9_-]{1,32}$")  # tier config decides the real one
 
 
 class SourceRef(BaseModel):
@@ -361,102 +344,28 @@ async def call_llm(
         {"role": "user", "content": user_content},
     ]
 
-    # Try requested provider first, then fall back
-    providers = [provider] + [p for p in LLM_URLS if p != provider]
+    # Requested provider first, then the other configured providers (see llm_providers)
+    chain = provider_order(provider)
+    if not chain:
+        logger.error("No LLM provider configured")
+        return (
+            "No AI provider is configured on this server. An admin can set OPENAI_BASE_URL / "
+            "OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_BASE_URL, GEMINI_API_KEY or MINIMAX_API_KEY."
+        )
     last_error = ""
-
-    for prov in providers:
+    for prov in chain:
+        # The tier's model applies to the provider the tier names; fallbacks use their own default.
+        eff_model = model if (model and prov.name == provider) else prov.default_model
         try:
-            if prov == "minimax":
-                if not MINIMAX_API_KEY:
-                    continue
-                # Use the gate's model only if it looks like a minimax model.
-                # Otherwise (e.g. gemini model fell back here) use the minimax default.
-                eff_model = model if (model and (model.startswith("MiniMax-") or model.startswith("abab"))) else LLM_MODELS[prov]
-                req_json = {
-                    "model": eff_model,
-                    "messages": messages,
-                    "temperature": 0.3,
-                }
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.post(
-                        LLM_URLS[prov],
-                        headers={
-                            "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                            "Content-Type": "application/json",
-                        },
-                        json=req_json,
-                    )
-                    if resp.status_code != 200:
-                        last_error = f"minimax {resp.status_code}: {resp.text[:100]}"
-                        continue
-                    data = resp.json()
-                    if usage_stats is not None and "usage" in data:
-                        u = data["usage"]
-                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
-                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
-                        usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cached_tokens", 0)
-                    answer = _strip_thinking(data["choices"][0]["message"]["content"])
-                    return answer
-
-            elif prov == "gemini":
-                if not GEMINI_API_KEY:
-                    continue
-                # Use gate's model only if it looks like a gemini model. If a minimax
-                # model name was passed in, use the gemini default instead.
-                gemini_eff_model = model if (model and model.startswith("gemini-")) else LLM_MODELS[prov]
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.post(
-                        f"{LLM_URLS[prov]}?key={GEMINI_API_KEY}",
-                        headers={"Content-Type": "application/json"},
-                        json={
-                            "contents": [{"parts": [{"text": messages[1]["content"]}]}],
-                            "systemInstruction": {"parts": [{"text": system_prompt}]},
-                        },
-                    )
-                    if resp.status_code != 200:
-                        last_error = f"gemini {resp.status_code}: {resp.text[:100]}"
-                        continue
-                    data = resp.json()
-                    if usage_stats is not None and "usageMetadata" in data:
-                        u = data["usageMetadata"]
-                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("promptTokenCount", 0)
-                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("candidatesTokenCount", 0)
-                        usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + u.get("cachedContentTokenCount", 0)
-                    return _strip_thinking(data["candidates"][0]["content"]["parts"][0]["text"])
-
-            elif prov == "openai":
-                if not OPENAI_API_KEY:
-                    continue
-                # Use gate's model only if it looks like an openai model.
-                openai_eff_model = model if (model and (model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"))) else LLM_MODELS[prov]
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.post(
-                        LLM_URLS[prov],
-                        headers={
-                            "Authorization": f"Bearer {OPENAI_API_KEY}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": openai_eff_model,
-                            "messages": messages,
-                            "temperature": 0.3,
-                        },
-                    )
-                    if resp.status_code != 200:
-                        last_error = f"openai {resp.status_code}: {resp.text[:100]}"
-                        continue
-                    data = resp.json()
-                    if usage_stats is not None and "usage" in data:
-                        u = data["usage"]
-                        usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + u.get("prompt_tokens", 0)
-                        usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + u.get("completion_tokens", 0)
-                        # openai might have prompt_tokens_details
-                    return _strip_thinking(data["choices"][0]["message"]["content"])
-
-        except Exception as e:
-            last_error = f"{prov} exception: {str(e)[:80]}"
+            res = await complete(prov, eff_model, system_prompt, user_content)
+        except LLMError as e:
+            last_error = str(e)
             continue
+        if usage_stats is not None:
+            usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + res.prompt_tokens
+            usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + res.completion_tokens
+            usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + res.cached_tokens
+        return _strip_thinking(res.text)
 
     logger.error(f"All LLM providers failed. Last error: {last_error}")
     return f"I'm having trouble generating a response right now. Please try again in a moment. ({last_error[:60]})"

@@ -30,7 +30,12 @@ MINIMAX_EMBEDDING_URL = "https://api.minimax.chat/v1/embeddings"
 OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
 
 # Provider selection. Falls back to deterministic if Gemini fails.
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "gemini-embedding-001").lower()
+# Unset -> Gemini when a key exists, otherwise the offline deterministic embedder.
+# "openai" / "ollama" use any OpenAI-compatible /embeddings endpoint (see below).
+EMBEDDING_PROVIDER = (
+    os.getenv("EMBEDDING_PROVIDER")
+    or ("gemini-embedding-001" if GEMINI_API_KEY and GEMINI_API_KEY.upper() != "CHANGE_ME" else "deterministic")
+).lower()
 EMBEDDING_FALLBACK = os.getenv("EMBEDDING_FALLBACK", "deterministic").lower()
 EMBEDDING_DIM = 768  # gemini-embedding-001 @ 768 (Matryoshka)
 BATCH_SIZE = 20
@@ -268,6 +273,54 @@ def keyword_score(query: str, chunk: str, content_type: str) -> float:
     return jaccard + type_boost
 
 
+# ─── OpenAI-compatible embeddings (OpenAI, Ollama, LM Studio, vLLM, ...) ───
+def _compat_embedding_config(provider: str) -> tuple[str, str, str]:
+    """(url, api_key, model) from EMBEDDING_* with OPENAI_*/OLLAMA_* fallbacks."""
+    def env(n: str) -> str:
+        v = os.getenv(n, "").strip()
+        return "" if v.upper() == "CHANGE_ME" else v
+    if provider == "ollama":
+        base = env("EMBEDDING_BASE_URL") or env("OLLAMA_BASE_URL") or "http://localhost:11434"
+        key = env("EMBEDDING_API_KEY") or env("OLLAMA_API_KEY")
+        model = env("EMBEDDING_MODEL") or "nomic-embed-text"
+        if not base.rstrip("/").endswith("/v1"):
+            base = base.rstrip("/") + "/v1"
+    else:
+        base = env("EMBEDDING_BASE_URL") or env("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        key = env("EMBEDDING_API_KEY") or env("OPENAI_API_KEY")
+        model = env("EMBEDDING_MODEL") or "text-embedding-3-small"
+    return base.rstrip("/") + "/embeddings", key, model
+
+
+async def batch_openai_compat_embeddings(
+    texts: list[str], provider: str = "openai", dim: int = 768
+) -> list[Optional[list[float]]]:
+    """Embed `texts`; each vector must be exactly `dim` long (pgvector column) or it is dropped."""
+    url, key, model = _compat_embedding_config(provider)
+    headers = {"Content-Type": "application/json", **({"Authorization": f"Bearer {key}"} if key else {})}
+    body: dict = {"model": model, "input": texts}
+    if provider == "openai" and model.startswith("text-embedding-3"):
+        body["dimensions"] = dim  # Matryoshka-trained; other models cannot be truncated safely
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, headers=headers, json=body)
+        if r.status_code != 200:
+            logger.warning("%s embeddings HTTP %s: %s", provider, r.status_code, r.text[:200])
+            return [None] * len(texts)
+        vecs = [d["embedding"] for d in sorted(r.json()["data"], key=lambda d: d["index"])]
+    except Exception as e:
+        logger.warning("%s embeddings failed: %s", provider, e)
+        return [None] * len(texts)
+    out: list[Optional[list[float]]] = []
+    for v in vecs:
+        if len(v) != dim:
+            logger.warning("%s model %s returns %d dims, need %d - use a %d-dim model", provider, model, len(v), dim, dim)
+            out.append(None)
+        else:
+            out.append(v)
+    return out
+
+
 # ─── Embedding generation (with provider dispatch + fallback) ─────────────
 async def generate_embedding(
     text: str, provider: str = None, task_type: str = "RETRIEVAL_DOCUMENT"
@@ -297,6 +350,12 @@ async def generate_embedding(
             logger.warning("gemini-embedding failed, falling back")
             return text_to_deterministic_embedding(text), "deterministic@768"
 
+    elif provider in ("openai", "ollama"):
+        (vec,) = await batch_openai_compat_embeddings([text], provider, EMBEDDING_DIM)
+        if vec is not None:
+            return vec, f"{_compat_embedding_config(provider)[2]}@{EMBEDDING_DIM}"
+        return text_to_deterministic_embedding(text), "deterministic@768"
+
     elif provider in ("bge-m3", "bge_m3", "local-bge-m3", "local_bge_m3"):
         result = await text_to_bge_m3_embedding(text)
         if result is not None:
@@ -324,7 +383,13 @@ async def generate_batch_embeddings(texts: list[str], provider: str = None) -> l
                 for r, t in zip(result, texts)
             ]
 
-    # Fallback / non-gemini
+    if provider in ("openai", "ollama"):
+        result = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            result += await batch_openai_compat_embeddings(texts[i:i + BATCH_SIZE], provider, EMBEDDING_DIM)
+        return [r if r is not None else text_to_deterministic_embedding(t) for r, t in zip(result, texts)]
+
+    # Fallback / deterministic
     return [text_to_deterministic_embedding(t) for t in texts]
 
 

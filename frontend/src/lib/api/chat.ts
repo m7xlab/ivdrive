@@ -66,7 +66,7 @@ export const chatApi = {
     message: string,
     sessionId?: string | null,
     vehicleId?: string,
-    provider: "minimax" | "gemini" | "openai" = "minimax"
+    provider: string = "minimax"
   ): Promise<ChatResponse> {
     const body: Record<string, string> = { message };
     if (sessionId) body.session_id = sessionId;
@@ -98,7 +98,7 @@ export const chatApi = {
     sessionId: string | null | undefined,
     handlers: StreamHandlers,
     vehicleId?: string,
-    provider: "minimax" | "gemini" | "openai" = "minimax",
+    provider: string = "minimax",
   ): Promise<void> {
     const body: Record<string, string> = { message, provider };
     if (sessionId) body.session_id = sessionId;

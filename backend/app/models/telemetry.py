@@ -90,6 +90,8 @@ class ChargingSession(Base):
     actual_cost_eur: Mapped[float | None] = mapped_column(Float)
     provider_name: Mapped[str | None] = mapped_column(String(100))
     avg_temp_celsius: Mapped[float | None] = mapped_column(Float)
+    # When SoC last changed while this session was open; drives the flat-SoC auto-close.
+    last_soc_change_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     charging_plan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("user_charging_plans.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -194,6 +196,9 @@ class Trip(Base):
     end_soc: Mapped[int | None] = mapped_column(Integer)
     kwh_consumed: Mapped[float | None] = mapped_column(Float)
     avg_temp_celsius: Mapped[float | None] = mapped_column(Float)
+    # NULL = measured. "estimated_start" = departure was missed between polls and the
+    # start odometer was taken from the last known reading (start time is approximate).
+    data_quality: Mapped[str | None] = mapped_column(String(30))
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="trips")  # noqa: F821
 

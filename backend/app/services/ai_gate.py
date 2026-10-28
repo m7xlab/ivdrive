@@ -221,9 +221,12 @@ async def log_ai_usage(
 PRICING = {
     "minimax-m3": {"input": 0.60, "output": 2.40, "cache_hit": 0.12},
     "gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00, "cache_hit": 0.31},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50, "cache_hit": 0.075},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_hit": 0.075},
 }
 
-_PRICING_DEFAULT = "minimax-m3"
+# Models not listed (Ollama / self-hosted / new releases) are not billed by us: cost 0.
+_UNPRICED = {"input": 0.0, "output": 0.0, "cache_hit": 0.0}
 
 
 def estimate_cost_usd(
@@ -234,7 +237,7 @@ def estimate_cost_usd(
     Keyed by the real model_name the gate returns (e.g. 'MiniMax-M3',
     'gemini-3.1-pro-preview'), matched case-insensitively.
     """
-    p = PRICING.get((model_key or "").lower(), PRICING[_PRICING_DEFAULT])
+    p = PRICING.get((model_key or "").lower(), _UNPRICED)
     new_input = max(0, prompt_tokens - cached_tokens)
     cost = (
         (new_input / 1_000_000) * p["input"]
