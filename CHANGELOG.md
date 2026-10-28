@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.3.6] - 2026-10-29
+**Missing trips are filled from MyŠkoda's own trip history. MyŠkoda Login works again.**
+
+### Fixed
+- **MyŠkoda Login failed with "could not parse password form"** — Škoda now redirects after the email step; the login did not follow it, so adding a vehicle or re-authenticating failed.
+
+### Added
+- **Trip history sync (MyŠkoda Login vehicles)** — every 6 hours iVDrive reads Škoda's server-side trip history (about 60 days, with stops, times, SoC and exact odometer) and adds the trips polling missed. Trips already recorded are never changed or deleted; a 0 km trip gets its distance. New trips are marked `skoda_history`. The official Public API has no trip history, so Public-API-only vehicles are not covered. Check against real data: Škoda's 99 trips add up to exactly the odometer distance (1,422 km); polling alone had 1,237 km.
+- `python -m app.scripts.sync_skoda_trips --all` — same sync on demand (dry run by default).
+
+### Notes
+- Rebuild **api + collector**. No database migration.
+- The poll intervals are unchanged.
+
 ## [v1.3.5] - 2026-10-28
 **One charge, one session. Trips keep their kilometres. AI works on fresh installs and with any OpenAI/Anthropic-compatible or local (Ollama) model.**
 

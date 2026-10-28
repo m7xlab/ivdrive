@@ -151,6 +151,16 @@ async def login_with_password(email: str, password: str) -> dict:
             data=form,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
+        # Škoda now answers the email step with a 303 to /login/authenticate; the password
+        # page is behind that redirect (older flow returned it directly).
+        for _ in range(5):
+            nxt = r.headers.get("location")
+            if r.status_code not in (301, 302, 303, 307, 308) or not nxt:
+                break
+            if "code=" in nxt:  # already authorised (no password step needed)
+                break
+            cur = nxt if nxt.startswith("http") else urljoin(str(r.url), nxt)
+            r = await client.get(cur)
         body2 = r.text
         hidden = _hidden(body2)
         csrf = re.search(r"csrf_token: '([^']+)'", body2)

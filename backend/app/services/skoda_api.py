@@ -80,6 +80,12 @@ class SkodaAPIClient:
         resp.raise_for_status()
         return ConnectionStatusResponse.model_validate(resp.json())
 
+    async def get_single_trips(self, vin: str) -> dict:
+        """MyŠkoda server-side trip history (journeys with stops, ~60 days). Read-only."""
+        resp = await self._client.get(f"/api/v1/trip-statistics/{vin}/single-trips")
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_warning_lights(self, vin: str) -> dict:
         resp = await self._client.get(f"/api/v1/vehicle-health-report/warning-lights/{vin}")
         resp.raise_for_status()
