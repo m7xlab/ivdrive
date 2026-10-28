@@ -1,5 +1,32 @@
 # Changelog
 
+## [v1.3.5] - 2026-10-28
+**One charge, one session. Trips keep their kilometres. AI works on fresh installs and with any OpenAI/Anthropic-compatible or local (Ollama) model.**
+
+### Fixed
+- **Duplicate session after the target SoC is reached (#205, #198)** — when charging ended and the battery ticked 79% → 80% as the car switched to `CONNECT_CABLE` / `CONSERVING`, that tick was read as "battery rising" and opened a second 80% → 80% session. A new session in the same plug-in now needs real power flow.
+- **Silent poll failures during home AC charging** — reopening a session reused the previous start time, hit the unique constraint and rolled back the whole poll (live SoC, close). It is now checked before insert.
+- **Flat-SoC auto-close measured from session start** — a long slow charge could close mid-charge. It now uses the time of the last SoC change.
+- **Missing trip kilometres (#204)** — a trip noticed one poll late started at the odometer of that poll and dropped the earlier distance (e.g. 17 of 21 km). It now starts from the last known odometer reading and is marked `estimated_start`.
+- **Trip end time** is the telemetry timestamp, not the processing time. A start/end odometer or SoC of `0` is no longer ignored.
+- **Second home charge never recorded (#185, #198)** — a charge that began while the state row had been merged for days (`CONNECT_CABLE`) reused that row's old start time, collided with the previous session and was skipped. New sessions now start at the current poll when the row start is not newer than the last session's end.
+- **0 km trips** — Škoda's odometer can lag the moving flag, so a trip closed with 0 km. The distance is now attributed from the next odometer reading (live, for the last 3 hours). Remaining one-poll "moving" flickers can be cleaned with the new backfill tool.
+- **"AI Assistant not available" on self-hosted (#203)** — the documented `init_db` + `alembic stamp head` flow left `ai_tier_configs` empty and `ai_usage_log.id` without a default. `init_db` and a new migration restore the defaults and seed Free/Pro/Team (existing admin edits are kept). Seeded Pro/Team model is `gemini-2.5-flash`, which works on the Google AI Studio free tier.
+
+### Added
+- **Bring your own AI model** — `OPENAI_BASE_URL` / `OPENAI_API_KEY` (any OpenAI-compatible server: OpenAI, LM Studio, vLLM, OpenRouter), `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`, and `OLLAMA_BASE_URL` for local models. Every provider is optional, including Gemini and MiniMax; pick provider and model per tier in Admin → AI Assistant. `LLM_TIMEOUT_SECONDS` and `LLM_FALLBACK_PROVIDERS` tune slow local models and fallback.
+- **Embeddings without Gemini** — `EMBEDDING_PROVIDER=ollama|openai` with `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` (768-dim models). Unset uses Gemini only if its key is set, otherwise the offline hash.
+- **`python -m app.scripts.backfill_trips`** — dry-run-by-default repair of historical trips: attributes late odometer distance, reports uncovered odometer gaps, optionally adds `reconstructed` trips (`--create-reconstructed`) or deletes 0 km flicker trips (`--purge-phantom`). Back up first.
+
+### Changed
+- The tier's Gemini model is now actually used (it was ignored in favour of `gemini-2.5-flash`). Models without a price entry (local / new) are costed at $0 instead of MiniMax rates.
+
+### Notes
+- Rebuild **api + collector**. Run `alembic upgrade head` (adds `charging_sessions.last_soc_change_at`, `trips.data_quality`, repairs AI defaults).
+- Existing trips are not changed automatically. Run `python -m app.scripts.backfill_trips --all` (dry run) to see what it would repair.
+- Vehicles whose collector was offline have no telemetry for that period; those gaps are reported but cannot be reconstructed from data that was never collected.
+- Added a telemetry replay test suite (`backend/tests/replay`, needs a reachable Postgres; uses a throw-away database).
+
 ## [v1.3.4] - 2026-10-25
 **No more phantom charging sessions.** A parked car with the cable in no longer creates empty "Unknown Provider" sessions.
 

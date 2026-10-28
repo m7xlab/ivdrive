@@ -73,6 +73,7 @@ class TripItem(BaseModel):
     end_lon: float | None = None
     start_odometer: float | None = None
     end_odometer: float | None = None
+    data_quality: str | None = None  # None = measured; estimated_start | estimated_end | reconstructed
 
     model_config = {"from_attributes": True}
 
