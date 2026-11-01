@@ -166,3 +166,36 @@ async def test_stale_charging_row_while_driving_does_not_keep_the_session_open(r
     await replay(replay_sessionmaker, vehicle_id, polls)
     (s,) = await sessions(replay_sessionmaker, vehicle_id)
     assert s.session_end is not None and s.end_level == 80
+
+
+@pytest.mark.asyncio
+async def test_a_poll_without_battery_value_does_not_blank_the_end_level(replay_sessionmaker, vehicle_id):
+    polls = []
+    for i, p in enumerate(every("08:00", "08:40", 5, charge_state="CHARGING", power_kw=7.0, odometer=1000)):
+        p.soc = 60 + i * 2
+        polls.append(p)
+    polls.append(Poll(t("08:45"), charge_state="CHARGING", power_kw=7.0, soc=None, odometer=1000))
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    (s,) = await sessions(replay_sessionmaker, vehicle_id)
+    assert s.end_level == 76 and s.session_end is None
+
+
+@pytest.mark.asyncio
+async def test_session_closed_by_odometer_ends_when_the_battery_stopped_rising(replay_sessionmaker, vehicle_id):
+    polls = _charge_then_idle_cable() + [
+        Poll(t("09:25"), moving=False, charge_state="CONNECT_CABLE", power_kw=0.0, soc=79, odometer=1012)]
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    (s,) = await sessions(replay_sessionmaker, vehicle_id)
+    assert s.session_end == t("08:50") and s.end_level == 80     # when SoC hit 80, not 09:25 when we noticed
+
+
+@pytest.mark.asyncio
+async def test_odometer_catching_up_during_a_real_charge_does_not_close_it(replay_sessionmaker, vehicle_id):
+    polls = []
+    for i, p in enumerate(every("08:00", "09:00", 5, charge_state="CHARGING", power_kw=7.0, odometer=1000)):
+        p.soc = 60 + min(20, i * 2)
+        p.odometer = 1000 if i < 6 else 1003      # Skoda's lagging odometer finally updates mid-charge
+        polls.append(p)
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    (s,) = await sessions(replay_sessionmaker, vehicle_id)
+    assert s.session_end is None and s.end_level == 80

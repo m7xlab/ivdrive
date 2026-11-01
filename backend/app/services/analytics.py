@@ -429,7 +429,9 @@ async def process_completed_trips_and_charges(
 
                 logger.info("Ended ChargingSession for %s (Cost: %s EUR)", user_vehicle_id, ch.base_cost_eur)
 
-            if driving_off and open_charges:
+            # Odometer evidence only counts when energy is not flowing: the odometer can lag and
+            # jump by a few km while a real charge is running.
+            if open_charges and (driving_off or (not charging_now and any(_odometer_moved(c) for c in open_charges))):
                 for ch in open_charges:
                     await _close_session(ch, set_end_level=False, ended_by_drive=True)
                 open_charges, open_charge, extras = [], None, []
@@ -523,8 +525,8 @@ async def process_completed_trips_and_charges(
 
                     # Update live charging variables
                     prev_level = _session_last_soc(open_charge)
-                    if latest_charge and (prev_level is None or new_soc is None or new_soc >= prev_level):
-                        open_charge.end_level = latest_charge.battery_pct   # never lowered by a later drive
+                    if new_soc is not None and (prev_level is None or new_soc >= prev_level):
+                        open_charge.end_level = latest_charge.battery_pct   # never lowered by a later drive, never blanked
                     if new_soc is not None and (prev_level is None or new_soc - prev_level >= 0.5):
                         open_charge.last_soc_change_at = now
 
