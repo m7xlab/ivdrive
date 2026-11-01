@@ -347,7 +347,27 @@ async def process_completed_trips_and_charges(
                     return float(ch.start_level)
                 return None
 
+            charging_now = is_actively_charging(charge_state, charge_power)
+            # A charging row that stopped being refreshed (Skoda omits the state while the car
+            # drives) is a leftover, not evidence of charging.
+            row_age = (
+                _as_naive_utc(now) - _as_naive_utc(latest_charge.last_date)
+                if latest_charge is not None and latest_charge.last_date is not None else None
+            )
+            charge_row_fresh = row_age is not None and row_age <= timedelta(minutes=15)
+            # The car cannot drive while it charges: a moving car ends the session even though
+            # Skoda keeps reporting an idle CONNECT_CABLE state (which we count as "plugged in").
+            driving_off = bool(is_driving) and not (charging_now and charge_row_fresh)
+
+            def _odometer_moved(ch: ChargingSession) -> bool:
+                return (
+                    ch.odometer is not None and latest_odom is not None
+                    and float(latest_odom.mileage_in_km) - float(ch.odometer) >= 1.0
+                )
+
             def _should_close(ch: ChargingSession) -> bool:
+                if driving_off or (not charging_now and _odometer_moved(ch)):
+                    return True
                 # latest_charge.last_date is refreshed every poll and would never look
                 # stale; the session's own last SoC change is the real activity clock
                 # (falls back to session_start for rows opened before it existed).
@@ -360,10 +380,15 @@ async def process_completed_trips_and_charges(
                     now=now,
                 )
 
-            async def _close_session(ch: ChargingSession, *, set_end_level: bool) -> None:
+            async def _close_session(ch: ChargingSession, *, set_end_level: bool, ended_by_drive: bool = False) -> None:
                 ch.session_end = now
-                if set_end_level:
-                    ch.end_level = latest_charge.battery_pct if latest_charge else ch.end_level
+                if ended_by_drive and ch.last_soc_change_at and ch.session_start and ch.last_soc_change_at > ch.session_start:
+                    # charging stopped when the battery stopped rising, not when the drive was noticed
+                    ch.session_end = ch.last_soc_change_at
+                if set_end_level and latest_charge and latest_charge.battery_pct is not None:
+                    # a charge never lowers the level: ignore SoC read after the car was used
+                    if ch.end_level is None or latest_charge.battery_pct >= ch.end_level:
+                        ch.end_level = latest_charge.battery_pct
 
                 if ch.start_level is not None and ch.end_level is not None:
                     soc_added = ch.end_level - ch.start_level
@@ -403,6 +428,11 @@ async def process_completed_trips_and_charges(
                             ch.base_cost_eur = added_kwh * np_price
 
                 logger.info("Ended ChargingSession for %s (Cost: %s EUR)", user_vehicle_id, ch.base_cost_eur)
+
+            if driving_off and open_charges:
+                for ch in open_charges:
+                    await _close_session(ch, set_end_level=False, ended_by_drive=True)
+                open_charges, open_charge, extras = [], None, []
 
             if is_charging:
                 # Keep the newest open row; older duplicates are inconsistent
@@ -493,8 +523,9 @@ async def process_completed_trips_and_charges(
 
                     # Update live charging variables
                     prev_level = _session_last_soc(open_charge)
-                    open_charge.end_level = latest_charge.battery_pct if latest_charge else open_charge.end_level
-                    if new_soc is not None and (prev_level is None or abs(new_soc - prev_level) >= 0.5):
+                    if latest_charge and (prev_level is None or new_soc is None or new_soc >= prev_level):
+                        open_charge.end_level = latest_charge.battery_pct   # never lowered by a later drive
+                    if new_soc is not None and (prev_level is None or new_soc - prev_level >= 0.5):
                         open_charge.last_soc_change_at = now
 
                     if open_charge.start_level is not None and open_charge.end_level is not None:
@@ -506,7 +537,7 @@ async def process_completed_trips_and_charges(
                         if soc_added > 0:
                             added_kwh = (soc_added / 100.0) * capacity_kwh
                             open_charge.energy_kwh = added_kwh
-                elif start_new_session and not await _session_exists_at(
+                elif start_new_session and not driving_off and not await _session_exists_at(
                     session, user_vehicle_id, new_session_start
                 ):
                     new_charge = ChargingSession(
