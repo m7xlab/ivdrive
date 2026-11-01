@@ -275,7 +275,8 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
         const toStr = dateRange?.to?.toISOString();
 
-        const limit = dateRange ? 200 : 2000;
+        // Summary cards are computed from this list, so it must cover the whole period (backend max).
+        const limit = 10000;
 
         const list = await api.getTripsAnalytics(vehicleId, limit, fromStr, toStr);
 

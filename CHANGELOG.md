@@ -1,5 +1,18 @@
 # Changelog
 
+## [v1.3.7] - 2026-11-01
+**No more double-counted trips from the MyŠkoda history sync. Trip statistics cover the whole period.**
+
+### Fixed
+- **Trips counted twice after the v1.3.6 sync (#210)** — the sync matched Škoda's trips to ours by time only. Our trips start late, so the same drive was added a second time (7 km + 13 km + 22 km = 42 km instead of 35 km; a duplicate 3 km trip; a 4 km piece next to the full 21 km trip). It now matches by odometer range.
+- **Existing duplicates are cleaned up automatically** on the next sync (every 6 hours): duplicate trips and small pieces of a drive are removed, and a trip that merged two drives is split at the stop Škoda recorded. Total distance goes back to the real value. Trips outside Škoda's ~60-day history are never touched.
+- **Trips dashboard summary used only 200 trips when a date range was chosen (#208)** — total trips, distance, time and efficiency now cover every trip in the period.
+
+### Notes
+- Rebuild **api + collector + web**. No database migration.
+- To preview the cleanup without changing anything: `python -m app.scripts.sync_skoda_trips --all`.
+- Trips without a matching Škoda record (older than ~60 days, or Public-API-only vehicles) are unchanged. Editing or deleting single trips is not part of this release.
+
 ## [v1.3.6] - 2026-10-29
 **Missing trips are filled from MyŠkoda's own trip history. MyŠkoda Login works again.**
 

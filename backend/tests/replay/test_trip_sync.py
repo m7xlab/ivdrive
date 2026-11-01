@@ -101,15 +101,19 @@ async def test_recorded_trip_is_enriched_only_where_values_are_missing(replay_se
 
 
 @pytest.mark.asyncio
-async def test_trip_spanning_several_legs_is_not_enriched(replay_sessionmaker, vehicle_id):
+async def test_trip_spanning_several_legs_is_split_not_double_counted(replay_sessionmaker, vehicle_id):
+    """Polling never saw the stops: one 10 km row for a journey Skoda records as 3 legs."""
     async with replay_sessionmaker() as s:
         s.add(Trip(user_vehicle_id=vehicle_id, start_date=t("14:51"), end_date=t("15:40"),
-                   start_odometer=42829, end_odometer=42839, distance_km=10, kwh_consumed=None))
+                   start_odometer=42829, end_odometer=42839, distance_km=10))
         await s.commit()
     async with replay_sessionmaker() as s:
         res = await sync_legs(s, vehicle_id, parse_legs(_journey()))
         await s.commit()
-    assert res.enriched == 0 and (await trips(replay_sessionmaker, vehicle_id))[0].kwh_consumed is None
+    got = await trips(replay_sessionmaker, vehicle_id)
+    assert (res.rewritten, res.inserted, res.removed) == (1, 2, 0)
+    assert [(x.start_odometer, x.end_odometer) for x in got] == [(42829, 42832), (42832, 42837), (42837, 42839)]
+    assert sum(x.distance_km for x in got) == 10
 
 
 def _runner_env(monkeypatch, replay_sessionmaker, payload_or_exc):
@@ -169,3 +173,125 @@ async def test_sync_recovers_by_itself_when_skoda_answers_again(replay_sessionma
     sync._failures[vehicle_id] = (3, datetime.now(timezone.utc) - timedelta(minutes=1))  # back-off expired
     out = await sync.run_trip_sync(pause_s=0)
     assert out[str(vehicle_id)].inserted == 3 and vehicle_id not in sync._failures
+
+
+# ── v1.3.7: no double counting (#210, duplicates in #209/#204) ─────────────────────────
+
+def _drive(dep: str, arr: str, s_odo: int, e_odo: int, day: str = "2026-10-29") -> dict:
+    """One Skoda journey with a single leg."""
+    return {"id": f"{day}-{dep}", "startMileageInKm": s_odo, "endMileageInKm": e_odo, "waypoints": [
+        {"coordinates": {"latitude": 47.5, "longitude": 19.0}, "departureStateOfChargeInPercent": 80,
+         "departureTime": f"{day}T{dep}:00Z", "distanceToNextWaypointInKm": e_odo - s_odo},
+        {"coordinates": {"latitude": 47.6, "longitude": 19.1}, "arrivalStateOfChargeInPercent": 78,
+         "arrivalTime": f"{day}T{arr}:00Z"}]}
+
+
+def _payload(*drives: dict) -> dict:
+    return {"dailyTrips": [{"trips": list(drives)}]}
+
+
+def _issue_210_payload() -> dict:
+    return _payload(_drive("07:45", "07:56", 1000, 1007), _drive("08:06", "08:15", 1007, 1013),
+                    _drive("08:24", "08:52", 1013, 1035))
+
+
+def _tr(vid, start, end, so, eo, quality=None, day="2026-10-29"):
+    from datetime import datetime, timezone
+    f = lambda hhmm: datetime.fromisoformat(f"{day}T{hhmm}:00").replace(tzinfo=timezone.utc)
+    return Trip(user_vehicle_id=vid, start_date=f(start), end_date=f(end), start_odometer=so,
+                end_odometer=eo, distance_km=eo - so, data_quality=quality)
+
+
+async def _sync(sm, vid, payload, apply=True):
+    async with sm() as s:
+        res = await sync_legs(s, vid, parse_legs(payload), apply=apply)
+        if apply:
+            await s.commit()
+        else:
+            await s.rollback()
+    return res
+
+
+def _summary(rows):
+    return [(int(x.start_odometer), int(x.end_odometer)) for x in rows], sum(x.distance_km or 0 for x in rows)
+
+
+@pytest.mark.asyncio
+async def test_210_after_v136_merged_13km_plus_inserted_7km_becomes_three_trips_35km(replay_sessionmaker, vehicle_id):
+    async with replay_sessionmaker() as s:
+        s.add_all([
+            _tr(vehicle_id, "07:45", "07:56", 1000, 1007, "skoda_history"),   # inserted by v1.3.6
+            _tr(vehicle_id, "08:06", "08:25", 1000, 1013),                    # polled, floor made it 13 km
+            _tr(vehicle_id, "08:24", "08:52", 1013, 1035),
+        ])
+        await s.commit()
+    res = await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    assert _summary(rows) == ([(1000, 1007), (1007, 1013), (1013, 1035)], 35)
+    assert (res.rewritten, res.removed, res.inserted) == (1, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_210_fresh_install_splits_merged_trip_and_adds_missing_leg(replay_sessionmaker, vehicle_id):
+    async with replay_sessionmaker() as s:
+        s.add_all([_tr(vehicle_id, "08:06", "08:25", 1000, 1013), _tr(vehicle_id, "08:24", "08:52", 1013, 1035)])
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
+    assert _summary(await trips(replay_sessionmaker, vehicle_id)) == ([(1000, 1007), (1007, 1013), (1013, 1035)], 35)
+
+
+@pytest.mark.asyncio
+async def test_oct28_duplicate_3km_and_4km_fragment_next_to_21km_are_cleaned(replay_sessionmaker, vehicle_id):
+    d = "2026-10-28"
+    async with replay_sessionmaker() as s:
+        s.add_all([
+            _tr(vehicle_id, "08:37", "08:43", 39914, 39917, day=d),                    # polled, late
+            _tr(vehicle_id, "08:32", "08:39", 39914, 39917, "skoda_history", day=d),   # v1.3.6 duplicate
+            _tr(vehicle_id, "09:31", "09:43", 39934, 39938, day=d),                    # 4 km fragment
+            _tr(vehicle_id, "09:06", "09:34", 39917, 39938, "skoda_history", day=d),   # 21 km inserted
+        ])
+        await s.commit()
+    payload = _payload(_drive("08:32", "08:39", 39914, 39917, d), _drive("09:06", "09:34", 39917, 39938, d))
+    res = await _sync(replay_sessionmaker, vehicle_id, payload)
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    assert _summary(rows) == ([(39914, 39917), (39917, 39938)], 24)
+    assert res.removed == 2 and all(x.data_quality == "skoda_history" for x in rows)
+
+
+@pytest.mark.asyncio
+async def test_oct28_fresh_state_fragment_is_folded_into_the_leg(replay_sessionmaker, vehicle_id):
+    d = "2026-10-28"
+    async with replay_sessionmaker() as s:
+        s.add(_tr(vehicle_id, "09:31", "09:43", 39934, 39938, day=d))
+        await s.commit()
+    res = await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("09:06", "09:34", 39917, 39938, d)))
+    assert _summary(await trips(replay_sessionmaker, vehicle_id)) == ([(39917, 39938)], 21)
+    assert (res.rewritten, res.inserted, res.removed) == (1, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_second_run_changes_nothing_and_dry_run_writes_nothing(replay_sessionmaker, vehicle_id):
+    async with replay_sessionmaker() as s:
+        s.add_all([_tr(vehicle_id, "08:06", "08:25", 1000, 1013), _tr(vehicle_id, "08:24", "08:52", 1013, 1035)])
+        await s.commit()
+    before = _summary(await trips(replay_sessionmaker, vehicle_id))
+    dry = await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload(), apply=False)
+    assert dry.rewritten == 1 and _summary(await trips(replay_sessionmaker, vehicle_id)) == before
+    await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
+    again = await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
+    assert (again.inserted, again.rewritten, again.removed, again.distance_filled) == (0, 0, 0, 0)
+    assert _summary(await trips(replay_sessionmaker, vehicle_id))[1] == 35
+
+
+@pytest.mark.asyncio
+async def test_unrelated_trips_in_and_outside_the_window_are_untouched(replay_sessionmaker, vehicle_id):
+    async with replay_sessionmaker() as s:
+        s.add_all([
+            _tr(vehicle_id, "08:06", "08:15", 1007, 1013),                       # same as a leg
+            _tr(vehicle_id, "12:00", "12:30", 2000, 2010),                       # same day, other odometer
+            _tr(vehicle_id, "08:00", "08:20", 500, 510, day="2026-08-01"),       # months before Skoda's window
+        ])
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
+    rows = {(int(x.start_odometer), int(x.end_odometer)) for x in await trips(replay_sessionmaker, vehicle_id)}
+    assert {(2000, 2010), (500, 510)} <= rows

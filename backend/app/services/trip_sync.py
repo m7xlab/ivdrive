@@ -121,10 +121,86 @@ def _enrich(trip: Trip, leg: Leg, capacity: float, now: datetime, apply: bool) -
 @dataclass
 class SyncResult:
     inserted: int = 0
+    rewritten: int = 0       # merged / fragmented recorded trips replaced by Škoda's legs
+    removed: int = 0         # duplicate rows deleted (a leg is already represented elsewhere)
     distance_filled: int = 0
     enriched: int = 0
     skipped_covered: int = 0
     km_added: float = 0.0
+
+
+# ── matching: odometer first (exact integers on both sides), time only as a fallback ──────
+SAME_IOU = 0.7          # odometer ranges that overlap this much are the same trip
+INSIDE = 0.8            # share of a trip inside a leg (fragment) / of a leg inside a trip (merged)
+NEAR = timedelta(minutes=20)
+
+
+def _orange(t: Trip) -> tuple[float, float] | None:
+    s, e = t.start_odometer, t.end_odometer
+    return (float(s), float(e)) if s is not None and e is not None and e >= s else None
+
+
+def _inter(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+
+
+def _lrange(leg: Leg) -> tuple[float, float]:
+    return (leg.start_odometer, leg.end_odometer)
+
+
+def _is_same(t: Trip, leg: Leg, now: datetime) -> bool:
+    tr, lr = _orange(t), _lrange(leg)
+    if tr and tr[1] > tr[0] and lr[1] > lr[0]:
+        i = _inter(tr, lr)
+        if i / ((tr[1] - tr[0]) + (lr[1] - lr[0]) - i) >= SAME_IOU:
+            return True
+        # whole-km rounding on either side: both ends within 1 km and close in time
+        ts = t.start_date.astimezone(timezone.utc)
+        return (
+            abs(tr[0] - lr[0]) <= 1.0 and abs(tr[1] - lr[1]) <= 1.0
+            and leg.start - timedelta(minutes=30) <= ts <= leg.end + timedelta(minutes=30)
+        )
+    return _covers(t, leg, now)  # no usable odometer (or a 0 km trip): fall back to time
+
+
+def _is_fragment_of(t: Trip, leg: Leg) -> bool:
+    """A smaller recorded trip lying inside this leg's odometer range and around its time."""
+    tr, lr = _orange(t), _lrange(leg)
+    if not tr or tr[1] <= tr[0] or lr[1] <= lr[0]:
+        return False
+    if _inter(tr, lr) / (tr[1] - tr[0]) < INSIDE:
+        return False
+    ts = t.start_date.astimezone(timezone.utc)
+    return leg.start - NEAR <= ts <= leg.end + NEAR
+
+
+def _legs_inside(t: Trip, legs: list[Leg]) -> list[int]:
+    """Indexes of legs that lie (>= 80 %) inside this recorded trip's odometer range."""
+    tr = _orange(t)
+    if not tr or tr[1] <= tr[0]:
+        return []
+    out = []
+    for i, leg in enumerate(legs):
+        lr = _lrange(leg)
+        if lr[1] > lr[0] and _inter(tr, lr) / (lr[1] - lr[0]) >= INSIDE:
+            out.append(i)
+    return out
+
+
+def _quality_rank(t: Trip) -> tuple:
+    """Prefer rows that already carry Škoda's values, then the most complete one."""
+    filled = sum(v is not None for v in (t.start_soc, t.end_soc, t.kwh_consumed, t.start_lat, t.end_lat))
+    return (t.data_quality == "skoda_history", filled)
+
+
+def _rewrite(t: Trip, leg: Leg, capacity: float) -> None:
+    used = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
+    t.start_date, t.end_date = leg.start, leg.end
+    t.start_odometer, t.end_odometer, t.distance_km = leg.start_odometer, leg.end_odometer, leg.km
+    t.start_soc, t.end_soc = leg.start_soc, leg.end_soc
+    t.start_lat, t.start_lon, t.end_lat, t.end_lon = leg.start_lat, leg.start_lon, leg.end_lat, leg.end_lon
+    t.kwh_consumed = (used / 100.0 * capacity) if used and used > 0 else None
+    t.data_quality = "skoda_history"
 
 
 async def sync_legs(
@@ -135,51 +211,127 @@ async def sync_legs(
     capacity_kwh: float | None = None,
     apply: bool = True,
 ) -> SyncResult:
+    """Make exactly one trip row per Škoda leg, without losing or double counting distance.
+
+    Order of decisions per leg: an equal recorded trip (odometer overlap >= 70 %) stays and is
+    enriched; a recorded trip spanning several legs is rewritten as the first leg that has no row
+    yet; smaller fragments inside a leg are folded into it. Duplicates are removed only when the
+    leg is already represented by another row. Trips outside Škoda's window are never touched.
+    """
     res = SyncResult()
+    if not legs:
+        return res
     capacity = capacity_kwh or DEFAULT_CAPACITY_KWH
-    for leg in sorted(legs, key=lambda x: x.start):
-        now = datetime.now(timezone.utc)
-        cands = list((await session.execute(
-            select(Trip).where(
-                Trip.user_vehicle_id == vehicle_id,
-                Trip.start_date < leg.end,
-                (Trip.end_date.is_(None)) | (Trip.end_date > leg.start),
-            )
-        )).scalars())
-        overlapping = [t for t in cands if _covers(t, leg, now)]
-        if overlapping:
-            # A recorded trip covers this leg. Fill what we never measured (energy, SoC,
-            # coordinates) from Škoda's record; never replace a value we measured.
-            for t in overlapping:
-                if _enrich(t, leg, capacity, now, apply):
-                    res.enriched += 1
-            for t in overlapping:
-                if (t.distance_km in (None, 0)) and t.start_odometer is not None and leg.km > 0 and len(overlapping) == 1:
-                    res.distance_filled += 1
-                    res.km_added += leg.km
-                    if apply:
-                        t.end_odometer = float(t.start_odometer) + leg.km
-                        t.distance_km = leg.km
-                        t.data_quality = t.data_quality or "skoda_history"
-                    break
+    legs = sorted(legs, key=lambda x: x.start)
+    now = datetime.now(timezone.utc)
+    lo, hi = legs[0].start - timedelta(days=1), legs[-1].end + timedelta(days=1)
+    existing = list((await session.execute(
+        select(Trip).where(
+            Trip.user_vehicle_id == vehicle_id,
+            Trip.end_date.is_not(None),          # an open trip belongs to the live poller
+            Trip.start_date < hi,
+            Trip.end_date > lo,
+        ).order_by(Trip.start_date)
+    )).scalars())
+
+    assigned: dict[int, Trip] = {}   # leg index -> row that represents it (kept as is)
+    reuse: dict[int, Trip] = {}      # leg index -> row to rewrite into this leg
+    claimed: set[int] = set()
+    delete: list[Trip] = []
+
+    # 1) equal trips: keep the best one per leg, the rest are duplicates of it
+    for i, leg in enumerate(legs):
+        same = [t for t in existing if t.id not in claimed and _is_same(t, leg, now)]
+        if same:
+            best = max(same, key=_quality_rank)
+            assigned[i] = best
+            claimed.update(t.id for t in same)
+            delete += [t for t in same if t is not best and _orange(t) and _orange(t)[1] > _orange(t)[0]]
+            claimed.update(t.id for t in same)
+
+    # 2) a recorded trip that spans several legs (a stop polling never saw)
+    for t in existing:
+        if t.id in claimed:
+            continue
+        hit = _legs_inside(t, legs)
+        if len(hit) < 2:
+            continue
+        tr = _orange(t)
+        span, km = tr[1] - tr[0], sum(legs[i].km for i in hit)
+        if not (0.85 * span - 1 <= km <= 1.15 * span + 1):
+            continue  # does not add up to these legs: leave it alone
+        claimed.add(t.id)
+        free = [i for i in hit if i not in assigned and i not in reuse]
+        if free:
+            reuse[free[0]] = t
+        else:
+            delete.append(t)  # every leg already has its own row
+
+    # 3) fragments inside a leg (a late-detected piece of the same drive)
+    frags: dict[int, list[Trip]] = {}
+    for t in existing:
+        if t.id in claimed:
+            continue
+        for i, leg in enumerate(legs):
+            if _is_fragment_of(t, leg):
+                frags.setdefault(i, []).append(t)
+                claimed.add(t.id)
+                break
+    for i, group in frags.items():
+        if i in assigned or i in reuse:
+            delete += group
+        else:
+            group.sort(key=lambda x: x.start_date)
+            reuse[i] = group[0]
+            delete += group[1:]
+
+    # apply: deletions first so a rewritten row cannot collide on (vehicle, start_date)
+    for t in delete:
+        res.removed += 1
+        if apply:
+            await session.delete(t)
+    if apply and delete:
+        await session.flush()
+    taken = {t.start_date for t in existing if t not in delete}
+    for i, leg in enumerate(legs):
+        if i in reuse:
+            row = reuse[i]
+            if leg.start in taken and leg.start != row.start_date:
+                continue  # another row already starts exactly here; leave this one as is
+            res.rewritten += 1
+            res.km_added += max(0.0, leg.km - (row.distance_km or 0.0))
+            if apply:
+                taken.discard(row.start_date)
+                _rewrite(row, leg, capacity)
+                taken.add(leg.start)
+        elif i in assigned:
+            row = assigned[i]
+            if _enrich(row, leg, capacity, now, apply):
+                res.enriched += 1
+            if (row.distance_km in (None, 0)) and row.start_odometer is not None and leg.km > 0:
+                res.distance_filled += 1
+                res.km_added += leg.km
+                if apply:
+                    row.end_odometer = float(row.start_odometer) + leg.km
+                    row.distance_km = leg.km
+                    row.data_quality = row.data_quality or "skoda_history"
             else:
                 res.skipped_covered += 1
-            continue
-        if leg.km <= 0:
-            continue
-        res.inserted += 1
-        res.km_added += leg.km
-        if apply:
-            used = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
-            session.add(Trip(
-                user_vehicle_id=vehicle_id, start_date=leg.start, end_date=leg.end,
-                start_lat=leg.start_lat, start_lon=leg.start_lon, end_lat=leg.end_lat, end_lon=leg.end_lon,
-                start_odometer=leg.start_odometer, end_odometer=leg.end_odometer, distance_km=leg.km,
-                start_soc=leg.start_soc, end_soc=leg.end_soc,
-                kwh_consumed=(used / 100.0 * capacity) if used and used > 0 else None,
-                data_quality="skoda_history",
-            ))
-    if apply and (res.inserted or res.distance_filled or res.enriched):
+        elif leg.km > 0 and leg.start not in taken:
+            res.inserted += 1
+            res.km_added += leg.km
+            if apply:
+                used = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
+                session.add(Trip(
+                    user_vehicle_id=vehicle_id, start_date=leg.start, end_date=leg.end,
+                    start_lat=leg.start_lat, start_lon=leg.start_lon, end_lat=leg.end_lat, end_lon=leg.end_lon,
+                    start_odometer=leg.start_odometer, end_odometer=leg.end_odometer, distance_km=leg.km,
+                    start_soc=leg.start_soc, end_soc=leg.end_soc,
+                    kwh_consumed=(used / 100.0 * capacity) if used and used > 0 else None,
+                    data_quality="skoda_history",
+                ))
+                taken.add(leg.start)
+    if apply and (res.inserted or res.rewritten or res.removed or res.distance_filled or res.enriched):
         await session.flush()
     return res
 
@@ -266,9 +418,9 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 if apply:
                     await s.commit()
                 out[str(vid)] = res
-                if res.inserted or res.distance_filled or res.enriched:
-                    logger.info("trip sync %s: +%d trips, %d distances filled, %d enriched, +%.0f km (apply=%s)",
-                                vid, res.inserted, res.distance_filled, res.enriched, res.km_added, apply)
+                if res.inserted or res.rewritten or res.removed or res.distance_filled or res.enriched:
+                    logger.info("trip sync %s: +%d trips, %d merged/split, %d duplicates removed, %d distances filled, %d enriched, +%.0f km (apply=%s)",
+                                vid, res.inserted, res.rewritten, res.removed, res.distance_filled, res.enriched, res.km_added, apply)
         except Exception as e:  # one vehicle must never stop the rest
             logger.warning("trip sync failed for %s: %s", vid, str(e)[:200])
         await asyncio.sleep(pause_s)
