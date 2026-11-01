@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.3.8] - 2026-11-01
+**Driving off ends the charging session on its own.**
+
+### Fixed
+- **Charging session stayed open after you drove away** — Škoda reports an idle car as `CONNECT_CABLE`, which iVDrive counted as "still plugged in", so a session only ended after 30 quiet minutes and you had to press **End charging**. A moving car (or an odometer that moved 1 km or more since the charge started) now ends the session immediately, unless energy is actually flowing.
+- **Charge end level pulled down by the drive** — while the session was open, every poll lowered its end level as the battery dropped (80% became 77%), and the energy and cost with it. The end level now only rises, and the session ends at the time the battery stopped rising.
+- A charging state that Škoda stops sending while you drive (the last "charging" row just goes stale) no longer keeps the session open.
+- A single wrong "moving" flag during a real charge does not split the session.
+
+### Notes
+- Rebuild **collector** and **api**. No database migration.
+- Sessions recorded before this release are not changed.
+- Pressing **End charging** by hand still works.
+
 ## [v1.3.7] - 2026-11-01
 **No more double-counted trips from the MyŠkoda history sync. Trip statistics cover the whole period.**
 
