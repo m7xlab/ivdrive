@@ -242,14 +242,15 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
     kwh_off = kwh is not None and (row.kwh_consumed is None or abs(row.kwh_consumed - kwh) > 0.05)
     missing_pos = any(getattr(row, a) is None and v is not None for a, v in (
         ("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)))
+    if leg.start != row.start_date and leg.start in taken:
+        return None  # another row already starts exactly here; leave this one as is
     material = time_off or odo_off or pos_off
     if not (material or soc_off or kwh_off or missing_pos):
         return None
     if apply:
-        if time_off and leg.start != row.start_date and leg.start in taken:
-            time_off = False  # another row starts exactly here: keep this row's own times
         keep_quality = row.data_quality
-        if time_off or odo_off or pos_off:
+        if material:
+            taken.discard(row.start_date)
             _rewrite(row, leg, capacity)
             taken.add(leg.start)
         else:  # only empty / coarse fields: fill them, keep the row's own label

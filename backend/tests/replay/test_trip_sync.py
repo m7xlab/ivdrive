@@ -361,3 +361,14 @@ async def test_213_short_leg_energy_is_not_one_whole_percent(replay_sessionmaker
     long_leg, short_leg = await trips(replay_sessionmaker, vehicle_id)
     assert long_leg.kwh_consumed == pytest.approx(0.08 * 77)                 # 8 points of SoC: usable
     assert short_leg.kwh_consumed == pytest.approx(8.0 * 2 / 40)            # 0.4 kWh = 20 kWh/100km
+
+
+def test_213_start_collision_leaves_the_row_alone_instead_of_rewriting_onto_it(vehicle_id):
+    """Another row already starts at the leg's start and the odometer also differs: rewriting would hit
+    the (vehicle, start_date) unique key, so the row is left as it is and nothing is taken."""
+    from app.services.trip_sync import _apply_authoritative, parse_legs
+    (leg,) = parse_legs(_payload(_drive("23:16", "23:47", 3000, 3038, "2026-11-02")))
+    row = _tr(vehicle_id, "23:41", "23:52", 3002, 3040, day="2026-11-02")
+    before = (row.start_date, row.start_odometer)
+    assert _apply_authoritative(row, leg, 75.0, {leg.start}, True) is None
+    assert (row.start_date, row.start_odometer) == before
