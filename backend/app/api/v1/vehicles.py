@@ -71,9 +71,15 @@ from app.services.cache import invalidate_vehicle_cache
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
 from app.services.events import publish_vehicle_deleted, publish_vehicle_linked, publish_vehicle_refresh, publish_vehicle_updated
 from app.services.external_apis import reverse_geocode_address
+from app.services import login_guard
+from app.services.login_guard import LoginInvalidCredentialsError, LoginThrottledError
 from app.services.skoda_auth import SkodaAuthClient
 
 logger = logging.getLogger(__name__)
+
+
+def _login_limited(e: "LoginThrottledError") -> HTTPException:
+    return HTTPException(status_code=429, detail=str(e), headers={"Retry-After": str(e.retry_after_s)})
 
 router = APIRouter()
 
@@ -340,6 +346,9 @@ async def create_vehicle(
     auth = SkodaAuthClient()
     try:
         tokens = await auth.login(body.skoda_username, body.skoda_password)
+    except LoginThrottledError as e:
+        await db.rollback()
+        raise _login_limited(e)
     except Exception as e:
         logger.warning("Skoda auth failed, rolling back vehicle creation", exc_info=True)
         await db.rollback()
@@ -515,17 +524,25 @@ async def reauthenticate_vehicle(
 
     vehicle.connector_config_encrypted = encrypt_field(json.dumps(config))
 
+    wait_s = await login_guard.allow_manual_attempt(vehicle.id)
+    if wait_s:
+        await db.commit()  # the new credentials are kept; only the attempt is held back
+        raise _login_limited(LoginThrottledError(wait_s, f"One login attempt per minute per car. Try again in {wait_s} s."))
+
     auth = SkodaAuthClient()
     try:
         tokens = await auth.login(username, password)
+    except LoginThrottledError as e:
+        await db.commit()
+        raise _login_limited(e)
     except Exception as e:
         logger.warning("Re-auth failed for vehicle %s", vehicle.id, exc_info=True)
         # Credentials are saved even if login fails this second — user can retry.
         await db.commit()
-        raise HTTPException(
-            status_code=400,
-            detail="Could not log in to MyŠkoda with these credentials. Check email and password.",
-        )
+        detail = ("MyŠkoda rejected this email or password."
+                  if isinstance(e, LoginInvalidCredentialsError)
+                  else "Could not log in to MyŠkoda right now. Try again in a few minutes.")
+        raise HTTPException(status_code=400, detail=detail)
     finally:
         await auth.close()
 

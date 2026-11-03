@@ -417,6 +417,7 @@ async def mint_vehicle_api_key(
     """Create an official API key for one vehicle using that car's MyŠkoda login."""
     import json as _json
 
+    from app.services.login_guard import LoginInvalidCredentialsError, LoginThrottledError
     from app.services.skoda_auth import SkodaAuthClient
     from app.services.skoda_bff_api import SkodaBFFClient
 
@@ -439,10 +440,14 @@ async def mint_vehicle_api_key(
     auth = SkodaAuthClient()
     try:
         tokens = await auth.login(username, password)
+    except LoginThrottledError as e:
+        raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": str(e.retry_after_s)})
+    except LoginInvalidCredentialsError:
+        raise HTTPException(status_code=400, detail="MyŠkoda rejected this email or password.")
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail="Could not log in to MyŠkoda for this car. Check email and password.",
+            detail="Could not log in to MyŠkoda right now. Try again in a few minutes.",
         )
     finally:
         await auth.close()

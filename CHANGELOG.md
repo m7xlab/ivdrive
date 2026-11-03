@@ -1,5 +1,24 @@
 # Changelog
 
+## [v1.3.10] - 2026-11-04
+**The trip sync no longer crashes on old history, and MyŠkoda logins are protected from floods.**
+
+### Fixed
+- **`sync_skoda_trips --apply` failed with `UniqueViolationError` (#213)** — a trip that took a start time another trip was giving up could be written first, and the database rejected it, so nothing was corrected. Moved trips are now written in two steps (placeholder times, then the real ones), so write order no longer matters. A trip whose new start is genuinely taken is left as it is and counted as skipped.
+- **The dry run could not see that crash (#213)** — it now runs the real sync and rolls it back, so it fails wherever `--apply` would. A vehicle that fails is reported as failed with nothing written, and the others continue.
+- **A leg could be counted twice (#213)** — a stale trip with exactly the same odometer span as a Škoda leg, but a time hours off, stayed next to it. The same odometer span is now the same drive whatever its time.
+- **Škoda login limit made worse by our retries (#213)** — a throttled or rejected login was an unrecognised error, so the collector tried again every 30 minutes and every Save/Refresh added another attempt, while the screen said "check email and password". Now:
+  - When Škoda says "throttled", all logins freeze for 30 min (then 1 h, 2 h … up to 6 h on repeats). Polling with a valid token continues; no login request is sent.
+  - A rejected password suspends that vehicle at once and asks the user to update the login. Five rejected passwords in 30 min across all users freeze logins as well.
+  - Logins leave at most one per 10 s, a person pressing Save gets one attempt per minute per car, and the trip history sync never logs in by itself.
+  - Other login failures suspend the vehicle on the third strike; network errors never count.
+  - The screen now says "Škoda is limiting logins, try again in about N min".
+
+### Notes
+- Rebuild **api + collector**. No database migration. Login state is kept in Valkey (already part of the stack).
+- Trips already recorded are corrected by the next sync (every 6 hours), or run `python -m app.scripts.sync_skoda_trips --vehicle <id>` (dry run) and add `--apply`. Back up first.
+- A vehicle that Škoda is limiting recovers by itself once the limit ends; a suspended one needs its login updated in Settings.
+
 ## [v1.3.9] - 2026-11-03
 **Trips after a connection outage, and trips with several stops, now match MyŠkoda.**
 

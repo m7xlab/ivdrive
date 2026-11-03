@@ -122,6 +122,25 @@ class SkodaAuthClient:
         )
 
     async def login(self, username: str, password: str) -> dict:
+        """Log in to MyŠkoda. All callers pass the shared guard (see login_guard): while Škoda is limiting
+        logins nothing is sent, and a throttle or rejected password is recorded for everyone."""
+        from app.services import login_guard as guard
+
+        await guard.before_login()
+        try:
+            tokens = await self._login(username, password)
+        except guard.LoginThrottledError as e:
+            await guard.record_throttled()
+            raise guard.LoginThrottledError(await guard.frozen_for() or guard.FIRST_FREEZE_S) from e
+        except guard.LoginInvalidCredentialsError:
+            await guard.record_invalid_credentials()
+            raise
+        await guard.record_success()
+        return tokens
+
+    async def _login(self, username: str, password: str) -> dict:
+        from app.services import login_guard as guard
+
         verifier, challenge = _generate_pkce()
         client_id = settings.skoda_auth_client_id
 
@@ -214,16 +233,11 @@ class SkodaAuthClient:
                 qs = parse_qs(parsed.query)
                 if "error" in qs:
                     error_code = qs["error"][0]
-                    error_map = {
-                        "login.errors.password_invalid": "Password is invalid",
-                        "login.error.throttled": (
-                            "Login throttled -- too many attempts. "
-                            "Wait a few minutes before trying again."
-                        ),
-                    }
-                    raise RuntimeError(
-                        error_map.get(error_code, f"Login error: {error_code}")
-                    )
+                    if error_code == "login.error.throttled":
+                        raise guard.LoginThrottledError(guard.FIRST_FREEZE_S)
+                    if error_code == "login.errors.password_invalid":
+                        raise guard.LoginInvalidCredentialsError("Password is invalid")
+                    raise guard.LoginError(f"Login error: {error_code}")
 
                 if location.startswith(settings.skoda_auth_redirect_uri):
                     qs = parse_qs(parsed.query)

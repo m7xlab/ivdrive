@@ -370,5 +370,28 @@ def test_213_start_collision_leaves_the_row_alone_instead_of_rewriting_onto_it(v
     (leg,) = parse_legs(_payload(_drive("23:16", "23:47", 3000, 3038, "2026-11-02")))
     row = _tr(vehicle_id, "23:41", "23:52", 3002, 3040, day="2026-11-02")
     before = (row.start_date, row.start_odometer)
-    assert _apply_authoritative(row, leg, 75.0, {leg.start}, True) is None
+    assert _apply_authoritative(row, leg, 75.0, {leg.start}, True) == "conflict"
     assert (row.start_date, row.start_odometer) == before
+
+
+@pytest.mark.asyncio
+async def test_213_same_odometer_span_at_another_time_is_the_same_drive(replay_sessionmaker, vehicle_id):
+    """A row with exactly the leg's odometer range counts as that leg even when its time is hours off."""
+    d = "2026-11-02"
+    async with replay_sessionmaker() as s:
+        s.add(_tr(vehicle_id, "13:00", "13:31", 3000, 3038, day=d))      # stale duplicate, 2 h away
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("11:00", "11:31", 3000, 3038, d)))
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    assert len(rows) == 1 and sum(r.distance_km for r in rows) == 38
+
+
+@pytest.mark.asyncio
+async def test_213_km_added_counts_a_corrected_trips_extra_distance(replay_sessionmaker, vehicle_id):
+    """The report ('+N km') must include the distance a matched trip gains, also when written."""
+    d = "2026-11-02"
+    async with replay_sessionmaker() as s:
+        s.add(_tr(vehicle_id, "23:41", "23:52", 3002, 3038, day=d))      # recorded 36 km of a 38 km leg
+        await s.commit()
+    res = await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("23:16", "23:47", 3000, 3038, d)))
+    assert res.rewritten == 1 and res.km_added == 2

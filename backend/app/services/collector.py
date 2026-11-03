@@ -676,7 +676,7 @@ class DataCollector:
                 except Exception:
                     pass
 
-            from app.services.skoda_lifecycle import SkodaTokenLifecycle, AuthRequiredError
+            from app.services.skoda_lifecycle import SkodaTokenLifecycle, AuthRequiredError, LoginDeferred
             lifecycle = SkodaTokenLifecycle(session)
             
             try:
@@ -700,6 +700,12 @@ class DataCollector:
                 self.pause_for_reauth(user_vehicle_id, str(e))
                 logger.warning("Auth failed for vehicle %s: %s", user_vehicle_id, e)
                 await session.commit()
+                return
+            except LoginDeferred as e:
+                # Škoda is limiting logins or this vehicle is cooling down: no request was sent,
+                # status unchanged, nothing for the user to do. The next cycle asks again.
+                await session.commit()
+                logger.info("Login deferred for vehicle %s: %s", user_vehicle_id, e)
                 return
             except Exception as e:
                 logger.exception("Unknown token refresh error for vehicle %s", user_vehicle_id)
