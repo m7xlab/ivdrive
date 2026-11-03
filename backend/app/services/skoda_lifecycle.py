@@ -5,6 +5,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.vehicle import ConnectorSession, ConnectorAuthEvent
+from app.services.login_guard import LoginError, LoginInvalidCredentialsError, LoginThrottledError
 from app.services.skoda_auth import SkodaAuthClient
 from app.services.crypto import encrypt_field, decrypt_field
 
@@ -12,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 class AuthRequiredError(Exception):
     pass
+
+
+class LoginDeferred(Exception):
+    """No login is attempted now (Škoda is limiting logins, or this vehicle is cooling down).
+    The vehicle keeps its status: this is not the user's fault and needs nothing from them."""
+
+    def __init__(self, retry_after_s: int, why: str = ""):
+        self.retry_after_s = max(1, int(retry_after_s))
+        super().__init__(why or f"login deferred for {self.retry_after_s}s")
+
+
+#: Failures that are not a throttle or a wrong password (e.g. Škoda's terms page). The third one
+#: suspends the vehicle until the user acts; network errors never count.
+MAX_LOGIN_STRIKES = 3
 
 class SkodaTokenLifecycle:
     def __init__(self, session: AsyncSession):
@@ -41,7 +56,7 @@ class SkodaTokenLifecycle:
         cs.last_auth_at = now
         cs.last_auth_method = method
 
-    async def ensure_valid_token(self, cs: ConnectorSession, username: str, password: str | None = None, force_refresh: bool = False, force_login: bool = False) -> str:
+    async def ensure_valid_token(self, cs: ConnectorSession, username: str, password: str | None = None, force_refresh: bool = False, force_login: bool = False, allow_login: bool = True) -> str:
         """
         Ensures the token is valid. Returns access_token.
         If force_refresh is True, or if the access token is near expiry, tries to refresh.
@@ -52,7 +67,7 @@ class SkodaTokenLifecycle:
         now = datetime.now(UTC)
 
         if cs.backoff_until and cs.backoff_until > now:
-            raise AuthRequiredError(f"Backing off until {cs.backoff_until}")
+            raise LoginDeferred((cs.backoff_until - now).total_seconds(), f"cooling down until {cs.backoff_until}")
 
         if force_login:
             if cs.secure_mode and password:
@@ -91,6 +106,8 @@ class SkodaTokenLifecycle:
                 if e.response.status_code in (401, 403, 400):
                     await self._record_event(cs, "refresh_failed", str(e), {"status_code": e.response.status_code})
                     logger.warning(f"Refresh failed for {cs.id} with {e.response.status_code}")
+                    if not allow_login:
+                        raise LoginDeferred(0, "session needs a new login; this caller never logs in")
                     if cs.secure_mode and password:
                         logger.info(f"Secure mode ON, attempting silent login for {cs.id}")
                         return await self._silent_login(cs, username, password)
@@ -128,6 +145,37 @@ class SkodaTokenLifecycle:
             cs.last_auth_error = None
             cs.needs_user_reauth_reason = None
             return decrypt_field(cs.access_token_encrypted)
+        except LoginThrottledError as e:
+            # Škoda (or the shared guard) is limiting logins: nobody's password is wrong, so the user
+            # is not asked to do anything. This vehicle waits at least as long as the global freeze.
+            cs.consecutive_auth_failures += 1
+            wait_s = max(e.retry_after_s, min(15 * 2 ** (cs.consecutive_auth_failures - 1), 6 * 60) * 60)
+            cs.backoff_until = datetime.now(UTC) + timedelta(seconds=wait_s)
+            cs.last_auth_error = "Škoda is limiting logins"
+            await self._record_event(cs, "silent_login_throttled", str(e), {"backoff_s": int(wait_s)})
+            raise LoginDeferred(wait_s, str(e))
+        except LoginInvalidCredentialsError:
+            # One strike is enough: a wrong password cannot start working by retrying it.
+            cs.status = "auth_failed"
+            cs.needs_user_reauth_reason = (
+                "MyŠkoda rejected the saved email or password. "
+                "Update your login in Settings → Vehicles → Login."
+            )
+            cs.last_auth_error = "Password is invalid"
+            await self._record_event(cs, "silent_login_failed", "password invalid")
+            raise AuthRequiredError("MyŠkoda email or password is incorrect — update login in Settings.")
+        except LoginError as e:
+            cs.consecutive_auth_failures += 1
+            cs.last_auth_error = str(e)[:255]
+            await self._record_event(cs, "silent_login_failed", str(e)[:200], {"strike": cs.consecutive_auth_failures})
+            if cs.consecutive_auth_failures >= MAX_LOGIN_STRIKES:
+                cs.status = "auth_failed"
+                cs.needs_user_reauth_reason = (
+                    "MyŠkoda login keeps failing. Open the MyŠkoda app to check for new terms or a "
+                    "password change, then update your login in Settings → Vehicles → Login."
+                )
+                raise AuthRequiredError(f"login failed {cs.consecutive_auth_failures} times: {e}")
+            raise LoginDeferred(30 * 60, str(e))
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 cs.consecutive_auth_failures += 1

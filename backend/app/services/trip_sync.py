@@ -132,6 +132,8 @@ class SyncResult:
     distance_filled: int = 0
     enriched: int = 0
     skipped_covered: int = 0
+    error: str | None = None  # set when this vehicle's sync failed; nothing was written
+    conflicts: int = 0       # rewrites skipped because another row already starts at that time
     km_added: float = 0.0
 
 
@@ -159,6 +161,8 @@ def _is_same(t: Trip, leg: Leg, now: datetime) -> bool:
     trip that runs past the leg by more than that swallowed the next leg and is handled as merged."""
     tr, lr = _orange(t), _lrange(leg)
     if tr and tr[1] > tr[0] and lr[1] > lr[0]:
+        if abs(tr[0] - lr[0]) < 0.5 and abs(tr[1] - lr[1]) < 0.5:
+            return True  # the same odometer span cannot be driven twice, whatever time the row says
         tol = max(1.0, 0.1 * (lr[1] - lr[0]))
         ts = t.start_date.astimezone(timezone.utc)
         return (
@@ -227,7 +231,8 @@ def _km_apart(lat1, lon1, lat2, lon2) -> float:
 def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply: bool) -> str | None:
     """A recorded trip that is the same drive as a Škoda leg takes Škoda's values: its start is a
     late poll, its position the last *parked* one, its SoC a late reading. Returns what changed:
-    'rewritten' (time / odometer / position corrected), 'enriched' (only empty fields filled) or None."""
+    'rewritten' (time / odometer / position corrected), 'enriched' (only empty fields filled),
+    'conflict' (another row already starts at the leg's start: left as is) or None."""
     now = datetime.now(timezone.utc)
     t_start, t_end = row.start_date.astimezone(timezone.utc), (row.end_date or now).astimezone(timezone.utc)
     time_off = abs((t_start - leg.start).total_seconds()) > 120 or abs((t_end - leg.end).total_seconds()) > 120
@@ -243,7 +248,7 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
     missing_pos = any(getattr(row, a) is None and v is not None for a, v in (
         ("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)))
     if leg.start != row.start_date and leg.start in taken:
-        return None  # another row already starts exactly here; leave this one as is
+        return "conflict"  # another row already starts exactly here; leave this one as is
     material = time_off or odo_off or pos_off
     if not (material or soc_off or kwh_off or missing_pos):
         return None
@@ -357,10 +362,12 @@ async def sync_legs(
     if apply and delete:
         await session.flush()
     taken = {t.start_date for t in existing if t not in delete}
+    first_start = {t.id: t.start_date for t in existing}
     for i, leg in enumerate(legs):
         if i in reuse:
             row = reuse[i]
             if leg.start in taken and leg.start != row.start_date:
+                res.conflicts += 1
                 continue  # another row already starts exactly here; leave this one as is
             res.rewritten += 1
             res.km_added += max(0.0, leg.km - (row.distance_km or 0.0))
@@ -377,6 +384,8 @@ async def sync_legs(
                 res.km_added += max(0.0, leg.km - (row.distance_km or 0.0)) if not apply else 0.0
             elif kind == "enriched":
                 res.enriched += 1
+            elif kind == "conflict":
+                res.conflicts += 1
             else:
                 res.skipped_covered += 1
             if had_no_distance and leg.km > 0:
@@ -395,9 +404,30 @@ async def sync_legs(
                     data_quality="skoda_history",
                 ))
                 taken.add(leg.start)
-    if apply and (res.inserted or res.rewritten or res.removed or res.distance_filled or res.enriched):
-        await session.flush()
+    if apply:
+        await _flush_start_moves(session, [t for t in existing if t not in delete], first_start)
     return res
+
+
+_PARK = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+async def _flush_start_moves(session: AsyncSession, rows: list[Trip], first_start: dict) -> None:
+    """Write rows whose start moved without depending on UPDATE order. The unique key
+    (vehicle, start_date) is checked per statement, so row X taking the start that row Y is about
+    to give up fails if X is written first. Park the moved rows on unique placeholder times, write
+    that, then set the real times: at that point no moved row holds a real start any more."""
+    moved = [(t, t.start_date) for t in rows if t.id in first_start and t.start_date != first_start[t.id]]
+    final = [st for _, st in moved] + [t.start_date for t in rows if t.id in first_start and t.start_date == first_start[t.id]]
+    if len(set(final)) != len(final):
+        raise ValueError("trip sync planned two trips with the same start time; nothing was written")
+    for i, (t, _) in enumerate(moved):
+        t.start_date = _PARK + timedelta(seconds=i)
+    if moved:
+        await session.flush()
+        for t, st in moved:
+            t.start_date = st
+    await session.flush()
 
 
 # Škoda's private API can change or be switched off at any time. Polling stays the primary
@@ -432,7 +462,7 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
     from app.models.vehicle import UserVehicle
     from app.services.crypto import decrypt_field
     from app.services.skoda_api import SkodaAPIClient
-    from app.services.skoda_lifecycle import AuthRequiredError, SkodaTokenLifecycle
+    from app.services.skoda_lifecycle import AuthRequiredError, LoginDeferred, SkodaTokenLifecycle
 
     out: dict[str, SyncResult] = {}
     async with async_session() as s:
@@ -461,8 +491,9 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                     except Exception:
                         pass
                 try:
-                    token = await SkodaTokenLifecycle(s).ensure_valid_token(cs, username, password)
-                except AuthRequiredError:
+                    # The history sync never logs in by itself: with a dead session it skips the vehicle.
+                    token = await SkodaTokenLifecycle(s).ensure_valid_token(cs, username, password, allow_login=False)
+                except (AuthRequiredError, LoginDeferred):
                     continue
                 api = SkodaAPIClient(token)
                 try:
@@ -478,14 +509,22 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 if vid in _failures:
                     logger.info("trip sync recovered for %s", vid)
                     _failures.pop(vid, None)
-                res = await sync_legs(s, vid, parse_legs(payload), capacity_kwh=v.battery_capacity_kwh, apply=apply)
+                await s.commit()  # keep a refreshed token whatever happens below
+                # A dry run is the real run, rolled back: it hits the same database rules, so it
+                # cannot succeed where --apply would fail.
+                res = await sync_legs(s, vid, parse_legs(payload), capacity_kwh=v.battery_capacity_kwh, apply=True)
                 if apply:
                     await s.commit()
+                else:
+                    await s.rollback()
                 out[str(vid)] = res
-                if res.inserted or res.rewritten or res.removed or res.distance_filled or res.enriched:
-                    logger.info("trip sync %s: +%d trips, %d merged/split, %d duplicates removed, %d distances filled, %d enriched, +%.0f km (apply=%s)",
-                                vid, res.inserted, res.rewritten, res.removed, res.distance_filled, res.enriched, res.km_added, apply)
-        except Exception as e:  # one vehicle must never stop the rest
+                if res.inserted or res.rewritten or res.removed or res.distance_filled or res.enriched or res.conflicts:
+                    logger.info("trip sync %s: +%d trips, %d merged/split, %d duplicates removed, %d distances filled, %d enriched, %d skipped (start time taken), +%.0f km (apply=%s)",
+                                vid, res.inserted, res.rewritten, res.removed, res.distance_filled, res.enriched, res.conflicts, res.km_added, apply)
+        except Exception as e:  # one vehicle must never stop the rest; its transaction is rolled back
             logger.warning("trip sync failed for %s: %s", vid, str(e)[:200])
+            if "Login" not in str(e)[:40]:
+                _note_failure(vid, f"{type(e).__name__}")
+            out[str(vid)] = SyncResult(error=f"{type(e).__name__}: {str(e)[:120]}")
         await asyncio.sleep(pause_s)
     return out

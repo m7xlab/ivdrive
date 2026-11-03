@@ -4,7 +4,7 @@
   python -m app.scripts.sync_skoda_trips --vehicle UUID --apply
 
 Only vehicles connected with MyŠkoda Login are supported (the Public API has no trip history).
-Existing trips are never deleted or overwritten; back up the database before --apply.
+The dry run executes the real sync and rolls it back. Back up the database before --apply.
 """
 
 import argparse
@@ -27,8 +27,11 @@ async def main() -> None:
     a = ap.parse_args()
     res = await run_trip_sync(a.vehicle, apply=a.apply)
     for vid, r in res.items():
-        print(f"{vid}: +{r.inserted} trips ({r.km_added:.0f} km), {r.rewritten} merged/split, {r.removed} duplicates removed, {r.distance_filled} distances filled, {r.enriched} enriched, {r.skipped_covered} already covered")
-    print(f"\n{'APPLIED' if a.apply else 'DRY RUN (nothing written; use --apply)'}: {len(res)} vehicles checked")
+        if r.error:
+            print(f"{vid}: FAILED, nothing written ({r.error})")
+            continue
+        print(f"{vid}: +{r.inserted} trips ({r.km_added:.0f} km), {r.rewritten} merged/split, {r.removed} duplicates removed, {r.distance_filled} distances filled, {r.enriched} enriched, {r.skipped_covered} already covered, {r.conflicts} skipped (start time taken)")
+    print(f"\n{'APPLIED' if a.apply else 'DRY RUN (nothing written; use --apply)'}: {sum(1 for r in res.values() if not r.error)} vehicles checked, {sum(1 for r in res.values() if r.error)} failed")
 
 
 if __name__ == "__main__":
