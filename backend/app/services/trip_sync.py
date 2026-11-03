@@ -378,10 +378,11 @@ async def sync_legs(
         elif i in assigned:
             row = assigned[i]
             had_no_distance = row.distance_km in (None, 0)
+            km_before = row.distance_km or 0.0        # _apply_authoritative may overwrite it
             kind = _apply_authoritative(row, leg, capacity, taken, apply)
             if kind == "rewritten":
                 res.rewritten += 1
-                res.km_added += max(0.0, leg.km - (row.distance_km or 0.0)) if not apply else 0.0
+                res.km_added += max(0.0, leg.km - km_before)
             elif kind == "enriched":
                 res.enriched += 1
             elif kind == "conflict":
