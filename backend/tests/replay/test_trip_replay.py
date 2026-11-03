@@ -58,3 +58,51 @@ async def test_trip_end_uses_telemetry_time_not_processing_time(replay_sessionma
     (trip,) = await trips(replay_sessionmaker, vehicle_id)
     assert trip.end_date == t("08:10")
     assert trip.distance_km == 5.0
+
+
+# ── v1.3.9 (#213): a trip must not stay open across a collector outage ───────────────────
+
+@pytest.mark.asyncio
+async def test_213_trip_open_during_outage_ends_at_its_last_moving_poll(replay_sessionmaker, vehicle_id):
+    """Airport return 00:35, collector down (re-auth) until 09:50. The 7 km morning drive happened
+    in the gap; it must not be glued onto the night trip (47 km, 8 h 36 min in the issue)."""
+    polls = [
+        Poll(t("00:20"), moving=False, odometer=1000),
+        Poll(t("00:35"), moving=True, odometer=1000),
+        Poll(t("00:50"), moving=True, odometer=1020),
+        Poll(t("09:50"), moving=False, odometer=1047),   # first poll after re-authentication
+    ]
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    (trip,) = await trips(replay_sessionmaker, vehicle_id)
+    assert trip.end_date == t("00:50"), trip.end_date
+    assert trip.end_odometer == 1020 and trip.distance_km == 20
+
+
+@pytest.mark.asyncio
+async def test_213_drive_after_an_outage_is_a_new_trip_and_does_not_absorb_the_gap(replay_sessionmaker, vehicle_id):
+    polls = [
+        Poll(t("00:20"), moving=False, odometer=1000),
+        Poll(t("00:35"), moving=True, odometer=1000),
+        Poll(t("00:50"), moving=True, odometer=1020),
+        Poll(t("08:20"), moving=True, odometer=1042),    # next drive, seen after the outage
+        Poll(t("08:30"), moving=True, odometer=1045),
+        Poll(t("08:40"), moving=False, odometer=1047),
+    ]
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    first, second = await trips(replay_sessionmaker, vehicle_id)
+    assert first.end_date == t("00:50") and first.distance_km == 20
+    assert second.start_date == t("08:20")
+    assert second.start_odometer == 1042 and second.distance_km == 5   # not 27: the gap is unknown, not ours
+
+
+@pytest.mark.asyncio
+async def test_213_normal_trip_with_regular_polls_is_unchanged(replay_sessionmaker, vehicle_id):
+    polls = [
+        Poll(t("08:00"), moving=False, odometer=100),
+        Poll(t("08:05"), moving=True, odometer=101),
+        Poll(t("08:10"), moving=True, odometer=105),
+        Poll(t("08:15"), moving=False, odometer=108),
+    ]
+    await replay(replay_sessionmaker, vehicle_id, polls)
+    (trip,) = await trips(replay_sessionmaker, vehicle_id)
+    assert trip.end_date == t("08:15") and trip.distance_km == 8

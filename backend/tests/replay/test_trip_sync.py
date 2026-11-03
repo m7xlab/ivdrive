@@ -49,10 +49,10 @@ async def test_missing_middle_leg_is_inserted_and_recorded_trips_untouched(repla
     async with replay_sessionmaker() as s:
         res = await sync_legs(s, vehicle_id, parse_legs(_journey()))
         await s.commit()
-    assert (res.inserted, res.skipped_covered, res.km_added) == (1, 2, 5.0)
+    assert (res.inserted, res.rewritten) == (1, 1)   # the 15:33 trip is leg 3: Škoda starts it at 42837, not 42836
     got = await trips(replay_sessionmaker, vehicle_id)
     assert [(x.start_odometer, x.distance_km, x.data_quality) for x in got] == [
-        (42829, 3, None), (42832, 5, "skoda_history"), (42836, 3, None)]
+        (42829, 3, None), (42832, 5, "skoda_history"), (42837, 2, "skoda_history")]
     assert got[1].kwh_consumed == pytest.approx(0.03 * 77)  # 68 -> 65 %
 
 
@@ -84,7 +84,7 @@ async def test_zero_km_trip_gets_distance_from_matching_leg(replay_sessionmaker,
 
 
 @pytest.mark.asyncio
-async def test_recorded_trip_is_enriched_only_where_values_are_missing(replay_sessionmaker, vehicle_id):
+async def test_recorded_trip_takes_skodas_soc_energy_and_positions_but_keeps_distance(replay_sessionmaker, vehicle_id):
     async with replay_sessionmaker() as s:
         s.add(Trip(user_vehicle_id=vehicle_id, start_date=t("14:51"), end_date=t("15:09"),
                    start_odometer=42829, end_odometer=42832, distance_km=3,
@@ -95,7 +95,7 @@ async def test_recorded_trip_is_enriched_only_where_values_are_missing(replay_se
         await s.commit()
     (x,) = await trips(replay_sessionmaker, vehicle_id)
     assert res.enriched == 1
-    assert x.start_soc == 71            # measured value kept (Skoda says 70)
+    assert x.start_soc == 70            # Škoda's value replaces the late poll's reading (71)
     assert x.end_soc == 68 and x.kwh_consumed == pytest.approx(0.02 * 77) and x.start_lat == 54.69
     assert x.distance_km == 3 and x.data_quality is None
 
@@ -295,3 +295,69 @@ async def test_unrelated_trips_in_and_outside_the_window_are_untouched(replay_se
     await _sync(replay_sessionmaker, vehicle_id, _issue_210_payload())
     rows = {(int(x.start_odometer), int(x.end_odometer)) for x in await trips(replay_sessionmaker, vehicle_id)}
     assert {(2000, 2010), (500, 510)} <= rows
+
+
+# ── v1.3.9 (#213): Škoda is authoritative for a matched trip ───────────────────────────
+
+def _legs_213_afternoon() -> dict:
+    """Nov 2 afternoon: 21 + 3 + 4 = 28 km, stops at Tófalva and Nádas."""
+    return _payload(
+        _drive("15:58", "16:16", 2000, 2021, "2026-11-02"),
+        _drive("16:38", "16:47", 2021, 2024, "2026-11-02"),
+        _drive("18:01", "18:09", 2024, 2028, "2026-11-02"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_213_overlong_trip_that_swallowed_the_next_leg_is_cut_back(replay_sessionmaker, vehicle_id):
+    """v1.3.8: a polled 24 km trip (21 + the next 3 km leg) counted as 'same' as the 21 km leg."""
+    d = "2026-11-02"
+    async with replay_sessionmaker() as s:
+        s.add_all([
+            _tr(vehicle_id, "16:47", "16:50", 2000, 2024, day=d),                    # polled, late, 24 km
+            _tr(vehicle_id, "16:38", "16:47", 2021, 2024, "skoda_history", day=d),   # the 3 km leg
+            _tr(vehicle_id, "18:01", "18:09", 2024, 2028, day=d),
+        ])
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _legs_213_afternoon())
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    assert _summary(rows) == ([(2000, 2021), (2021, 2024), (2024, 2028)], 28)
+    assert rows[0].start_date.strftime("%H:%M") == "15:58"          # Škoda's departure, not the late poll
+
+
+@pytest.mark.asyncio
+async def test_213_matched_trip_takes_skoda_times_and_positions(replay_sessionmaker, vehicle_id):
+    d = "2026-11-02"
+    async with replay_sessionmaker() as s:
+        m = _tr(vehicle_id, "23:41", "23:52", 3000, 3038, day=d)       # detected 25 min late
+        m.start_lat, m.start_lon, m.end_lat, m.end_lon = 47.1, 19.9, 47.2, 19.8      # stale 'parked' position
+        s.add(m)
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("23:16", "23:47", 3000, 3038, d)))
+    (row,) = await trips(replay_sessionmaker, vehicle_id)
+    assert row.start_date.strftime("%H:%M") == "23:16" and row.end_date.strftime("%H:%M") == "23:47"
+    assert (row.start_lat, row.start_lon) == (47.5, 19.0) and (row.end_lat, row.end_lon) == (47.6, 19.1)
+    assert row.data_quality == "skoda_history"
+
+
+def _journey_with_energy() -> dict:
+    """38 + 2 km, 8.0 kWh in total; SoC only moves in whole percent (80 -> 72 -> 71)."""
+    return {"dailyTrips": [{"trips": [{
+        "id": "j", "startMileageInKm": 3000, "endMileageInKm": 3040, "mileageInKm": 40, "electricConsumption": 8.0,
+        "waypoints": [
+            {"coordinates": {"latitude": 47.5, "longitude": 19.0}, "departureStateOfChargeInPercent": 80,
+             "departureTime": "2026-11-02T23:16:00Z", "distanceToNextWaypointInKm": 38},
+            {"coordinates": {"latitude": 47.4, "longitude": 19.2}, "arrivalStateOfChargeInPercent": 72,
+             "arrivalTime": "2026-11-02T23:47:00Z", "departureStateOfChargeInPercent": 72,
+             "departureTime": "2026-11-03T00:08:00Z", "distanceToNextWaypointInKm": 2},
+            {"coordinates": {"latitude": 47.4, "longitude": 19.3}, "arrivalStateOfChargeInPercent": 71,
+             "arrivalTime": "2026-11-03T00:12:00Z"}]}]}]}
+
+
+@pytest.mark.asyncio
+async def test_213_short_leg_energy_is_not_one_whole_percent(replay_sessionmaker, vehicle_id):
+    """2 km at '1 % = 0.77 kWh' showed 38.5 kWh/100km; use the journey's own energy for short legs."""
+    await _sync(replay_sessionmaker, vehicle_id, _journey_with_energy())
+    long_leg, short_leg = await trips(replay_sessionmaker, vehicle_id)
+    assert long_leg.kwh_consumed == pytest.approx(0.08 * 77)                 # 8 points of SoC: usable
+    assert short_leg.kwh_consumed == pytest.approx(8.0 * 2 / 40)            # 0.4 kWh = 20 kWh/100km
