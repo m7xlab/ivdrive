@@ -58,6 +58,9 @@ def is_actively_charging(state: str | None, charge_power_kw: float | None = None
 
 
 FLAT_SOC_MINUTES = 30
+# Silence this long between two observations of a trip is a collector outage (re-auth, restart),
+# not slow polling: never stretch one trip across it.
+TRIP_OUTAGE_MIN = timedelta(minutes=90)
 # Trip start odometer backfill: ignore noise below MIN, refuse implausible jumps above MAX.
 MIN_BACKFILL_KM = 0.5
 MAX_BACKFILL_KM = 300.0
@@ -201,6 +204,68 @@ async def process_completed_trips_and_charges(
             )
             open_trip = open_trip_res.scalar_one_or_none()
 
+            veh_t = (await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))).scalar_one_or_none()
+            parked_s = getattr(veh_t, "parked_interval_seconds", None) or 1800
+            outage_gap = max(TRIP_OUTAGE_MIN, timedelta(seconds=3 * parked_s))
+            floor_age = max(timedelta(minutes=45), timedelta(seconds=int(1.5 * parked_s)))
+
+            async def _last_moving(at: datetime, before: bool) -> ConnectionState | None:
+                moving = (ConnectionState.in_motion.is_(True)) | (ConnectionState.ignition_on.is_(True))
+                when = (ConnectionState.captured_at < at) if before else (ConnectionState.captured_at <= at)
+                return (await session.execute(
+                    select(ConnectionState)
+                    .where(ConnectionState.user_vehicle_id == user_vehicle_id, moving, when)
+                    .order_by(ConnectionState.captured_at.desc()).limit(1)
+                )).scalar_one_or_none()
+
+            async def _latest_before(model, col, cutoff: datetime):
+                return (await session.execute(
+                    select(model).where(model.user_vehicle_id == user_vehicle_id, col <= cutoff)
+                    .order_by(col.desc()).limit(1)
+                )).scalar_one_or_none()
+
+            async def _finish_trip(trip: Trip, cutoff: datetime | None) -> None:
+                """Close a trip. With `cutoff` (the last moving observation) the end is taken from what
+                we knew then, so a collector outage cannot glue later drives onto this one."""
+                if cutoff is None:
+                    end_dt = latest_conn.captured_at if latest_conn else clock
+                    e_pos, e_odo, e_chg = latest_pos, latest_odom, latest_charge
+                else:
+                    end_dt = cutoff
+                    e_pos = await _latest_before(VehiclePosition, VehiclePosition.captured_at, cutoff)
+                    e_odo = await _latest_before(OdometerReading, OdometerReading.captured_at, cutoff)
+                    e_chg = await _latest_before(ChargingState, ChargingState.first_date, cutoff)
+                trip.end_date = end_dt
+                trip.end_lat = e_pos.latitude if e_pos else None
+                trip.end_lon = e_pos.longitude if e_pos else None
+                trip.end_odometer = e_odo.mileage_in_km if e_odo else None
+                trip.end_soc = e_chg.battery_pct if e_chg else None
+                if trip.start_odometer is not None and trip.end_odometer is not None:
+                    trip.distance_km = float(trip.end_odometer - trip.start_odometer)
+                capacity_kwh = getattr(veh_t, "battery_capacity_kwh", None) or 77.0
+                if trip.start_soc is not None and trip.end_soc is not None:
+                    soc_used = trip.start_soc - trip.end_soc
+                    if soc_used > 0:
+                        trip.kwh_consumed = (soc_used / 100.0) * capacity_kwh
+                logger.info("Ended Trip for %s (Dist: %s km, Consumed: %s kWh)", user_vehicle_id, trip.distance_km, trip.kwh_consumed)
+                # --- Automatic Country Code Update ---
+                if trip.end_lat and trip.end_lon:
+                    try:
+                        detected_cc = await reverse_geocode_country(trip.end_lat, trip.end_lon)
+                        if detected_cc and veh_t and getattr(veh_t, "country_code", None) != detected_cc:
+                            logger.info("Auto-updating country_code for %s from %s to %s based on trip end location", user_vehicle_id, getattr(veh_t, "country_code", None), detected_cc)
+                            veh_t.country_code = detected_cc
+                            session.add(veh_t)
+                    except Exception as e:
+                        logger.warning("Failed to auto-update country code: %s", e)
+
+            # A moving poll long after the last one: the open trip belongs to the earlier drive.
+            if is_driving and open_trip is not None and latest_conn is not None:
+                prev_mv = await _last_moving(latest_conn.captured_at, before=True)
+                if prev_mv is not None and _as_naive_utc(latest_conn.captured_at) - _as_naive_utc(prev_mv.captured_at) > outage_gap:
+                    await _finish_trip(open_trip, prev_mv.captured_at)
+                    open_trip = None
+
             if is_driving:
                 if not open_trip:
                     # Start a new trip! Departure is usually noticed one poll late
@@ -210,7 +275,7 @@ async def process_completed_trips_and_charges(
                     start_quality = None
                     if latest_odom is not None:
                         prev_odo_res = await session.execute(
-                            select(OdometerReading.mileage_in_km)
+                            select(OdometerReading.mileage_in_km, OdometerReading.captured_at)
                             .where(
                                 OdometerReading.user_vehicle_id == user_vehicle_id,
                                 OdometerReading.captured_at < latest_odom.captured_at,
@@ -218,14 +283,20 @@ async def process_completed_trips_and_charges(
                             .order_by(OdometerReading.captured_at.desc())
                             .limit(1)
                         )
-                        prev_odo = prev_odo_res.scalar_one_or_none()
+                        prev_row = prev_odo_res.first()
+                        # Only a recent reading marks where this drive began; after an outage the
+                        # distance in between is unknown, not part of this trip.
+                        recent = lambda ts: ts is not None and (
+                            _as_naive_utc(latest_odom.captured_at) - _as_naive_utc(ts) <= floor_age)
+                        prev_odo = prev_row[0] if prev_row and recent(prev_row[1]) else None
                         last_end_res = await session.execute(
-                            select(Trip.end_odometer)
+                            select(Trip.end_odometer, Trip.end_date)
                             .where(Trip.user_vehicle_id == user_vehicle_id, Trip.end_date.is_not(None))
                             .order_by(Trip.end_date.desc())
                             .limit(1)
                         )
-                        last_end = last_end_res.scalar_one_or_none()
+                        last_end_row = last_end_res.first()
+                        last_end = last_end_row[0] if last_end_row and recent(last_end_row[1]) else None
                         floor = max((v for v in (prev_odo, last_end) if v is not None), default=None)
                         if floor is not None and 0 < latest_odom.mileage_in_km - floor <= MAX_BACKFILL_KM:
                             if latest_odom.mileage_in_km - floor >= MIN_BACKFILL_KM:
@@ -270,42 +341,11 @@ async def process_completed_trips_and_charges(
                             open_trip.kwh_consumed = (soc_used / 100.0) * capacity_kwh
             else:
                 if open_trip:
-                    # End the trip! Calculate deltas.
-                    open_trip.end_date = latest_conn.captured_at if latest_conn else clock
-                    open_trip.end_lat = latest_pos.latitude if latest_pos else None
-                    open_trip.end_lon = latest_pos.longitude if latest_pos else None
-                    open_trip.end_odometer = latest_odom.mileage_in_km if latest_odom else None
-                    open_trip.end_soc = latest_charge.battery_pct if latest_charge else None
-                    
-                    if open_trip.start_odometer is not None and open_trip.end_odometer is not None:
-                        open_trip.distance_km = float(open_trip.end_odometer - open_trip.start_odometer)
-                    
-                    v_res = await session.execute(select(UserVehicle).where(UserVehicle.id == user_vehicle_id))
-                    veh = v_res.scalar_one_or_none()
-
-                    if open_trip.start_soc is not None and open_trip.end_soc is not None:
-                        soc_used = open_trip.start_soc - open_trip.end_soc
-                        # Needs total capacity. Let's fetch the vehicle
-                        capacity_kwh = getattr(veh, "battery_capacity_kwh", 77.0) if veh else 77.0
-                        if capacity_kwh is None: capacity_kwh = 77.0 # Default fallback
-                        
-                        if soc_used > 0:
-                            open_trip.kwh_consumed = (soc_used / 100.0) * capacity_kwh
-                            
-                    logger.info("Ended Trip for %s (Dist: %s km, Consumed: %s kWh)", user_vehicle_id, open_trip.distance_km, open_trip.kwh_consumed)
-
-                    # --- Automatic Country Code Update ---
-                    if open_trip.end_lat and open_trip.end_lon:
-                        try:
-                            detected_cc = await reverse_geocode_country(open_trip.end_lat, open_trip.end_lon)
-                            if detected_cc and veh:
-                                if getattr(veh, "country_code", None) != detected_cc:
-                                    logger.info("Auto-updating country_code for %s from %s to %s based on trip end location", user_vehicle_id, getattr(veh, "country_code", None), detected_cc)
-                                    veh.country_code = detected_cc
-                                    session.add(veh)
-                        except Exception as e:
-                            logger.warning("Failed to auto-update country code: %s", e)
-
+                    lm = await _last_moving(latest_conn.captured_at, before=False) if latest_conn else None
+                    cutoff = None
+                    if lm is not None and _as_naive_utc(latest_conn.captured_at) - _as_naive_utc(lm.captured_at) > outage_gap:
+                        cutoff = lm.captured_at   # we were blind since then: end where we last saw it move
+                    await _finish_trip(open_trip, cutoff)
 
             # Odometer lags the moving state: give recently closed 0 km trips their
             # distance once a later reading arrives (cheap; recent trips only).

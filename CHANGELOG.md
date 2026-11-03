@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.3.9] - 2026-11-03
+**Trips after a connection outage, and trips with several stops, now match MyŠkoda.**
+
+### Fixed
+- **A trip stayed open while iVDrive could not reach Škoda (#213)** — after a re-login or restart, the next drive was glued onto the night trip: 47 km instead of 40 km, and 8 h 36 min of driving time. A trip now ends where it was last seen moving, and a drive seen after a long silence starts a new trip. A drive's start is only moved back to an earlier odometer reading when that reading is recent.
+- **A trip counted the next leg too (#213)** — a recorded 24 km trip was treated as the same drive as a 21 km leg and kept, so the 3 km leg after the stop counted twice (31 km instead of 28 km). Such trips are now cut back to the leg.
+- **Wrong start time and place on trips synced from Škoda (#213)** — a recorded trip that matches a Škoda journey now takes Škoda's departure and arrival times, positions and battery levels. The recorded start was the late poll (23:41 instead of 23:16) and the position was where the car was last parked (Nádas utca instead of home).
+- **Odd efficiency values on short legs (#213)** — battery percent only moves in whole steps, so a 2 km leg showed 38.5 kWh/100 km and another 0. Short legs now use the journey's own energy, shared by distance; long legs keep the battery-percent figure.
+
+### Notes
+- Rebuild **api + collector**. No database migration.
+- Trips already recorded are corrected on the next sync (every 6 hours): the glued 47 km trip is split into the airport return and the morning drive, with their real times.
+- Only vehicles connected with MyŠkoda Login get corrected by the sync. The outage fix applies to every vehicle.
+
 ## [v1.3.8] - 2026-11-01
 **Driving off ends the charging session on its own.**
 

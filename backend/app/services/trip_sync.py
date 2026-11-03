@@ -36,6 +36,8 @@ class Leg:
     start_lon: float | None
     end_lat: float | None
     end_lon: float | None
+    journey_kwh: float | None = None   # Škoda's energy for the whole journey (0.01 kWh precision)
+    journey_km: float | None = None
 
     @property
     def km(self) -> float:
@@ -77,6 +79,10 @@ def parse_legs(payload: dict) -> list[Leg]:
             if not ok or not built:
                 continue
             built[-1].end_odometer = float(end_odo)  # absorb per-leg km rounding
+            kwh, jkm = trip.get("electricConsumption"), trip.get("mileageInKm")
+            for leg in built:
+                leg.journey_kwh = float(kwh) if kwh is not None else None
+                leg.journey_km = float(jkm) if jkm else None
             if built[-1].end_odometer < built[-1].start_odometer:
                 continue
             legs.extend(built)
@@ -149,16 +155,15 @@ def _lrange(leg: Leg) -> tuple[float, float]:
 
 
 def _is_same(t: Trip, leg: Leg, now: datetime) -> bool:
+    """Same drive: both odometer ends agree (whole-km rounding, a late or lagging poll). A recorded
+    trip that runs past the leg by more than that swallowed the next leg and is handled as merged."""
     tr, lr = _orange(t), _lrange(leg)
     if tr and tr[1] > tr[0] and lr[1] > lr[0]:
-        i = _inter(tr, lr)
-        if i / ((tr[1] - tr[0]) + (lr[1] - lr[0]) - i) >= SAME_IOU:
-            return True
-        # whole-km rounding on either side: both ends within 1 km and close in time
+        tol = max(1.0, 0.1 * (lr[1] - lr[0]))
         ts = t.start_date.astimezone(timezone.utc)
         return (
-            abs(tr[0] - lr[0]) <= 1.0 and abs(tr[1] - lr[1]) <= 1.0
-            and leg.start - timedelta(minutes=30) <= ts <= leg.end + timedelta(minutes=30)
+            abs(tr[0] - lr[0]) <= tol and abs(tr[1] - lr[1]) <= tol
+            and leg.start - timedelta(hours=1) <= ts <= leg.end + timedelta(hours=1)
         )
     return _covers(t, leg, now)  # no usable odometer (or a 0 km trip): fall back to time
 
@@ -193,14 +198,73 @@ def _quality_rank(t: Trip) -> tuple:
     return (t.data_quality == "skoda_history", filled)
 
 
+def leg_kwh(leg: Leg, capacity: float) -> float | None:
+    """Energy of one leg. SoC only moves in whole percent (1 % = 0.77 kWh), so a 2 km leg would show
+    38 kWh/100 km. Use the SoC drop for long legs with a clear drop, otherwise the journey's own
+    energy shared by distance."""
+    drop = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
+    if drop and drop >= 5 and leg.km >= 15:
+        return drop / 100.0 * capacity
+    if leg.journey_kwh is not None and leg.journey_km:
+        return leg.journey_kwh * leg.km / leg.journey_km
+    return drop / 100.0 * capacity if drop and drop > 0 else None
+
+
 def _rewrite(t: Trip, leg: Leg, capacity: float) -> None:
-    used = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
     t.start_date, t.end_date = leg.start, leg.end
     t.start_odometer, t.end_odometer, t.distance_km = leg.start_odometer, leg.end_odometer, leg.km
     t.start_soc, t.end_soc = leg.start_soc, leg.end_soc
     t.start_lat, t.start_lon, t.end_lat, t.end_lon = leg.start_lat, leg.start_lon, leg.end_lat, leg.end_lon
-    t.kwh_consumed = (used / 100.0 * capacity) if used and used > 0 else None
+    t.kwh_consumed = leg_kwh(leg, capacity)
     t.data_quality = "skoda_history"
+
+
+def _km_apart(lat1, lon1, lat2, lon2) -> float:
+    from math import cos, radians, sqrt
+    return 111.0 * sqrt((lat2 - lat1) ** 2 + ((lon2 - lon1) * cos(radians(lat1))) ** 2)
+
+
+def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply: bool) -> str | None:
+    """A recorded trip that is the same drive as a Škoda leg takes Škoda's values: its start is a
+    late poll, its position the last *parked* one, its SoC a late reading. Returns what changed:
+    'rewritten' (time / odometer / position corrected), 'enriched' (only empty fields filled) or None."""
+    now = datetime.now(timezone.utc)
+    t_start, t_end = row.start_date.astimezone(timezone.utc), (row.end_date or now).astimezone(timezone.utc)
+    time_off = abs((t_start - leg.start).total_seconds()) > 120 or abs((t_end - leg.end).total_seconds()) > 120
+    odo_off = (row.start_odometer is None or row.end_odometer is None
+               or abs(float(row.start_odometer) - leg.start_odometer) >= 1 or abs(float(row.end_odometer) - leg.end_odometer) >= 1)
+    pos_off = any(
+        a is not None and b is not None and c is not None and d is not None and _km_apart(a, b, c, d) > 0.5
+        for a, b, c, d in ((row.start_lat, row.start_lon, leg.start_lat, leg.start_lon),
+                           (row.end_lat, row.end_lon, leg.end_lat, leg.end_lon)))
+    soc_off = (leg.start_soc is not None and row.start_soc != leg.start_soc) or (leg.end_soc is not None and row.end_soc != leg.end_soc)
+    kwh = leg_kwh(leg, capacity)
+    kwh_off = kwh is not None and (row.kwh_consumed is None or abs(row.kwh_consumed - kwh) > 0.05)
+    missing_pos = any(getattr(row, a) is None and v is not None for a, v in (
+        ("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)))
+    if leg.start != row.start_date and leg.start in taken:
+        return None  # another row already starts exactly here; leave this one as is
+    material = time_off or odo_off or pos_off
+    if not (material or soc_off or kwh_off or missing_pos):
+        return None
+    if apply:
+        keep_quality = row.data_quality
+        if material:
+            taken.discard(row.start_date)
+            _rewrite(row, leg, capacity)
+            taken.add(leg.start)
+        else:  # only empty / coarse fields: fill them, keep the row's own label
+            if leg.start_soc is not None:
+                row.start_soc = leg.start_soc
+            if leg.end_soc is not None:
+                row.end_soc = leg.end_soc
+            if kwh is not None:
+                row.kwh_consumed = kwh
+            for a, v in (("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)):
+                if getattr(row, a) is None and v is not None:
+                    setattr(row, a, v)
+            row.data_quality = keep_quality
+    return "rewritten" if material else "enriched"
 
 
 async def sync_legs(
@@ -306,17 +370,17 @@ async def sync_legs(
                 taken.add(leg.start)
         elif i in assigned:
             row = assigned[i]
-            if _enrich(row, leg, capacity, now, apply):
+            had_no_distance = row.distance_km in (None, 0)
+            kind = _apply_authoritative(row, leg, capacity, taken, apply)
+            if kind == "rewritten":
+                res.rewritten += 1
+                res.km_added += max(0.0, leg.km - (row.distance_km or 0.0)) if not apply else 0.0
+            elif kind == "enriched":
                 res.enriched += 1
-            if (row.distance_km in (None, 0)) and row.start_odometer is not None and leg.km > 0:
-                res.distance_filled += 1
-                res.km_added += leg.km
-                if apply:
-                    row.end_odometer = float(row.start_odometer) + leg.km
-                    row.distance_km = leg.km
-                    row.data_quality = row.data_quality or "skoda_history"
             else:
                 res.skipped_covered += 1
+            if had_no_distance and leg.km > 0:
+                res.distance_filled += 1
         elif leg.km > 0 and leg.start not in taken:
             res.inserted += 1
             res.km_added += leg.km
@@ -327,7 +391,7 @@ async def sync_legs(
                     start_lat=leg.start_lat, start_lon=leg.start_lon, end_lat=leg.end_lat, end_lon=leg.end_lon,
                     start_odometer=leg.start_odometer, end_odometer=leg.end_odometer, distance_km=leg.km,
                     start_soc=leg.start_soc, end_soc=leg.end_soc,
-                    kwh_consumed=(used / 100.0 * capacity) if used and used > 0 else None,
+                    kwh_consumed=leg_kwh(leg, capacity),
                     data_quality="skoda_history",
                 ))
                 taken.add(leg.start)
