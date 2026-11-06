@@ -10,7 +10,7 @@ overwritten or deleted (a 0 km trip overlapping a leg gets that leg's distance).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -38,6 +38,7 @@ class Leg:
     end_lon: float | None
     journey_kwh: float | None = None   # Škoda's energy for the whole journey (0.01 kWh precision)
     journey_km: float | None = None
+    times_estimated: bool = False       # Škoda's times were impossible; start/end come from our odometer readings
 
     @property
     def km(self) -> float:
@@ -50,8 +51,9 @@ def _ts(v: str | None) -> datetime | None:
     return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
-def parse_legs(payload: dict) -> list[Leg]:
-    """Turn a single-trips response into legs. Malformed journeys are skipped, never guessed."""
+def parse_legs(payload: dict, stats: dict | None = None) -> list[Leg]:
+    """Turn a single-trips response into legs. Malformed journeys are skipped, never guessed.
+    `stats['skipped_journeys']` counts journeys whose per-leg distances do not add up to the journey."""
     legs: list[Leg] = []
     for day in payload.get("dailyTrips") or []:
         for trip in day.get("trips") or []:
@@ -78,7 +80,14 @@ def parse_legs(payload: dict) -> list[Leg]:
                 odo += dist
             if not ok or not built:
                 continue
-            built[-1].end_odometer = float(end_odo)  # absorb per-leg km rounding
+            # The last leg may absorb per-leg km rounding (whole km each). A bigger gap means Škoda left
+            # distances out: the last leg would swallow the whole journey's km inside its own short
+            # time window (Nov 5: 38 km in 20 min). Skip such a journey instead of guessing.
+            if abs(float(end_odo) - built[-1].end_odometer) > max(2.0, 0.5 * len(built) + 1.0):
+                if stats is not None:
+                    stats["skipped_journeys"] = stats.get("skipped_journeys", 0) + 1
+                continue
+            built[-1].end_odometer = float(end_odo)
             kwh, jkm = trip.get("electricConsumption"), trip.get("mileageInKm")
             for leg in built:
                 leg.journey_kwh = float(kwh) if kwh is not None else None
@@ -87,6 +96,68 @@ def parse_legs(payload: dict) -> list[Leg]:
                 continue
             legs.extend(built)
     return legs
+
+
+MAX_PLAUSIBLE_KMH = 220.0
+END_SLACK = timedelta(minutes=15)   # Škoda's arrival may come a little after the odometer shows the end value
+
+
+def _impossible_speed(km: float, start: datetime, end: datetime) -> bool:
+    hours = max((end - start).total_seconds(), 1.0) / 3600.0
+    return km >= 1 and km / hours > MAX_PLAUSIBLE_KMH
+
+
+async def _check_times(session: AsyncSession, vehicle_id: UUID, legs: list[Leg]) -> list[Leg]:
+    """Škoda sometimes returns right distances with wrong times (Nov 5: 22 km in 63 s, 162 min after our
+    own readings already showed the end odometer). A leg is untrusted when its speed is impossible or
+    when the odometer had already reached the leg's end value well before the leg says it ended
+    (lagging readings only ever come late, so this cannot misfire on a slow odometer). An untrusted
+    leg gets the window our readings give (last reading before the start value .. first reading at
+    the end value) and is labelled; with no such window it is dropped, never guessed."""
+    from bisect import bisect_left
+
+    from app.models.telemetry import OdometerReading
+
+    if not legs:
+        return legs
+    lo = min(l.start for l in legs) - timedelta(days=2)
+    hi = max(l.end for l in legs) + timedelta(days=2)
+    rows = (await session.execute(
+        select(OdometerReading.captured_at, OdometerReading.mileage_in_km)
+        .where(OdometerReading.user_vehicle_id == vehicle_id, OdometerReading.captured_at >= lo, OdometerReading.captured_at <= hi)
+        .order_by(OdometerReading.captured_at)
+    )).all()
+    times = [r[0].astimezone(timezone.utc) for r in rows]
+    odos = [float(r[1]) for r in rows]
+    kept: list[Leg] = []
+    for leg in legs:
+        first_at_end = None
+        if leg.km >= 2:
+            for i in range(bisect_left(times, leg.start - timedelta(hours=12)), len(times)):
+                if odos[i] >= leg.end_odometer:
+                    first_at_end = times[i]
+                    break
+        bad = _impossible_speed(leg.km, leg.start, leg.end) or (first_at_end is not None and leg.end > first_at_end + END_SLACK)
+        if not bad:
+            kept.append(leg)
+            continue
+        if first_at_end is None:                      # speed was the signal; find when the end value first showed
+            for i in range(bisect_left(times, leg.start - timedelta(days=1)), len(times)):
+                if odos[i] >= leg.end_odometer:
+                    first_at_end = times[i]
+                    break
+        before = None
+        if first_at_end is not None:
+            for i in range(bisect_left(times, first_at_end) - 1, -1, -1):
+                if odos[i] <= leg.start_odometer + 0.5:
+                    before = times[i]
+                    break
+        if before is None or first_at_end is None or first_at_end <= before:
+            logger.info("trip sync: leg %s %.0f km has impossible times and no odometer window; skipped", leg.start, leg.km)
+            continue
+        leg.start, leg.end, leg.times_estimated = before, first_at_end, True
+        kept.append(leg)
+    return kept
 
 
 def _covers(trip: Trip, leg: Leg, now: datetime) -> bool:
@@ -141,6 +212,7 @@ class SyncResult:
 SAME_IOU = 0.7          # odometer ranges that overlap this much are the same trip
 INSIDE = 0.8            # share of a trip inside a leg (fragment) / of a leg inside a trip (merged)
 NEAR = timedelta(minutes=20)
+FRAGMENT_WINDOW = timedelta(hours=24)
 
 
 def _orange(t: Trip) -> tuple[float, float] | None:
@@ -180,7 +252,9 @@ def _is_fragment_of(t: Trip, leg: Leg) -> bool:
     if _inter(tr, lr) / (tr[1] - tr[0]) < INSIDE:
         return False
     ts = t.start_date.astimezone(timezone.utc)
-    return leg.start - NEAR <= ts <= leg.end + NEAR
+    # The same kilometres cannot be driven twice, so the odometer decides; the time window only
+    # guards against a corrupt odometer (Nov 5: live trips 4 h before a leg's own time window).
+    return leg.start - FRAGMENT_WINDOW <= ts <= leg.end + FRAGMENT_WINDOW
 
 
 def _legs_inside(t: Trip, legs: list[Leg]) -> list[int]:
@@ -199,7 +273,7 @@ def _legs_inside(t: Trip, legs: list[Leg]) -> list[int]:
 def _quality_rank(t: Trip) -> tuple:
     """Prefer rows that already carry Škoda's values, then the most complete one."""
     filled = sum(v is not None for v in (t.start_soc, t.end_soc, t.kwh_consumed, t.start_lat, t.end_lat))
-    return (t.data_quality == "skoda_history", filled)
+    return (t.data_quality in ("skoda_history", "estimated_times"), filled)
 
 
 def leg_kwh(leg: Leg, capacity: float) -> float | None:
@@ -220,7 +294,7 @@ def _rewrite(t: Trip, leg: Leg, capacity: float) -> None:
     t.start_soc, t.end_soc = leg.start_soc, leg.end_soc
     t.start_lat, t.start_lon, t.end_lat, t.end_lon = leg.start_lat, leg.start_lon, leg.end_lat, leg.end_lon
     t.kwh_consumed = leg_kwh(leg, capacity)
-    t.data_quality = "skoda_history"
+    t.data_quality = "estimated_times" if leg.times_estimated else "skoda_history"
 
 
 def _km_apart(lat1, lon1, lat2, lon2) -> float:
@@ -235,6 +309,13 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
     'conflict' (another row already starts at the leg's start: left as is) or None."""
     now = datetime.now(timezone.utc)
     t_start, t_end = row.start_date.astimezone(timezone.utc), (row.end_date or now).astimezone(timezone.utc)
+    if leg.times_estimated:
+        # Škoda's times for this leg are not believable; its distance and odometer are. A recorded row
+        # with sound times keeps them; a row with impossible ones (written by v1.3.10) takes the window.
+        row_sound = (row.end_date is not None and not _impossible_speed(row.distance_km or 0.0, t_start, t_end)
+                     and t_end <= leg.end + END_SLACK)
+        if row_sound:
+            leg = replace(leg, start=row.start_date, end=row.end_date, times_estimated=False)
     time_off = abs((t_start - leg.start).total_seconds()) > 120 or abs((t_end - leg.end).total_seconds()) > 120
     odo_off = (row.start_odometer is None or row.end_odometer is None
                or abs(float(row.start_odometer) - leg.start_odometer) >= 1 or abs(float(row.end_odometer) - leg.end_odometer) >= 1)
@@ -291,7 +372,9 @@ async def sync_legs(
     if not legs:
         return res
     capacity = capacity_kwh or DEFAULT_CAPACITY_KWH
-    legs = sorted(legs, key=lambda x: x.start)
+    legs = sorted(await _check_times(session, vehicle_id, legs), key=lambda x: x.start)
+    if not legs:
+        return res
     now = datetime.now(timezone.utc)
     lo, hi = legs[0].start - timedelta(days=1), legs[-1].end + timedelta(days=1)
     existing = list((await session.execute(
@@ -402,7 +485,7 @@ async def sync_legs(
                     start_odometer=leg.start_odometer, end_odometer=leg.end_odometer, distance_km=leg.km,
                     start_soc=leg.start_soc, end_soc=leg.end_soc,
                     kwh_consumed=leg_kwh(leg, capacity),
-                    data_quality="skoda_history",
+                    data_quality="estimated_times" if leg.times_estimated else "skoda_history",
                 ))
                 taken.add(leg.start)
     if apply:
@@ -449,7 +532,17 @@ def _valid_payload(payload: object) -> bool:
     return isinstance(payload, dict) and isinstance(payload.get("dailyTrips"), list)
 
 
-async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True, pause_s: float = 3.0) -> dict[str, SyncResult]:
+def _print_journeys(vid: UUID, payload: dict) -> None:
+    """Waypoint times and distances only (no coordinates), for pasting into a bug report."""
+    print(f"# {vid}")
+    for day in payload.get("dailyTrips") or []:
+        for trip in day.get("trips") or []:
+            print(f"journey {trip.get('startMileageInKm')} -> {trip.get('endMileageInKm')} km, {trip.get('mileageInKm')} km, {trip.get('electricConsumption')} kWh")
+            for w in trip.get("waypoints") or []:
+                print(f"  arr={w.get('arrivalTime')} dep={w.get('departureTime')} soc={w.get('arrivalStateOfChargeInPercent')}/{w.get('departureStateOfChargeInPercent')} next_km={w.get('distanceToNextWaypointInKm')}")
+
+
+async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True, pause_s: float = 3.0, dump: bool = False) -> dict[str, SyncResult]:
     """One pass over every MyŠkoda-Login vehicle. Never raises; one vehicle failing is logged and skipped.
 
     Independent of the smart poller: its own schedule, one GET per vehicle per run.
@@ -466,6 +559,12 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
     from app.services.skoda_lifecycle import AuthRequiredError, LoginDeferred, SkodaTokenLifecycle
 
     out: dict[str, SyncResult] = {}
+    skipped: dict[str, int] = {}     # reason -> vehicles; a skip is otherwise invisible
+    odd_journeys = 0
+
+    def _skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
     async with async_session() as s:
         q = select(UserVehicle.id).where(UserVehicle.collection_enabled.is_(True))
         if only_vehicle:
@@ -475,6 +574,7 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
     for vid in ids:
         retry_at = _failures.get(vid, (0, None))[1]
         if retry_at and datetime.now(timezone.utc) < retry_at:
+            _skip("backing off after an earlier failure")
             continue
         try:
             async with async_session() as s:
@@ -483,6 +583,7 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 )).scalar_one_or_none()
                 cs = v.connector_session if v else None
                 if v is None or cs is None or cs.status in ("token_error", "auth_failed"):
+                    _skip("no usable MyŠkoda Login session")
                     continue  # no MyŠkoda Login for this vehicle (Public API has no trip history)
                 username = password = None
                 if v.connector_config_encrypted:
@@ -494,7 +595,8 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 try:
                     # The history sync never logs in by itself: with a dead session it skips the vehicle.
                     token = await SkodaTokenLifecycle(s).ensure_valid_token(cs, username, password, allow_login=False)
-                except (AuthRequiredError, LoginDeferred):
+                except (AuthRequiredError, LoginDeferred) as e:
+                    _skip("login needed or deferred" if isinstance(e, LoginDeferred) else "login rejected")
                     continue
                 api = SkodaAPIClient(token)
                 try:
@@ -510,10 +612,16 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 if vid in _failures:
                     logger.info("trip sync recovered for %s", vid)
                     _failures.pop(vid, None)
+                if dump:
+                    _print_journeys(vid, payload)
+                    continue
                 await s.commit()  # keep a refreshed token whatever happens below
+                parse_stats: dict = {}
+                legs = parse_legs(payload, parse_stats)
+                odd_journeys += parse_stats.get("skipped_journeys", 0)
                 # A dry run is the real run, rolled back: it hits the same database rules, so it
                 # cannot succeed where --apply would fail.
-                res = await sync_legs(s, vid, parse_legs(payload), capacity_kwh=v.battery_capacity_kwh, apply=True)
+                res = await sync_legs(s, vid, legs, capacity_kwh=v.battery_capacity_kwh, apply=True)
                 if apply:
                     await s.commit()
                 else:
@@ -528,4 +636,8 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                 _note_failure(vid, f"{type(e).__name__}")
             out[str(vid)] = SyncResult(error=f"{type(e).__name__}: {str(e)[:120]}")
         await asyncio.sleep(pause_s)
+    failed = sum(1 for r in out.values() if r.error)
+    msg = "trip sync run: %d vehicles synced, %d failed, skipped %s, %d journeys ignored (distances did not add up) (apply=%s)"
+    (logger.warning if failed or skipped or odd_journeys else logger.info)(
+        msg, len(out) - failed, failed, skipped or "none", odd_journeys, apply)
     return out

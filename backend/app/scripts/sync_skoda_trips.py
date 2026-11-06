@@ -24,8 +24,13 @@ async def main() -> None:
     g.add_argument("--vehicle", type=UUID)
     g.add_argument("--all", action="store_true")
     ap.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
+    ap.add_argument("--dump", action="store_true", help="print the journeys Škoda returned (times and distances, no places) and exit; needs --vehicle")
     a = ap.parse_args()
-    res = await run_trip_sync(a.vehicle, apply=a.apply)
+    if a.dump and not a.vehicle:
+        ap.error("--dump needs --vehicle")
+    res = await run_trip_sync(a.vehicle, apply=a.apply, dump=a.dump)
+    if a.dump:
+        return
     for vid, r in res.items():
         if r.error:
             print(f"{vid}: FAILED, nothing written ({r.error})")
