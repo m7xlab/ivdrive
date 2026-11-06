@@ -119,3 +119,49 @@ async def test_213_rows_trading_start_times_are_written_in_any_order(replay_sess
     async with replay_sessionmaker() as s:
         starts = sorted(r.start_date for r in (await s.execute(select(Trip).where(Trip.user_vehicle_id == vehicle_id))).scalars())
     assert starts == [t0, t0 + timedelta(hours=1)]
+
+
+def _bad_time_payload(legs, rng):
+    """Like _payload, but ~30% of legs carry Škoda's wrong times: a 1-minute leg hours later."""
+    out = []
+    for (s, e, so, eo) in legs:
+        if rng.random() < .3 and eo - so >= 1:
+            s = s + timedelta(hours=rng.randint(2, 5))
+            e = s + timedelta(seconds=60)
+        out.append((s, e, so, eo))
+    return _payload(out)
+
+
+@pytest.mark.asyncio
+async def test_fuzz_sync_with_wrong_leg_times_stays_consistent(replay_sessionmaker, vehicle_id):
+    from app.models.telemetry import OdometerReading
+    bad = []
+    for seed in range(SEEDS):
+        rng = random.Random(10_000 + seed)
+        legs, rows = _scenario(rng)
+        async with replay_sessionmaker() as s:
+            for (a, b, so, eo) in rows:
+                s.add(Trip(user_vehicle_id=vehicle_id, start_date=a, end_date=b, start_odometer=so, end_odometer=eo,
+                           distance_km=(eo - so) if so is not None else None))
+            for (a, b, so, eo) in legs:      # what the collector saw: a reading before and one after each drive
+                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=a - timedelta(minutes=2), mileage_in_km=so))
+                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=b + timedelta(minutes=2), mileage_in_km=eo))
+            await s.commit()
+        try:
+            async with replay_sessionmaker() as s:
+                await sync_legs(s, vehicle_id, parse_legs(_bad_time_payload(legs, rng)), apply=True)
+                await s.commit()
+            async with replay_sessionmaker() as s:
+                rs = list((await s.execute(select(Trip).where(Trip.user_vehicle_id == vehicle_id))).scalars())
+            total, want = sum(r.distance_km or 0 for r in rs), sum(l[3] - l[2] for l in legs)
+            if total > want * 1.15 + 2:
+                bad.append((seed, "overcount", total, want))
+            if len({r.start_date for r in rs}) != len(rs):
+                bad.append((seed, "same start"))
+        except Exception as ex:  # noqa: BLE001
+            bad.append((seed, type(ex).__name__, str(ex).split("DETAIL:")[-1][:100]))
+        async with replay_sessionmaker() as s:
+            await s.execute(delete(OdometerReading).where(OdometerReading.user_vehicle_id == vehicle_id))
+            await s.execute(delete(Trip).where(Trip.user_vehicle_id == vehicle_id))
+            await s.commit()
+    assert not bad, f"{len(bad)} of {SEEDS} scenarios failed, e.g. {bad[:3]}"

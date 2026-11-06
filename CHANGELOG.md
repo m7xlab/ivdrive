@@ -1,5 +1,22 @@
 # Changelog
 
+## [v1.3.11] - 2026-11-06
+**Trips synced from MyŠkoda no longer get impossible times or count the same kilometres twice.**
+
+### Fixed
+- **A recovered trip got the wrong time (#213)** — on Nov 5 Škoda returned a 22 km trip as "63 seconds long, 3 hours later", while our own odometer readings showed the car had arrived before 07:55 UTC. A Škoda leg whose speed is impossible (over 220 km/h), or whose end is more than 15 minutes after the odometer already showed its end value, is no longer trusted. It takes the window our odometer readings give and is labelled `estimated_times`; with no such window it is skipped. A recorded trip with sound times keeps them. Trips already stored with such times (v1.3.9 and v1.3.10) are repaired by the next sync.
+- **The same kilometres were counted twice (#213)** — a 38 km leg at 20:13 covered the odometer span of live trips recorded at 15:49 and 17:19 (about 11 km twice), because they were hours outside the leg's time window. Trips that lie inside a leg's odometer span are now folded into it whatever their time (within 24 h): the same kilometres cannot be driven twice.
+- **A leg swallowed a whole journey (#213)** — when Škoda leaves per-leg distances out, the last leg absorbed the journey's kilometres inside its own short time window. A journey whose legs do not add up to its distance (more than about 1 km per leg) is now skipped, never guessed.
+- **Sync problems were invisible (#213)** — a vehicle skipped for login or session reasons left no trace. Each run now logs one line (vehicles synced, failed, skipped with the reason, journeys ignored), as a warning when something was skipped or failed.
+
+### Added
+- `python -m app.scripts.sync_skoda_trips --vehicle <id> --dump` prints the journeys Škoda returned (waypoint times, distances, battery levels; no places) and writes nothing. Use it to attach the real data to a bug report.
+
+### Notes
+- Rebuild **api + collector**. No database migration.
+- Trips with estimated times show the window between two odometer readings, so their duration can be longer than the real drive.
+- The sync still needs MyŠkoda Login; a trip that happens entirely between two parked polls is recovered by the next sync (every 6 hours).
+
 ## [v1.3.10] - 2026-11-04
 **The trip sync no longer crashes on old history, and MyŠkoda logins are protected from floods.**
 
