@@ -1,5 +1,22 @@
 # Changelog
 
+## [v1.3.12] - 2026-11-10
+**You can edit or delete a single trip, every trip shows how reliable it is, and trips MyŠkoda timed wrongly get the right battery, energy and places.**
+
+### Added
+- **Edit a trip (#209)** — in the trips list, open a trip and press **Edit** to correct its start and end time, distance and energy. The values the collector or sync had are kept in the trip's history, the trip is marked **Edited**, and statistics update at once. Automatic syncs, merges and repair tools never change an edited trip.
+- **Delete a trip (#209)** — press **Delete** (with a confirmation). The trip leaves your history and statistics, and the MyŠkoda sync and the repair tools do not bring it back.
+- **Trip badge (#204)** — trips that are not plain measurements say so: *Est. start*, *Est. end*, *Est. times*, *Rebuilt*, *MyŠkoda* (taken from MyŠkoda's journey history) or *Edited*, with a one-line explanation on hover.
+
+### Fixed
+- **Wrong battery, energy and places on a trip MyŠkoda timed wrongly (#213)** — for the reporter's 22 km drive, MyŠkoda's first waypoint belonged to a later departure, so the trip showed 68 % → 68 % and 3.0 kWh (real: 60 % → 54 %, 4.62 kWh). When MyŠkoda's times for a leg are not trusted, battery, energy and start/end places now come from our own records (the charging sessions before and after the drive, and the parked positions), or stay empty. They are never taken from MyŠkoda's waypoint. Rows written earlier are repaired by the next sync.
+- **A missing database column no longer breaks the app after an upgrade** — the API and the collector create the new trip columns and table themselves at start if `alembic upgrade head` was not run yet.
+
+### Notes
+- Rebuild **api + collector**. There is a migration (`c5d7e9f1a3b4`: two columns on `trips` and a table `deleted_trips`). Run `docker compose exec ivdrive-api env PYTHONPATH=/app alembic upgrade head` as usual; if you forget, the services create the same objects at start, and the migration then has nothing left to do.
+- Not included: splitting or merging trips, adding a missing trip by hand, editing places, and a screen for the edit history (it is stored).
+- A duplicate that existed before you edited a trip stays; delete it with the new Delete button.
+
 ## [v1.3.11] - 2026-11-06
 **Trips synced from MyŠkoda no longer get impossible times or count the same kilometres twice.**
 

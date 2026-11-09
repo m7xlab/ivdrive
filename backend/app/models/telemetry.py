@@ -199,8 +199,28 @@ class Trip(Base):
     # NULL = measured. "estimated_start" = departure was missed between polls and the
     # start odometer was taken from the last known reading (start time is approximate).
     data_quality: Mapped[str | None] = mapped_column(String(30))
+    # A user corrected this trip. Syncs, merges and repair tools must never rewrite or delete it.
+    manually_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # [{"at": iso, "changes": {"field": [old, new]}}] - what the collector/sync had before each edit.
+    edit_history: Mapped[Any | None] = mapped_column(JSONB)
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="trips")  # noqa: F821
+
+
+class DeletedTrip(Base):
+    """A trip the user deleted. Keeps its odometer span so the Škoda sync and the repair tools do not
+    bring the same drive back."""
+    __tablename__ = "deleted_trips"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_vehicles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_odometer: Mapped[float | None] = mapped_column(Float)
+    end_odometer: Mapped[float | None] = mapped_column(Float)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class AirConditioningState(Base):

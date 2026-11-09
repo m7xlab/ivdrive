@@ -78,6 +78,22 @@ export const statisticsApi = {
     const res = await apiFetch(`/api/v1/vehicles/${id}/trips?${params.toString()}`);return res.json();
   },
 
+  async editTrip(
+    vehicleId: string,
+    tripId: number,
+    body: { start_date?: string; end_date?: string; distance_km?: number; kwh_consumed?: number },
+  ) {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/trips/${tripId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+
+  async deleteTrip(vehicleId: string, tripId: number) {
+    await apiFetch(`/api/v1/vehicles/${vehicleId}/trips/${tripId}`, { method: "DELETE" });
+  },
+
   async getTripsAnalytics(id: string, limit = 1000, fromDate?: string, toDate?: string) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (fromDate) params.set("from_date", fromDate);

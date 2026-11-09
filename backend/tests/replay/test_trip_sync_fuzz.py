@@ -165,3 +165,53 @@ async def test_fuzz_sync_with_wrong_leg_times_stays_consistent(replay_sessionmak
             await s.execute(delete(Trip).where(Trip.user_vehicle_id == vehicle_id))
             await s.commit()
     assert not bad, f"{len(bad)} of {SEEDS} scenarios failed, e.g. {bad[:3]}"
+
+
+@pytest.mark.asyncio
+async def test_fuzz_sync_never_touches_edited_trips_or_recreates_deleted_ones(replay_sessionmaker, vehicle_id):
+    from app.models.telemetry import DeletedTrip
+    bad = []
+    for seed in range(SEEDS):
+        rng = random.Random(20_000 + seed)
+        legs, rows = _scenario(rng)
+        edited_ids: dict[int, tuple] = {}
+        async with replay_sessionmaker() as s:
+            objs = []
+            for (a, b, so, eo) in rows:
+                t = Trip(user_vehicle_id=vehicle_id, start_date=a, end_date=b, start_odometer=so, end_odometer=eo,
+                         distance_km=(eo - so) if so is not None else None,
+                         manually_edited=rng.random() < .25)
+                objs.append(t)
+                s.add(t)
+            tombs = [(l[2], l[3]) for l in legs if rng.random() < .2]
+            for (so, eo) in tombs:
+                s.add(DeletedTrip(user_vehicle_id=vehicle_id, start_date=BASE - timedelta(days=3), start_odometer=so, end_odometer=eo))
+            await s.commit()
+            for t in objs:
+                if t.manually_edited:
+                    edited_ids[t.id] = (t.start_date, t.end_date, t.start_odometer, t.end_odometer, t.distance_km)
+            before = {t.id for t in objs}
+        try:
+            async with replay_sessionmaker() as s:
+                await sync_legs(s, vehicle_id, parse_legs(_payload(legs)), apply=True)
+                await s.commit()
+            async with replay_sessionmaker() as s:
+                rs = {r.id: r for r in (await s.execute(select(Trip).where(Trip.user_vehicle_id == vehicle_id))).scalars()}
+            for tid, snap in edited_ids.items():
+                r = rs.get(tid)
+                if r is None or (r.start_date, r.end_date, r.start_odometer, r.end_odometer, r.distance_km) != snap:
+                    bad.append((seed, "edited trip changed", tid))
+            for r in rs.values():
+                if r.id in before or r.start_odometer is None:
+                    continue
+                for (so, eo) in tombs:      # a trip created by the sync inside a deleted span
+                    inter = max(0.0, min(r.end_odometer, eo) - max(r.start_odometer, so))
+                    if eo > so and r.end_odometer > r.start_odometer and inter / (eo - so) >= 0.5:
+                        bad.append((seed, "deleted trip recreated", r.id))
+        except Exception as ex:  # noqa: BLE001
+            bad.append((seed, type(ex).__name__, str(ex).split("DETAIL:")[-1][:100]))
+        async with replay_sessionmaker() as s:
+            await s.execute(delete(DeletedTrip).where(DeletedTrip.user_vehicle_id == vehicle_id))
+            await s.execute(delete(Trip).where(Trip.user_vehicle_id == vehicle_id))
+            await s.commit()
+    assert not bad, f"{len(bad)} of {SEEDS} scenarios failed, e.g. {bad[:3]}"
