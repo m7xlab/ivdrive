@@ -39,6 +39,7 @@ class Leg:
     journey_kwh: float | None = None   # Škoda's energy for the whole journey (0.01 kWh precision)
     journey_km: float | None = None
     times_estimated: bool = False       # Škoda's times were impossible; start/end come from our odometer readings
+    skoda_values: dict | None = None    # what Škoda's waypoint said before our own records replaced it (to recognise it on stored rows)
 
     @property
     def km(self) -> float:
@@ -107,7 +108,23 @@ def _impossible_speed(km: float, start: datetime, end: datetime) -> bool:
     return km >= 1 and km / hours > MAX_PLAUSIBLE_KMH
 
 
-async def _own_telemetry(session: AsyncSession, vehicle_id: UUID, leg: Leg) -> None:
+ESTIMATE_KMH = 60.0                  # typical trip speed (the reporter's drives average 68-73 km/h)
+MIN_ESTIMATE = timedelta(minutes=3)
+
+
+def _estimate_window(a: datetime, b: datetime, km: float) -> tuple[datetime, datetime]:
+    """Where in the window [a, b] an unrecorded drive most likely was. `a` is the last reading before the
+    drive (the car had not moved yet), `b` the first reading that shows the new odometer, which is taken
+    when the next poll notices the arrival. So the drive ends at `b` and starts one typical drive time
+    earlier, never before `a`. (Reporter, Nov 5: window 06:21-07:57, real drive 07:36-07:54; this gives
+    07:35-07:57 instead of 06:21-07:57.) Always labelled as an estimate."""
+    span = b - a
+    dur = timedelta(hours=km / ESTIMATE_KMH) if km > 0 else MIN_ESTIMATE
+    dur = min(max(dur, MIN_ESTIMATE), span)
+    return b - dur, b
+
+
+async def _own_telemetry(session: AsyncSession, vehicle_id: UUID, leg: Leg, a: datetime, b: datetime) -> None:
     """For a leg whose Škoda times are untrusted, the rest of Škoda's waypoint data belongs to a later
     departure too (Nov 5: battery 68 -> 68 and 3.0 kWh for a drive that really took 60 -> 54 %). Replace
     battery, energy and places with what we recorded ourselves, or leave them empty: never Škoda's.
@@ -116,10 +133,14 @@ async def _own_telemetry(session: AsyncSession, vehicle_id: UUID, leg: Leg) -> N
     started at just after it. Places: the parked positions before and after the drive."""
     from app.models.telemetry import ChargingSession, VehiclePosition
 
+    leg.skoda_values = {
+        "start_soc": leg.start_soc, "end_soc": leg.end_soc, "start_lat": leg.start_lat, "start_lon": leg.start_lon,
+        "end_lat": leg.end_lat, "end_lon": leg.end_lon, "journey_kwh": leg.journey_kwh, "journey_km": leg.journey_km,
+    }
     leg.start_soc = leg.end_soc = None
     leg.start_lat = leg.start_lon = leg.end_lat = leg.end_lon = None
     leg.journey_kwh = leg.journey_km = None
-    t0, t1 = leg.start, leg.end
+    t0, t1 = a, b                      # the real window between two readings, not the narrower estimate
     before = (await session.execute(
         select(ChargingSession.end_level).where(
             ChargingSession.user_vehicle_id == vehicle_id, ChargingSession.end_level.is_not(None),
@@ -204,8 +225,9 @@ async def _check_times(session: AsyncSession, vehicle_id: UUID, legs: list[Leg])
         if before is None or first_at_end is None or first_at_end <= before:
             logger.info("trip sync: leg %s %.0f km has impossible times and no odometer window; skipped", leg.start, leg.km)
             continue
-        leg.start, leg.end, leg.times_estimated = before, first_at_end, True
-        await _own_telemetry(session, vehicle_id, leg)
+        leg.start, leg.end = _estimate_window(before, first_at_end, leg.km)
+        leg.times_estimated = True
+        await _own_telemetry(session, vehicle_id, leg, before, first_at_end)
         kept.append(leg)
     return kept
 
@@ -353,13 +375,85 @@ def _km_apart(lat1, lon1, lat2, lon2) -> float:
     return 111.0 * sqrt((lat2 - lat1) ** 2 + ((lon2 - lon1) * cos(radians(lat1))) ** 2)
 
 
+def _refresh_row(row: Trip, leg: Leg, capacity: float, taken: set, apply: bool, t_start: datetime, t_end: datetime) -> str | None:
+    """A stored row for a drive whose Škoda times are untrusted, written by an earlier sync (label
+    'skoda_history' or 'estimated_times'). Its battery, energy and places may be Škoda's phantom-leg
+    values (v1.3.9-v1.3.11 wrote them, and v1.3.11 only fixed the times: the reporter's row 2328 still
+    said 68 % -> 68 % and 3.0 kWh). For each value, in this order: our own record if we have one; else
+    keep what is there unless it IS Škoda's phantom value (then empty); never Škoda's. A value we derived
+    from our own records earlier is kept if those records are gone (positions can be pruned). Our own
+    estimate of the times is re-made from the current window; a row with sound Škoda times keeps them.
+    Same input gives the same result, so repeated syncs do not change the row again."""
+    sv = leg.skoda_values or {}
+    row_sound = (row.end_date is not None and not _impossible_speed(row.distance_km or 0.0, t_start, t_end)
+                 and t_end <= leg.end + END_SLACK)
+    keep_times = row.data_quality == "skoda_history" and row_sound
+    new_start, new_end = (row.start_date, row.end_date) if keep_times else (leg.start, leg.end)
+    if new_start != row.start_date and new_start in taken:
+        return "conflict"
+
+    if leg.start_soc is not None and leg.end_soc is not None:
+        soc = (leg.start_soc, leg.end_soc)
+    elif row.start_soc is not None and (row.start_soc, row.end_soc) == (sv.get("start_soc"), sv.get("end_soc")):
+        soc = (None, None)                                # Škoda's phantom 68 -> 68
+    else:
+        soc = (row.start_soc, row.end_soc)
+
+    own_kwh = leg_kwh(leg, capacity)
+    skoda_kwh = leg_kwh(replace(leg, start_soc=sv.get("start_soc"), end_soc=sv.get("end_soc"),
+                                journey_kwh=sv.get("journey_kwh"), journey_km=sv.get("journey_km")), capacity) if sv else None
+    if own_kwh is not None:
+        kwh = own_kwh
+    elif row.kwh_consumed is not None and skoda_kwh is not None and abs(row.kwh_consumed - skoda_kwh) <= 0.05:
+        kwh = None                                        # Škoda's phantom 3.0 kWh
+    else:
+        kwh = row.kwh_consumed
+
+    def place(own_lat, own_lon, cur_lat, cur_lon, sk_lat, sk_lon):
+        if own_lat is not None and own_lon is not None:
+            return own_lat, own_lon
+        if None not in (cur_lat, cur_lon, sk_lat, sk_lon) and _km_apart(cur_lat, cur_lon, sk_lat, sk_lon) <= 0.1:
+            return None, None                             # Škoda's waypoint, not where the car was
+        return cur_lat, cur_lon
+    sp = place(leg.start_lat, leg.start_lon, row.start_lat, row.start_lon, sv.get("start_lat"), sv.get("start_lon"))
+    ep = place(leg.end_lat, leg.end_lon, row.end_lat, row.end_lon, sv.get("end_lat"), sv.get("end_lon"))
+
+    def same_num(a, b, tol=1e-6):
+        return (a is None and b is None) or (a is not None and b is not None and abs(float(a) - float(b)) <= tol)
+    changed = (
+        abs((row.start_date - new_start).total_seconds()) > 1 or abs((row.end_date - new_end).total_seconds()) > 1
+        or not same_num(row.start_odometer, leg.start_odometer, 0.5) or not same_num(row.end_odometer, leg.end_odometer, 0.5)
+        or (row.start_soc, row.end_soc) != soc or not same_num(row.kwh_consumed, kwh, 0.005)
+        or not same_num(row.start_lat, sp[0]) or not same_num(row.start_lon, sp[1])
+        or not same_num(row.end_lat, ep[0]) or not same_num(row.end_lon, ep[1])
+    )
+    if not changed:
+        return None
+    if apply:
+        if new_start != row.start_date:
+            taken.discard(row.start_date)
+            taken.add(new_start)
+        row.start_date, row.end_date = new_start, new_end
+        row.start_odometer, row.end_odometer, row.distance_km = leg.start_odometer, leg.end_odometer, leg.km
+        row.start_soc, row.end_soc = soc
+        row.kwh_consumed = kwh
+        row.start_lat, row.start_lon = sp
+        row.end_lat, row.end_lon = ep
+        row.data_quality = row.data_quality if keep_times else "estimated_times"
+    return "rewritten"
+
+
 def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply: bool) -> str | None:
     """A recorded trip that is the same drive as a Škoda leg takes Škoda's values: its start is a
     late poll, its position the last *parked* one, its SoC a late reading. Returns what changed:
     'rewritten' (time / odometer / position corrected), 'enriched' (only empty fields filled),
     'conflict' (another row already starts at the leg's start: left as is) or None."""
+    if row.end_date is None:
+        return None  # a trip in progress belongs to the live poller (the sync never loads one; this keeps it that way)
     now = datetime.now(timezone.utc)
     t_start, t_end = row.start_date.astimezone(timezone.utc), (row.end_date or now).astimezone(timezone.utc)
+    if leg.times_estimated and row.data_quality in ("estimated_times", "skoda_history"):
+        return _refresh_row(row, leg, capacity, taken, apply, t_start, t_end)
     if leg.times_estimated:
         # Škoda's times for this leg are not believable; its distance and odometer are. A recorded row
         # with sound times keeps them; a row with impossible ones (written by v1.3.10) takes the window.
@@ -531,12 +625,12 @@ async def sync_legs(
         await session.flush()
     taken = {t.start_date for t in existing if t not in delete} | {t.start_date for t in edited}
     first_start = {t.id: t.start_date for t in existing}
-    for i, leg in enumerate(legs):
+    def step(i: int, leg: Leg) -> bool:
+        """Apply one leg. True = a start-time clash stopped it and nothing was changed."""
         if i in reuse:
             row = reuse[i]
             if leg.start in taken and leg.start != row.start_date:
-                res.conflicts += 1
-                continue  # another row already starts exactly here; leave this one as is
+                return True  # another row already starts exactly here; it may move later in this run
             res.rewritten += 1
             res.km_added += max(0.0, leg.km - (row.distance_km or 0.0))
             if apply:
@@ -548,13 +642,13 @@ async def sync_legs(
             had_no_distance = row.distance_km in (None, 0)
             km_before = row.distance_km or 0.0        # _apply_authoritative may overwrite it
             kind = _apply_authoritative(row, leg, capacity, taken, apply)
+            if kind == "conflict":
+                return True
             if kind == "rewritten":
                 res.rewritten += 1
                 res.km_added += max(0.0, leg.km - km_before)
             elif kind == "enriched":
                 res.enriched += 1
-            elif kind == "conflict":
-                res.conflicts += 1
             else:
                 res.skipped_covered += 1
             if had_no_distance and leg.km > 0:
@@ -563,7 +657,6 @@ async def sync_legs(
             res.inserted += 1
             res.km_added += leg.km
             if apply:
-                used = (leg.start_soc - leg.end_soc) if leg.start_soc is not None and leg.end_soc is not None else None
                 session.add(Trip(
                     user_vehicle_id=vehicle_id, start_date=leg.start, end_date=leg.end,
                     start_lat=leg.start_lat, start_lon=leg.start_lon, end_lat=leg.end_lat, end_lon=leg.end_lon,
@@ -573,6 +666,20 @@ async def sync_legs(
                     data_quality="estimated_times" if leg.times_estimated else "skoda_history",
                 ))
                 taken.add(leg.start)
+        return False
+
+    retry = [i for i, leg in enumerate(legs) if step(i, leg)]
+    # A clash is usually with a row that moves later in the same run (a stored row starting exactly where
+    # this leg's estimated start falls). Try the blocked legs again until nothing more can move; only a
+    # clash that survives is reported. Seed 60 of the fuzz: skipping it left 35 km counted twice.
+    for _ in range(3):
+        if not retry:
+            break
+        still = [i for i in retry if step(i, legs[i])]
+        if len(still) == len(retry):
+            break
+        retry = still
+    res.conflicts += len(retry)
     if apply:
         await _flush_start_moves(session, [t for t in existing if t not in delete], first_start)
     return res

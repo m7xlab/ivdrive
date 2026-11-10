@@ -29,7 +29,7 @@ const QUALITY: Record<string, { label: string; tip: string; cls: string }> = {
   },
   estimated_times: {
     label: "Est. times",
-    tip: "MyŠkoda had no usable times for this drive. Start and end are estimated from odometer readings, so the real drive was shorter.",
+    tip: "MyŠkoda had no usable times for this drive. The end is when the odometer first showed the new value and the start is a typical drive time earlier, so both can be off by several minutes. Battery and energy come from your own records.",
     cls: "bg-amber-500/10 text-amber-500",
   },
   reconstructed: {

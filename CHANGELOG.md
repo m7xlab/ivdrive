@@ -1,5 +1,18 @@
 # Changelog
 
+## [v1.3.13] - 2026-11-10
+**A trip MyŠkoda never recorded now gets its real battery and energy even if an earlier version stored the wrong ones, and its estimated time is much closer.**
+
+### Fixed
+- **Wrong battery and energy stayed on rows stored by v1.3.9–v1.3.12 (#213)** — the reporter's trip still showed 68 % → 68 % and 3.0 kWh after v1.3.12, because v1.3.11 had already moved its times to a plausible window and v1.3.12 then treated the row as a measured one. Rows written by an earlier sync (`MyŠkoda` or `Est. times`) are now refreshed: battery, energy and places come from our own records, or are emptied if they are MyŠkoda's phantom values, and are never taken from MyŠkoda's waypoint. A value we derived from our own records earlier is kept if those records are gone. Rows we measured ourselves (no badge, *Est. start*, *Est. end*, *Rebuilt*) and rows you edited are never changed. Syncing again changes nothing.
+- **Estimated times were far too wide (#213)** — the window between two odometer readings could be 96 minutes for a 22-minute drive. The trip now ends at the first reading that shows the new odometer and starts one typical drive time earlier (60 km/h), never before the last reading at the old odometer. For the reported drive: 07:35–07:57 instead of 06:21–07:57 (real: 07:36–07:54). It is still labelled *Est. times*.
+- **A stored row blocked a leg for good (#213)** — when a leg needed a start time that another stored row held, and that row itself moved later in the same sync, the leg was skipped and could leave about 35 km counted twice. Blocked legs are now retried after the other rows have moved. Two rows that would need each other's start time are left as they are and reported.
+
+### Notes
+- Rebuild **api + collector + web** (the tooltip of the *Est. times* badge changed). No database migration.
+- Rows are corrected by the next sync (every 6 hours). If no charging session before and after the drive is on record, the battery and energy of such a trip stay empty rather than wrong.
+- Trips with exactly 0 kWh over several km and trips whose battery did not move are a separate pattern and are not changed here.
+
 ## [v1.3.12] - 2026-11-10
 **You can edit or delete a single trip, every trip shows how reliable it is, and trips MyŠkoda timed wrongly get the right battery, energy and places.**
 
