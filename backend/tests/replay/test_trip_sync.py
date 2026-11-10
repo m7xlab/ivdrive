@@ -612,3 +612,19 @@ async def test_213_a_live_row_with_sound_times_keeps_its_own_measured_values(rep
     row = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
     assert (row.start_soc, row.end_soc, row.kwh_consumed, row.start_lat, row.end_lat) == (59, 54, 4.5, 47.55, 47.53)
     assert row.start_date.strftime("%H:%M") == "07:36"
+
+
+@pytest.mark.asyncio
+async def test_213_a_charging_session_that_started_inside_the_drive_window_is_not_the_level_before_it(replay_sessionmaker, vehicle_id):
+    """The 'level before the drive' must come from a session that started before the drive, not from one
+    that began during the estimated window (review finding on #217)."""
+    from datetime import datetime, timezone
+    from app.models.telemetry import ChargingSession
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    f = lambda hhmm: datetime.fromisoformat(f"2026-11-05T{hhmm}").replace(tzinfo=timezone.utc)
+    async with replay_sessionmaker() as s:
+        s.add(ChargingSession(user_vehicle_id=vehicle_id, session_start=f("07:40:00"), session_end=f("07:58:00"), start_level=70, end_level=80))
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    first = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
+    assert (first.start_soc, first.end_soc) == (60, 54)          # not 80 from the mid-window session

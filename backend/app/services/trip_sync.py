@@ -123,7 +123,11 @@ async def _own_telemetry(session: AsyncSession, vehicle_id: UUID, leg: Leg) -> N
     before = (await session.execute(
         select(ChargingSession.end_level).where(
             ChargingSession.user_vehicle_id == vehicle_id, ChargingSession.end_level.is_not(None),
+            # session_end may fall just after t0: the session is closed when the next poll notices the drive
+            # (the reporter's ended 07:55 for a drive 07:36-07:54), so the bound is the drive's END. But it must
+            # have STARTED before the drive: a session that began inside the window is not the level before it.
             ChargingSession.session_end <= t1 + timedelta(minutes=5), ChargingSession.session_end >= t0 - timedelta(hours=12),
+            ChargingSession.session_start <= t0 + timedelta(minutes=5),
         ).order_by(ChargingSession.session_end.desc()).limit(1)
     )).scalar_one_or_none()
     after = (await session.execute(
