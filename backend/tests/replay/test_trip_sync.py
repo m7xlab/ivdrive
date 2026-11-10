@@ -770,3 +770,17 @@ async def test_213_a_half_complete_own_record_never_falls_back_to_skodas_battery
     await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
     row = await _first(replay_sessionmaker, vehicle_id)
     assert (row.start_soc, row.end_soc, row.kwh_consumed) == (None, None, None)
+
+
+def test_213_an_open_trip_is_never_touched_by_the_authoritative_update():
+    """Review finding on #219: `_refresh_row` subtracted `row.end_date` (None for a trip in progress). The sync
+    never loads open trips, but the function must not crash or write if it is ever handed one."""
+    from datetime import datetime, timezone
+    from app.services.trip_sync import _apply_authoritative, parse_legs
+    (leg, *_rest) = parse_legs(_reporter_journey())
+    leg.times_estimated = True
+    leg.skoda_values = {"start_soc": 68, "end_soc": 68}
+    open_trip = Trip(user_vehicle_id=None, start_date=datetime(2026, 11, 5, 6, 21, tzinfo=timezone.utc), end_date=None,
+                     start_odometer=40514, end_odometer=None, data_quality="estimated_times", start_soc=68, end_soc=68)
+    assert _apply_authoritative(open_trip, leg, 77.0, set(), True) is None
+    assert (open_trip.end_date, open_trip.start_soc, open_trip.data_quality) == (None, 68, "estimated_times")

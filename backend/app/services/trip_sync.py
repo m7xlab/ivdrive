@@ -448,6 +448,8 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
     late poll, its position the last *parked* one, its SoC a late reading. Returns what changed:
     'rewritten' (time / odometer / position corrected), 'enriched' (only empty fields filled),
     'conflict' (another row already starts at the leg's start: left as is) or None."""
+    if row.end_date is None:
+        return None  # a trip in progress belongs to the live poller (the sync never loads one; this keeps it that way)
     now = datetime.now(timezone.utc)
     t_start, t_end = row.start_date.astimezone(timezone.utc), (row.end_date or now).astimezone(timezone.utc)
     if leg.times_estimated and row.data_quality in ("estimated_times", "skoda_history"):
