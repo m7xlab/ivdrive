@@ -447,7 +447,7 @@ async def test_213_leg_with_impossible_speed_gets_the_window_our_odometer_readin
         await s.commit()
     await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("10:36", "10:37", 40514, 40536, d)))
     (row,) = await trips(replay_sessionmaker, vehicle_id)
-    assert row.start_date.strftime("%H:%M") == "07:27" and row.end_date.strftime("%H:%M") == "07:55"
+    assert row.start_date.strftime("%H:%M") == "07:33" and row.end_date.strftime("%H:%M") == "07:55"
     assert row.distance_km == 22 and row.data_quality == "estimated_times"
 
 
@@ -467,7 +467,7 @@ async def test_213_a_stored_row_with_the_bad_times_is_corrected_on_the_next_sync
         await s.commit()
     await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("10:36", "10:37", 40514, 40536, d)))
     (row,) = await trips(replay_sessionmaker, vehicle_id)
-    assert row.start_date.strftime("%H:%M") == "07:27" and row.data_quality == "estimated_times"
+    assert row.start_date.strftime("%H:%M") == "07:33" and row.data_quality == "estimated_times"
 
 
 @pytest.mark.asyncio
@@ -566,7 +566,7 @@ async def test_213_untrusted_leg_takes_battery_energy_and_places_from_our_own_re
     await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
     rows = await trips(replay_sessionmaker, vehicle_id)
     first = next(r for r in rows if r.start_odometer == 40514)
-    assert first.start_date.strftime("%H:%M") == "07:27" and first.end_date.strftime("%H:%M") == "07:55"
+    assert first.start_date.strftime("%H:%M") == "07:33" and first.end_date.strftime("%H:%M") == "07:55"
     assert (first.start_soc, first.end_soc) == (60, 54)                       # not Škoda's 68 -> 68
     assert abs(first.kwh_consumed - 4.62) < 0.01                              # 6 % of 77 kWh, TRONITY: 4.62
     assert (round(first.start_lat, 2), round(first.end_lat, 2)) == (47.56, 47.52)   # home -> Nagytarcsa, not Škoda's waypoint
@@ -597,7 +597,7 @@ async def test_213_a_row_written_by_v1310_with_skodas_battery_is_repaired(replay
     await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
     row = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
     assert (row.start_soc, row.end_soc, row.data_quality) == (60, 54, "estimated_times")
-    assert abs(row.kwh_consumed - 4.62) < 0.01 and row.start_date.strftime("%H:%M") == "07:27"
+    assert abs(row.kwh_consumed - 4.62) < 0.01 and row.start_date.strftime("%H:%M") == "07:33"
 
 
 @pytest.mark.asyncio
@@ -628,3 +628,145 @@ async def test_213_a_charging_session_that_started_inside_the_drive_window_is_no
     await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
     first = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
     assert (first.start_soc, first.end_soc) == (60, 54)          # not 80 from the mid-window session
+
+
+# ── v1.3.13: start-time clashes between stored rows that move in the same run ────────────────
+
+@pytest.mark.asyncio
+async def test_213_a_blocked_row_is_retried_after_the_row_in_its_way_has_moved(replay_sessionmaker, vehicle_id):
+    """Ra must move to 08:00, where Rd sits; Rd itself moves to 11:00 later in the same run."""
+    d = "2026-11-05"
+    async with replay_sessionmaker() as s:
+        s.add_all([_tr(vehicle_id, "10:00", "10:20", 1000, 1010, day=d),      # Ra: leg 1's drive, recorded at 10:00
+                   _tr(vehicle_id, "08:00", "08:20", 1030, 1040, day=d)])     # Rd: leg 4's drive, sitting on leg 1's start
+        await s.commit()
+    res = await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("08:00", "08:20", 1000, 1010, d), _drive("11:00", "11:20", 1030, 1040, d)))
+    got = sorted((r.start_date.strftime("%H:%M"), r.start_odometer) for r in await trips(replay_sessionmaker, vehicle_id))
+    assert got == [("08:00", 1000), ("11:00", 1030)] and res.conflicts == 0
+
+
+@pytest.mark.asyncio
+async def test_213_two_rows_that_would_need_each_others_start_are_left_alone_safely(replay_sessionmaker, vehicle_id):
+    """A true swap cannot be applied row by row; the safe outcome is: nothing written wrongly, no crash,
+    no duplicate start, distance not changed, and the clash is reported."""
+    d = "2026-11-05"
+    async with replay_sessionmaker() as s:
+        s.add_all([_tr(vehicle_id, "09:00", "09:20", 1000, 1010, day=d), _tr(vehicle_id, "08:00", "08:20", 1010, 1020, day=d)])
+        await s.commit()
+    res = await _sync(replay_sessionmaker, vehicle_id, _payload(_drive("08:00", "08:20", 1000, 1010, d), _drive("09:00", "09:20", 1010, 1020, d)))
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    assert len({r.start_date for r in rows}) == len(rows) == 2 and sum(r.distance_km for r in rows) == 20
+    assert res.conflicts == 2
+
+
+# ── v1.3.13: rows already stored by earlier versions, in every shape the sync can meet ───────
+
+async def _stored_row(sm, vid, **kw):
+    """The reporter's phantom-leg row as stored by an earlier version; kw overrides."""
+    from datetime import datetime, timezone
+    vals = dict(start="06:21:16", end="07:57:17", quality="estimated_times", soc=(68, 68), kwh=2.999791666666667,
+                lat0=47.60, lon0=19.2, lat1=47.60, lon1=19.2)
+    vals.update(kw)
+    f = lambda hms: datetime.fromisoformat(f"2026-11-05T{hms}").replace(tzinfo=timezone.utc)
+    async with sm() as s:
+        t = _tr(vid, "00:00", "00:01", 40514, 40536, day="2026-11-05")
+        t.start_date, t.end_date, t.data_quality = f(vals["start"]), f(vals["end"]), vals["quality"]
+        t.start_soc, t.end_soc, t.kwh_consumed = vals["soc"][0], vals["soc"][1], vals["kwh"]
+        t.start_lat, t.start_lon, t.end_lat, t.end_lon = vals["lat0"], vals["lon0"], vals["lat1"], vals["lon1"]
+        s.add(t)
+        await s.commit()
+
+
+async def _first(sm, vid):
+    return next(r for r in await trips(sm, vid) if r.start_odometer == 40514)
+
+
+@pytest.mark.asyncio
+async def test_213_row_repaired_by_v1311_but_still_carrying_skodas_battery_is_refreshed(replay_sessionmaker, vehicle_id):
+    """The reporter's trip 2328 after v1.3.12: estimated_times, battery 68 -> 68, 2.9998 kWh. v1.3.12 left it
+    alone because its times had become plausible. Our own records say 60 -> 54, 4.62 kWh."""
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    await _stored_row(replay_sessionmaker, vehicle_id)
+    res = await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc) == (60, 54) and abs(row.kwh_consumed - 4.62) < 0.01
+    assert (round(row.start_lat, 2), round(row.end_lat, 2)) == (47.56, 47.52)            # home -> Nagytarcsa, not Škoda's waypoint
+    assert row.data_quality == "estimated_times" and res.rewritten >= 1
+    # the drive is placed at the end of the window: 22 km at 60 km/h before the first reading showing 40536
+    assert (row.start_date.strftime("%H:%M"), row.end_date.strftime("%H:%M")) == ("07:33", "07:55")
+
+
+@pytest.mark.asyncio
+async def test_213_the_same_row_without_own_records_loses_the_phantom_values_and_gets_no_new_ones(replay_sessionmaker, vehicle_id):
+    from app.models.telemetry import OdometerReading  # noqa: F401
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id, with_sessions=False, with_positions=False)
+    await _stored_row(replay_sessionmaker, vehicle_id)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc, row.kwh_consumed) == (None, None, None)
+    assert (row.start_lat, row.start_lon, row.end_lat, row.end_lon) == (None, None, None, None)
+    assert row.distance_km == 22
+
+
+@pytest.mark.asyncio
+async def test_213_a_second_sync_changes_nothing(replay_sessionmaker, vehicle_id):
+    """The 6-hourly sync must not keep rewriting the same row."""
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    await _stored_row(replay_sessionmaker, vehicle_id)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    before = await _first(replay_sessionmaker, vehicle_id)
+    snap = (before.start_date, before.end_date, before.start_soc, before.end_soc, before.kwh_consumed, before.start_lat, before.data_quality)
+    for _ in range(2):
+        res = await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+        assert (res.rewritten, res.inserted, res.removed) == (0, 0, 0)
+    after = await _first(replay_sessionmaker, vehicle_id)
+    assert (after.start_date, after.end_date, after.start_soc, after.end_soc, after.kwh_consumed, after.start_lat, after.data_quality) == snap
+
+
+@pytest.mark.asyncio
+async def test_213_values_we_derived_earlier_survive_when_our_own_records_are_gone(replay_sessionmaker, vehicle_id):
+    """Positions can be pruned. A row that already carries good values of its own (not Škoda's) keeps them."""
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id, with_sessions=False, with_positions=False)
+    await _stored_row(replay_sessionmaker, vehicle_id, soc=(60, 54), kwh=4.62, lat0=47.56, lon0=19.14, lat1=47.52, lon1=19.28)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc, row.kwh_consumed) == (60, 54, 4.62)
+    assert (row.start_lat, row.end_lat) == (47.56, 47.52)
+
+
+@pytest.mark.asyncio
+async def test_213_a_stored_skoda_row_with_plausible_times_gets_our_battery_but_keeps_its_times(replay_sessionmaker, vehicle_id):
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    await _stored_row(replay_sessionmaker, vehicle_id, start="07:36:00", end="07:54:00", quality="skoda_history")
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc) == (60, 54) and abs(row.kwh_consumed - 4.62) < 0.01
+    assert (row.start_date.strftime("%H:%M"), row.end_date.strftime("%H:%M"), row.data_quality) == ("07:36", "07:54", "skoda_history")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quality", [None, "estimated_start", "estimated_end", "reconstructed"])
+async def test_213_rows_we_measured_or_rebuilt_ourselves_are_never_overwritten(replay_sessionmaker, vehicle_id, quality):
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    await _stored_row(replay_sessionmaker, vehicle_id, start="07:36:00", end="07:54:00", quality=quality, soc=(59, 54), kwh=4.5,
+                      lat0=47.55, lon0=19.1, lat1=47.53, lon1=19.3)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc, row.kwh_consumed, row.start_lat, row.end_lat) == (59, 54, 4.5, 47.55, 47.53)
+    assert row.data_quality == quality
+
+
+@pytest.mark.asyncio
+async def test_213_a_half_complete_own_record_never_falls_back_to_skodas_battery(replay_sessionmaker, vehicle_id):
+    """Only the session before the drive exists (the next charge has not started yet): not enough for a pair."""
+    from datetime import datetime, timezone
+    from app.models.telemetry import ChargingSession
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id, with_sessions=False)
+    f = lambda hhmm: datetime.fromisoformat(f"2026-11-05T{hhmm}").replace(tzinfo=timezone.utc)
+    async with replay_sessionmaker() as s:
+        s.add(ChargingSession(user_vehicle_id=vehicle_id, session_start=f("02:49:00"), session_end=f("07:55:00"), start_level=16, end_level=60))
+        await s.commit()
+    await _stored_row(replay_sessionmaker, vehicle_id)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = await _first(replay_sessionmaker, vehicle_id)
+    assert (row.start_soc, row.end_soc, row.kwh_consumed) == (None, None, None)

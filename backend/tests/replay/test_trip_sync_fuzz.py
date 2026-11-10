@@ -122,14 +122,16 @@ async def test_213_rows_trading_start_times_are_written_in_any_order(replay_sess
 
 
 def _bad_time_payload(legs, rng):
-    """Like _payload, but ~30% of legs carry Škoda's wrong times: a 1-minute leg hours later."""
-    out = []
-    for (s, e, so, eo) in legs:
+    """Like _payload, but ~30% of legs carry Škoda's wrong times: a 1-minute leg hours later.
+    Returns the payload and the indexes of the wrong legs."""
+    out, bad = [], []
+    for i, (s, e, so, eo) in enumerate(legs):
         if rng.random() < .3 and eo - so >= 1:
             s = s + timedelta(hours=rng.randint(2, 5))
             e = s + timedelta(seconds=60)
+            bad.append(i)
         out.append((s, e, so, eo))
-    return _payload(out)
+    return _payload(out), bad
 
 
 @pytest.mark.asyncio
@@ -139,20 +141,38 @@ async def test_fuzz_sync_with_wrong_leg_times_stays_consistent(replay_sessionmak
     for seed in range(SEEDS):
         rng = random.Random(10_000 + seed)
         legs, rows = _scenario(rng)
+        payload, bad_legs = _bad_time_payload(legs, rng)
         async with replay_sessionmaker() as s:
             for (a, b, so, eo) in rows:
                 s.add(Trip(user_vehicle_id=vehicle_id, start_date=a, end_date=b, start_odometer=so, end_odometer=eo,
                            distance_km=(eo - so) if so is not None else None))
+            for i in bad_legs:   # what v1.3.11 left behind: our estimated window with Škoda's phantom battery and place
+                a, b, so, eo = legs[i]
+                if all(r[0] != a - timedelta(minutes=2) for r in rows):
+                    s.add(Trip(user_vehicle_id=vehicle_id, start_date=a - timedelta(minutes=2, microseconds=7), end_date=b + timedelta(minutes=2),
+                               start_odometer=so, end_odometer=eo, distance_km=eo - so, start_soc=80, end_soc=78, kwh_consumed=3.0,
+                               start_lat=47.5, start_lon=19.0, end_lat=47.6, end_lon=19.1, data_quality="estimated_times"))
             for (a, b, so, eo) in legs:      # what the collector saw: a reading before and one after each drive
-                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=a - timedelta(minutes=2), mileage_in_km=so))
-                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=b + timedelta(minutes=2), mileage_in_km=eo))
+                # real readings carry microseconds; minute-aligned ones make estimated starts collide with row
+                # starts far more often than they ever do in production
+                j = lambda: timedelta(microseconds=rng.randint(1, 999_999))
+                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=a - timedelta(minutes=2) - j(), mileage_in_km=so))
+                s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=b + timedelta(minutes=2) + j(), mileage_in_km=eo))
             await s.commit()
         try:
             async with replay_sessionmaker() as s:
-                await sync_legs(s, vehicle_id, parse_legs(_bad_time_payload(legs, rng)), apply=True)
+                await sync_legs(s, vehicle_id, parse_legs(payload), apply=True)
                 await s.commit()
             async with replay_sessionmaker() as s:
                 rs = list((await s.execute(select(Trip).where(Trip.user_vehicle_id == vehicle_id))).scalars())
+            for r in rs:         # an estimated row never carries Škoda's phantom battery (80 -> 78) or waypoint place
+                if r.data_quality == "estimated_times" and ((r.start_soc, r.end_soc) == (80, 78) or (r.start_lat, r.end_lat) == (47.5, 47.6)):
+                    bad.append((seed, "phantom values on an estimated trip", r.id))
+            async with replay_sessionmaker() as s:      # a second sync changes nothing
+                res2 = await sync_legs(s, vehicle_id, parse_legs(payload), apply=True)
+                await s.commit()
+            if (res2.rewritten, res2.inserted, res2.removed) != (0, 0, 0):
+                bad.append((seed, "second sync changed rows", (res2.rewritten, res2.inserted, res2.removed)))
             total, want = sum(r.distance_km or 0 for r in rs), sum(l[3] - l[2] for l in legs)
             if total > want * 1.15 + 2:
                 bad.append((seed, "overcount", total, want))
