@@ -125,6 +125,13 @@ async def lifespan(app: FastAPI):
         await _ensure_chat_tables()
     except Exception:
         logging.getLogger("app").warning("startup _ensure_chat_tables failed", exc_info=True)
+    # v1.3.12 trip edit/delete schema: do not depend on the operator having run `alembic upgrade head`.
+    try:
+        from app.database import engine
+        from app.services.schema_ensure import ensure_trip_edit_schema
+        await ensure_trip_edit_schema(engine)
+    except Exception:
+        logging.getLogger("app").warning("startup ensure_trip_edit_schema failed", exc_info=True)
     # Start battery SoH scheduler (anomaly detection + monthly Passport)
     try:
         from app.services.battery_scheduler import scheduler as battery_scheduler

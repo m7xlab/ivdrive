@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { useTheme } from "next-themes";
 import { TripElevationCard } from "./TripElevationCard";
+import { TripDeleteDialog, TripEditDialog, TripQualityBadge, type EditableTrip } from "./TripEditDialogs";
 import { getCartoTileUrl } from "@/lib/map-utils";
 
 import "leaflet/dist/leaflet.css";
@@ -42,6 +43,11 @@ export interface TripsDashboardProps {
 interface TripAnalyticsItem {
 
   trip_id: number;
+
+  data_quality?: string | null;
+
+  manually_edited?: boolean;
+
 
   start_time: string;
 
@@ -203,6 +209,12 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   const [loading, setLoading] = useState(true);
 
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [editing, setEditing] = useState<EditableTrip | null>(null);
+
+  const [deleting, setDeleting] = useState<EditableTrip | null>(null);
+
   const [activeTripId, setActiveTripId] = useState<number | null>(null);
 
   const [expandedTripId, setExpandedTripId] = useState<number | null>(null);
@@ -310,7 +322,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
     fetchData();
 
-  }, [vehicleId, dateRange?.from, dateRange?.to]);
+  }, [vehicleId, dateRange?.from, dateRange?.to, reloadKey]);
 
 
 
@@ -774,7 +786,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
                         </p>
 
-                        <p className="text-[10px] text-iv-muted">{format(parseISO(trip.start_time), "MMM d, HH:mm")}</p>
+                        <p className="text-[10px] text-iv-muted">{format(parseISO(trip.start_time), "MMM d, HH:mm")}<TripQualityBadge quality={trip.data_quality} edited={trip.manually_edited} /></p>
 
                       </div>
 
@@ -793,6 +805,18 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
                       </div>
 
                     </div>
+
+                    {expandedTripId === trip.trip_id && (
+
+                      <div className="flex justify-end gap-2 px-1 -mt-1">
+
+                        <button type="button" onClick={() => setEditing(trip)} className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-iv-cyan bg-iv-cyan/10 hover:bg-iv-cyan/20">Edit</button>
+
+                        <button type="button" onClick={() => setDeleting(trip)} className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20">Delete</button>
+
+                      </div>
+
+                    )}
 
                     {expandedTripId === trip.trip_id && (
 
@@ -839,6 +863,18 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
           <p className="text-sm text-iv-muted font-medium">Select a month above to view your trip history</p>
 
         </div>
+
+      )}
+
+      {editing && (
+
+        <TripEditDialog vehicleId={vehicleId} trip={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); setReloadKey(k => k + 1); }} />
+
+      )}
+
+      {deleting && (
+
+        <TripDeleteDialog vehicleId={vehicleId} trip={deleting} onClose={() => setDeleting(null)} onDone={() => { setDeleting(null); setExpandedTripId(null); setActiveTripId(null); setReloadKey(k => k + 1); }} />
 
       )}
 

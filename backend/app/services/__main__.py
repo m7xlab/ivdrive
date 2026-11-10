@@ -20,6 +20,11 @@ def main() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    # The collector's queries select the new trips columns: make sure they exist before anything runs.
+    from app.database import engine
+    from app.services.schema_ensure import ensure_trip_edit_schema
+    loop.run_until_complete(ensure_trip_edit_schema(engine))
+
     collector = DataCollector()
     loop.run_until_complete(collector.start())
 

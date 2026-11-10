@@ -25,6 +25,7 @@ from app.models.telemetry import (
     ChargingSession,
     ChargingState,
     ConnectionState,
+    DeletedTrip,
     Drive,
     DriveLevel,
     DriveRange,
@@ -51,6 +52,7 @@ from app.schemas.telemetry import (
     RangeHistoryItem,
     StateBandItem,
     StatisticsPeriod,
+    TripEdit,
     TripItem,
     TripAnalyticsItem,
     TripElevationStats,
@@ -976,6 +978,78 @@ async def get_trips(
     return result.scalars().all()
 
 
+async def _get_closed_trip(vehicle_id: uuid.UUID, trip_id: int, user: User, db: AsyncSession) -> Trip:
+    vehicle = await _get_user_vehicle(vehicle_id, user, db)
+    trip = (await db.execute(
+        select(Trip).where(Trip.id == trip_id, Trip.user_vehicle_id == vehicle.id)
+    )).scalar_one_or_none()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if trip.end_date is None:
+        raise HTTPException(status_code=409, detail="This trip is still in progress.")
+    return trip
+
+
+@router.patch("/{vehicle_id}/trips/{trip_id}", response_model=TripItem)
+async def edit_trip(
+    vehicle_id: uuid.UUID,
+    trip_id: int,
+    body: TripEdit,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Correct a trip's times, distance or energy. The collector's and the sync's earlier values are
+    kept in the trip's edit history; from now on automatic syncs leave this trip alone."""
+    trip = await _get_closed_trip(vehicle_id, trip_id, user, db)
+    new = body.model_dump(exclude_none=True)
+    start = new.get("start_date", trip.start_date)
+    end = new.get("end_date", trip.end_date)
+    if end < start:
+        raise HTTPException(status_code=422, detail="The trip cannot end before it starts.")
+    if (end - start) > timedelta(hours=48):
+        raise HTTPException(status_code=422, detail="A trip cannot last more than 48 hours.")
+    if "start_date" in new and new["start_date"] != trip.start_date:
+        clash = (await db.execute(
+            select(Trip.id).where(Trip.user_vehicle_id == trip.user_vehicle_id,
+                                  Trip.start_date == new["start_date"], Trip.id != trip.id)
+        )).first()
+        if clash:
+            raise HTTPException(status_code=409, detail="Another trip already starts at that time.")
+    changes: dict = {}
+    for field, value in new.items():
+        old = getattr(trip, field)
+        if old != value:
+            changes[field] = [old.isoformat() if isinstance(old, datetime) else old,
+                              value.isoformat() if isinstance(value, datetime) else value]
+            setattr(trip, field, value)
+    if "distance_km" in changes and trip.start_odometer is not None:
+        trip.end_odometer = float(trip.start_odometer) + float(trip.distance_km)  # keep the odometer span consistent
+    if changes:
+        trip.manually_edited = True
+        trip.data_quality = "manually_corrected"
+        trip.edit_history = (trip.edit_history or []) + [{"at": datetime.now(UTC).isoformat(), "changes": changes}]
+        await db.commit()
+        await db.refresh(trip)
+        await invalidate_vehicle_cache(str(trip.user_vehicle_id))   # statistics are cached per vehicle
+    return trip
+
+
+@router.delete("/{vehicle_id}/trips/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_trip(
+    vehicle_id: uuid.UUID,
+    trip_id: int,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a trip. Its odometer span is remembered so the Škoda sync does not recreate it."""
+    trip = await _get_closed_trip(vehicle_id, trip_id, user, db)
+    db.add(DeletedTrip(user_vehicle_id=trip.user_vehicle_id, start_date=trip.start_date, end_date=trip.end_date,
+                       start_odometer=trip.start_odometer, end_odometer=trip.end_odometer))
+    await db.delete(trip)
+    await db.commit()
+    await invalidate_vehicle_cache(str(trip.user_vehicle_id))
+
+
 @router.get("/{vehicle_id}/trips-analytics", response_model=list[TripAnalyticsItem])
 async def get_trips_analytics(
     vehicle_id: uuid.UUID,
@@ -1031,9 +1105,19 @@ async def get_trips_analytics(
         sql=_stmt_to_sql(stmt),
     )
 
+    # The view predates data_quality / manually_edited, so read them from trips for the same period.
+    qstmt = select(Trip.id, Trip.data_quality, Trip.manually_edited).where(Trip.user_vehicle_id == vehicle_id)
+    if from_date:
+        qstmt = qstmt.where(Trip.start_date >= from_date)
+    if to_date:
+        qstmt = qstmt.where(Trip.start_date <= to_date)
+    quality = {r.id: (r.data_quality, bool(r.manually_edited)) for r in (await db.execute(qstmt)).all()}
+
     return [
         TripAnalyticsItem(
             trip_id=row.trip_id,
+            data_quality=quality.get(row.trip_id, (None, False))[0],
+            manually_edited=quality.get(row.trip_id, (None, False))[1],
             start_time=row.start_time,
             end_time=row.end_time,
             start_latitude=row.start_latitude,

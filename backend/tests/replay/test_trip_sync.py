@@ -521,3 +521,110 @@ async def test_213_a_skipped_vehicle_and_ignored_journeys_are_reported_as_a_warn
         await sync.run_trip_sync(pause_s=0)
     warn = [r for r in caplog.records if r.levelno == logging.WARNING and "trip sync run" in r.getMessage()]
     assert warn and "1 journeys ignored" in warn[0].getMessage()
+
+
+# ── v1.3.12: an untrusted leg gets battery, energy and places from our own records (#213) ───
+
+def _reporter_journey() -> dict:
+    """The reporter's real Nov 5 journey: first leg 22 km in 63 s at 68 % -> 68 %, 13.09 kWh for 96 km."""
+    def wp(arr, dep, soc_a, soc_d, km, lat):
+        w = {"coordinates": {"latitude": lat, "longitude": 19.2}}
+        if arr: w["arrivalTime"] = arr
+        if dep: w["departureTime"] = dep
+        if soc_a is not None: w["arrivalStateOfChargeInPercent"] = soc_a
+        if soc_d is not None: w["departureStateOfChargeInPercent"] = soc_d
+        if km is not None: w["distanceToNextWaypointInKm"] = km
+        return w
+    return {"dailyTrips": [{"trips": [{"id": "r", "startMileageInKm": 40514, "endMileageInKm": 40610, "mileageInKm": 96,
+        "electricConsumption": 13.09, "waypoints": [
+            wp(None, "2026-11-05T10:36:23.096Z", None, 68, 22, 47.60),
+            wp("2026-11-05T10:37:26.329Z", "2026-11-05T10:39:30.339Z", 68, 65, 45, 47.60),
+            wp("2026-11-05T11:17:22.283Z", "2026-11-05T12:39:39.962Z", 59, 58, 25, 47.50),
+            wp("2026-11-05T13:15:07.748Z", "2026-11-05T13:25:29.505Z", 52, 52, 0, 47.51),
+            wp("2026-11-05T13:29:30.616Z", "2026-11-05T14:12:00.284Z", 52, 52, 4, 47.52),
+            wp("2026-11-05T14:19:07.429Z", None, 51, None, None, 47.53)]}]}]}
+
+
+async def _reporter_telemetry(sm, vid, with_sessions=True, with_positions=True):
+    from datetime import datetime, timezone
+    from app.models.telemetry import ChargingSession, VehiclePosition
+    f = lambda hhmm: datetime.fromisoformat(f"2026-11-05T{hhmm}").replace(tzinfo=timezone.utc)
+    async with sm() as s:
+        s.add_all(_readings(vid, "2026-11-05", [("07:27:18", 40514), ("07:55:37", 40536), ("10:31:38", 40536), ("10:43:38", 40537), ("11:17:00", 40581)]))
+        if with_sessions:
+            s.add_all([ChargingSession(user_vehicle_id=vid, session_start=f("02:49:00"), session_end=f("07:55:00"), start_level=16, end_level=60),
+                       ChargingSession(user_vehicle_id=vid, session_start=f("07:55:00"), session_end=f("10:31:00"), start_level=54, end_level=68)])
+        if with_positions:
+            s.add_all([VehiclePosition(user_vehicle_id=vid, captured_at=f("07:27:00"), latitude=47.56, longitude=19.14),   # home
+                       VehiclePosition(user_vehicle_id=vid, captured_at=f("07:57:00"), latitude=47.52, longitude=19.28)])  # Nagytarcsa
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_213_untrusted_leg_takes_battery_energy_and_places_from_our_own_records(replay_sessionmaker, vehicle_id):
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    rows = await trips(replay_sessionmaker, vehicle_id)
+    first = next(r for r in rows if r.start_odometer == 40514)
+    assert first.start_date.strftime("%H:%M") == "07:27" and first.end_date.strftime("%H:%M") == "07:55"
+    assert (first.start_soc, first.end_soc) == (60, 54)                       # not Škoda's 68 -> 68
+    assert abs(first.kwh_consumed - 4.62) < 0.01                              # 6 % of 77 kWh, TRONITY: 4.62
+    assert (round(first.start_lat, 2), round(first.end_lat, 2)) == (47.56, 47.52)   # home -> Nagytarcsa, not Škoda's waypoint
+    assert first.data_quality == "estimated_times"
+    others = [r for r in rows if r is not first]
+    assert [(r.start_odometer, r.end_odometer) for r in others] == [(40536, 40581), (40581, 40606), (40606, 40610)]      # the 0 km leg is not inserted
+    assert sum(r.distance_km for r in rows) == 96
+
+
+@pytest.mark.asyncio
+async def test_213_untrusted_leg_without_own_records_leaves_battery_energy_and_places_empty(replay_sessionmaker, vehicle_id):
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id, with_sessions=False, with_positions=False)
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    first = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
+    assert (first.start_soc, first.end_soc, first.kwh_consumed, first.start_lat, first.end_lat) == (None, None, None, None, None)
+    assert first.distance_km == 22
+
+
+@pytest.mark.asyncio
+async def test_213_a_row_written_by_v1310_with_skodas_battery_is_repaired(replay_sessionmaker, vehicle_id):
+    """Hosted row 12159: 10:36-10:37, battery 68 -> 68, 3.0 kWh."""
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    async with replay_sessionmaker() as s:
+        t = _tr(vehicle_id, "10:36", "10:37", 40514, 40536, quality="skoda_history", day="2026-11-05")
+        t.start_soc, t.end_soc, t.kwh_consumed = 68, 68, 3.0
+        s.add(t)
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
+    assert (row.start_soc, row.end_soc, row.data_quality) == (60, 54, "estimated_times")
+    assert abs(row.kwh_consumed - 4.62) < 0.01 and row.start_date.strftime("%H:%M") == "07:27"
+
+
+@pytest.mark.asyncio
+async def test_213_a_live_row_with_sound_times_keeps_its_own_measured_values(replay_sessionmaker, vehicle_id):
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    async with replay_sessionmaker() as s:
+        t = _tr(vehicle_id, "07:36", "07:54", 40514, 40536, day="2026-11-05")
+        t.start_soc, t.end_soc, t.kwh_consumed, t.start_lat, t.end_lat = 59, 54, 4.5, 47.55, 47.53
+        s.add(t)
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    row = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
+    assert (row.start_soc, row.end_soc, row.kwh_consumed, row.start_lat, row.end_lat) == (59, 54, 4.5, 47.55, 47.53)
+    assert row.start_date.strftime("%H:%M") == "07:36"
+
+
+@pytest.mark.asyncio
+async def test_213_a_charging_session_that_started_inside_the_drive_window_is_not_the_level_before_it(replay_sessionmaker, vehicle_id):
+    """The 'level before the drive' must come from a session that started before the drive, not from one
+    that began during the estimated window (review finding on #217)."""
+    from datetime import datetime, timezone
+    from app.models.telemetry import ChargingSession
+    await _reporter_telemetry(replay_sessionmaker, vehicle_id)
+    f = lambda hhmm: datetime.fromisoformat(f"2026-11-05T{hhmm}").replace(tzinfo=timezone.utc)
+    async with replay_sessionmaker() as s:
+        s.add(ChargingSession(user_vehicle_id=vehicle_id, session_start=f("07:40:00"), session_end=f("07:58:00"), start_level=70, end_level=80))
+        await s.commit()
+    await _sync(replay_sessionmaker, vehicle_id, _reporter_journey())
+    first = next(r for r in await trips(replay_sessionmaker, vehicle_id) if r.start_odometer == 40514)
+    assert (first.start_soc, first.end_soc) == (60, 54)          # not 80 from the mid-window session

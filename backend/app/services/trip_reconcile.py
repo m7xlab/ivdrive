@@ -16,7 +16,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.telemetry import OdometerReading, Trip
+from app.models.telemetry import DeletedTrip, OdometerReading, Trip
 
 # How long after a trip closes a late odometer update may still belong to it.
 ODOMETER_LAG_GRACE = timedelta(minutes=90)
@@ -58,6 +58,7 @@ async def reconcile_zero_distance_trips(
         Trip.end_date.is_not(None),
         (Trip.distance_km.is_(None)) | (Trip.distance_km == 0),
         Trip.start_odometer.is_not(None),
+        Trip.manually_edited.is_(False),   # a user's correction is final
     ).order_by(Trip.start_date)
     if since:
         q = q.where(Trip.start_date >= since)
@@ -96,7 +97,7 @@ async def reconcile_zero_distance_trips(
             # A following trip that started from the same stale odometer would
             # double-count this distance: start it where this one ended.
             if (
-                nxt is not None and nxt.start_odometer is not None
+                nxt is not None and not nxt.manually_edited and nxt.start_odometer is not None
                 and nxt.start_odometer < last
                 and (nxt.end_odometer is None or nxt.end_odometer >= last)
             ):
@@ -128,6 +129,12 @@ async def find_uncovered_gaps(
         tq = tq.where(Trip.start_date >= since - timedelta(days=1))
     readings = (await session.execute(rq)).all()
     ranges = sorted((float(a), float(b)) for a, b in (await session.execute(tq)).all())
+    # a trip the user deleted is not a gap to refill
+    ranges += [(float(a), float(b)) for a, b in (await session.execute(
+        select(DeletedTrip.start_odometer, DeletedTrip.end_odometer).where(
+            DeletedTrip.user_vehicle_id == vehicle_id,
+            DeletedTrip.start_odometer.is_not(None), DeletedTrip.end_odometer.is_not(None)))).all()]
+    ranges.sort()
 
     def covered(a: float, b: float) -> bool:
         # any trip whose odometer span overlaps (a, b)
@@ -181,6 +188,7 @@ async def find_phantom_trips(
         Trip.distance_km == 0,
         Trip.start_odometer.is_not(None),
         Trip.end_odometer == Trip.start_odometer,
+        Trip.manually_edited.is_(False),
     ).order_by(Trip.start_date)
     if since:
         q = q.where(Trip.start_date >= since)

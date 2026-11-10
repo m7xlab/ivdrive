@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.telemetry import Trip
+from app.models.telemetry import DeletedTrip, Trip
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,55 @@ def _impossible_speed(km: float, start: datetime, end: datetime) -> bool:
     return km >= 1 and km / hours > MAX_PLAUSIBLE_KMH
 
 
+async def _own_telemetry(session: AsyncSession, vehicle_id: UUID, leg: Leg) -> None:
+    """For a leg whose Škoda times are untrusted, the rest of Škoda's waypoint data belongs to a later
+    departure too (Nov 5: battery 68 -> 68 and 3.0 kWh for a drive that really took 60 -> 54 %). Replace
+    battery, energy and places with what we recorded ourselves, or leave them empty: never Škoda's.
+
+    Battery: the level a charging session ended at just before the drive, and the level the next one
+    started at just after it. Places: the parked positions before and after the drive."""
+    from app.models.telemetry import ChargingSession, VehiclePosition
+
+    leg.start_soc = leg.end_soc = None
+    leg.start_lat = leg.start_lon = leg.end_lat = leg.end_lon = None
+    leg.journey_kwh = leg.journey_km = None
+    t0, t1 = leg.start, leg.end
+    before = (await session.execute(
+        select(ChargingSession.end_level).where(
+            ChargingSession.user_vehicle_id == vehicle_id, ChargingSession.end_level.is_not(None),
+            # session_end may fall just after t0: the session is closed when the next poll notices the drive
+            # (the reporter's ended 07:55 for a drive 07:36-07:54), so the bound is the drive's END. But it must
+            # have STARTED before the drive: a session that began inside the window is not the level before it.
+            ChargingSession.session_end <= t1 + timedelta(minutes=5), ChargingSession.session_end >= t0 - timedelta(hours=12),
+            ChargingSession.session_start <= t0 + timedelta(minutes=5),
+        ).order_by(ChargingSession.session_end.desc()).limit(1)
+    )).scalar_one_or_none()
+    after = (await session.execute(
+        select(ChargingSession.start_level).where(
+            ChargingSession.user_vehicle_id == vehicle_id, ChargingSession.start_level.is_not(None),
+            ChargingSession.session_start >= t1 - timedelta(minutes=5), ChargingSession.session_start <= t1 + timedelta(hours=2),
+        ).order_by(ChargingSession.session_start).limit(1)
+    )).scalar_one_or_none()
+    if before is not None and after is not None and 0 <= before - after <= 100:
+        leg.start_soc, leg.end_soc = int(round(before)), int(round(after))
+    p0 = (await session.execute(
+        select(VehiclePosition.latitude, VehiclePosition.longitude).where(
+            VehiclePosition.user_vehicle_id == vehicle_id, VehiclePosition.captured_at <= t0 + timedelta(minutes=1),
+            VehiclePosition.captured_at >= t0 - timedelta(hours=12),
+        ).order_by(VehiclePosition.captured_at.desc()).limit(1)
+    )).first()
+    p1 = (await session.execute(
+        select(VehiclePosition.latitude, VehiclePosition.longitude).where(
+            VehiclePosition.user_vehicle_id == vehicle_id, VehiclePosition.captured_at >= t1 - timedelta(minutes=1),
+            VehiclePosition.captured_at <= t1 + timedelta(hours=3),
+        ).order_by(VehiclePosition.captured_at).limit(1)
+    )).first()
+    if p0:
+        leg.start_lat, leg.start_lon = p0
+    if p1:
+        leg.end_lat, leg.end_lon = p1
+
+
 async def _check_times(session: AsyncSession, vehicle_id: UUID, legs: list[Leg]) -> list[Leg]:
     """Škoda sometimes returns right distances with wrong times (Nov 5: 22 km in 63 s, 162 min after our
     own readings already showed the end odometer). A leg is untrusted when its speed is impossible or
@@ -156,6 +205,7 @@ async def _check_times(session: AsyncSession, vehicle_id: UUID, legs: list[Leg])
             logger.info("trip sync: leg %s %.0f km has impossible times and no odometer window; skipped", leg.start, leg.km)
             continue
         leg.start, leg.end, leg.times_estimated = before, first_at_end, True
+        await _own_telemetry(session, vehicle_id, leg)
         kept.append(leg)
     return kept
 
@@ -204,6 +254,7 @@ class SyncResult:
     enriched: int = 0
     skipped_covered: int = 0
     error: str | None = None  # set when this vehicle's sync failed; nothing was written
+    left_alone: int = 0      # legs skipped because the user edited or deleted that trip
     conflicts: int = 0       # rewrites skipped because another row already starts at that time
     km_added: float = 0.0
 
@@ -314,8 +365,9 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
         # with sound times keeps them; a row with impossible ones (written by v1.3.10) takes the window.
         row_sound = (row.end_date is not None and not _impossible_speed(row.distance_km or 0.0, t_start, t_end)
                      and t_end <= leg.end + END_SLACK)
-        if row_sound:
-            leg = replace(leg, start=row.start_date, end=row.end_date, times_estimated=False)
+        if row_sound:     # keep every measured value of the row; only odometer may be corrected
+            leg = replace(leg, start=row.start_date, end=row.end_date, times_estimated=False, start_soc=None, end_soc=None,
+                          start_lat=None, start_lon=None, end_lat=None, end_lon=None)
     time_off = abs((t_start - leg.start).total_seconds()) > 120 or abs((t_end - leg.end).total_seconds()) > 120
     odo_off = (row.start_odometer is None or row.end_odometer is None
                or abs(float(row.start_odometer) - leg.start_odometer) >= 1 or abs(float(row.end_odometer) - leg.end_odometer) >= 1)
@@ -353,6 +405,25 @@ def _apply_authoritative(row: Trip, leg: Leg, capacity: float, taken: set, apply
     return "rewritten" if material else "enriched"
 
 
+def _stands_for(t: Trip, leg: Leg, now: datetime) -> bool:
+    """An edited trip stands for a leg when it is the same drive by odometer or time, or shares at
+    least half of the leg's kilometres (the user may have changed the distance or the times)."""
+    if _is_same(t, leg, now) or _covers(t, leg, now):
+        return True
+    tr, lr = _orange(t), _lrange(leg)
+    return bool(tr and lr[1] > lr[0] and _inter(tr, lr) / (lr[1] - lr[0]) >= 0.5)
+
+
+def _deleted_stands_for(d: DeletedTrip, leg: Leg) -> bool:
+    """A deleted trip's drive: same odometer span (at least half the leg), or the same start time."""
+    if abs((d.start_date.astimezone(timezone.utc) - leg.start).total_seconds()) <= 300:
+        return True
+    if d.start_odometer is None or d.end_odometer is None:
+        return False
+    lr = _lrange(leg)
+    return lr[1] > lr[0] and _inter((float(d.start_odometer), float(d.end_odometer)), lr) / (lr[1] - lr[0]) >= 0.5
+
+
 async def sync_legs(
     session: AsyncSession,
     vehicle_id: UUID,
@@ -385,6 +456,20 @@ async def sync_legs(
             Trip.end_date > lo,
         ).order_by(Trip.start_date)
     )).scalars())
+
+    # A trip the user corrected is final, and one the user deleted stays deleted: neither is rewritten,
+    # merged, deleted or recreated, and the legs that stand for them are not applied.
+    existing = [t for t in existing if not t.manually_edited]
+    edited = list((await session.execute(
+        select(Trip).where(Trip.user_vehicle_id == vehicle_id, Trip.manually_edited.is_(True), Trip.end_date.is_not(None))
+    )).scalars())          # all of them (few); an edit may have moved a trip far from its leg's time
+    tombs = list((await session.execute(
+        select(DeletedTrip).where(DeletedTrip.user_vehicle_id == vehicle_id)   # few per vehicle; the odometer span decides, not the date
+    )).scalars())
+    if edited or tombs:
+        n0 = len(legs)
+        legs = [lg for lg in legs if not (any(_stands_for(t, lg, now) for t in edited) or any(_deleted_stands_for(d, lg) for d in tombs))]
+        res.left_alone += n0 - len(legs)
 
     assigned: dict[int, Trip] = {}   # leg index -> row that represents it (kept as is)
     reuse: dict[int, Trip] = {}      # leg index -> row to rewrite into this leg
@@ -444,7 +529,7 @@ async def sync_legs(
             await session.delete(t)
     if apply and delete:
         await session.flush()
-    taken = {t.start_date for t in existing if t not in delete}
+    taken = {t.start_date for t in existing if t not in delete} | {t.start_date for t in edited}
     first_start = {t.id: t.start_date for t in existing}
     for i, leg in enumerate(legs):
         if i in reuse:

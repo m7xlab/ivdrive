@@ -73,13 +73,26 @@ class TripItem(BaseModel):
     end_lon: float | None = None
     start_odometer: float | None = None
     end_odometer: float | None = None
-    data_quality: str | None = None  # None = measured; estimated_start | estimated_end | reconstructed
+    data_quality: str | None = None  # None = measured; estimated_start | estimated_times | skoda_history | reconstructed | manually_corrected
+    manually_edited: bool = False
+    distance_km: float | None = None
+    kwh_consumed: float | None = None
 
     model_config = {"from_attributes": True}
 
 
+class TripEdit(BaseModel):
+    """Fields a user may correct. Anything left out stays as it is."""
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    distance_km: float | None = Field(default=None, ge=0, le=5000)
+    kwh_consumed: float | None = Field(default=None, ge=0, le=1000)
+
+
 class TripAnalyticsItem(BaseModel):
     trip_id: int
+    data_quality: str | None = None       # None = measured
+    manually_edited: bool = False
     start_time: datetime
     end_time: datetime | None = None
     start_latitude: float | None = None
