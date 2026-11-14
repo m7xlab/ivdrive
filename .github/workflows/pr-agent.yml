@@ -22,6 +22,15 @@ jobs:
           config.model: "google/gemini-3.1-pro-preview"
           config.fallback_models: '["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-pro", "gemini/gemini-2.5-flash"]'
           config.custom_model_max_tokens: "1000000"
+          # PR-Agent clips the diff it sends at config.max_model_tokens (default 32 000) whatever the
+          # model can take, and reads .pr_agent.toml from the default branch, not the PR branch, so
+          # the review budget has to be set here to apply to the PR that introduces it.
+          config.max_model_tokens: "400000"
+          config.large_patch_policy: "clip"
+          pr_reviewer.enable_large_pr_chunking: "true"
+          pr_reviewer.max_number_of_calls: "6"
+          pr_code_suggestions.max_number_of_calls: "6"
+          pr_code_suggestions.enable_suggestions_coverage_footer: "true"
           GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
