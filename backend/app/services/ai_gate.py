@@ -88,8 +88,8 @@ async def check_ai_access(
           t.max_questions_per_month,
           COALESCE(o.max_questions_per_day, t.max_questions_per_day) AS effective_max_day,
           COALESCE(o.max_questions_per_month, t.max_questions_per_month) AS effective_max_month,
-          t.model_provider,
-          t.model_name,
+          COALESCE(NULLIF(o.model_provider, ''), t.model_provider) AS model_provider,
+          COALESCE(NULLIF(o.model_name, ''), t.model_name) AS model_name,
           (SELECT n FROM usage_today) AS used_today,
           (SELECT n FROM usage_month) AS used_this_month
         FROM user_row u

@@ -85,6 +85,19 @@ def configured_providers() -> dict[str, Provider]:
     return out
 
 
+def provider_catalog() -> list[dict]:
+    """What the environment makes available, for the admin screen. Keys are never included.
+    'deterministic' is always there: data-only answers without an LLM."""
+    out = [{"name": "deterministic", "kind": "builtin", "base_url": None, "default_model": "", "has_key": False}]
+    for p in configured_providers().values():
+        out.append({"name": p.name, "kind": p.kind, "base_url": p.base_url, "default_model": p.default_model, "has_key": bool(p.api_key)})
+    return out
+
+
+def known_provider_names() -> set[str]:
+    return {"deterministic"} | set(configured_providers())
+
+
 def provider_order(requested: str | None) -> list[Provider]:
     """Requested provider first (if configured), then the configured fallbacks."""
     avail = configured_providers()

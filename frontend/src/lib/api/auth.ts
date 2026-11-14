@@ -112,6 +112,7 @@ export const authApi = {
     display_name?: string;
     default_currency?: string;
     unit_system?: "metric" | "uk" | "us" | "imperial";
+    show_commands?: boolean;
   }) {
     const res = await apiFetch("/api/v1/auth/me", {
       method: "PUT",

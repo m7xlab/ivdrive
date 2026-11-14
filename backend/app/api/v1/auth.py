@@ -526,6 +526,8 @@ async def update_me(
         user.default_currency = code
     if body.unit_system is not None:
         user.unit_system = body.unit_system
+    if body.show_commands is not None:
+        user.show_commands = body.show_commands
     await db.flush()
     await db.refresh(user)
     return await _user_with_fx(user, db)

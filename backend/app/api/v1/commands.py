@@ -154,7 +154,63 @@ async def _execute_command(
             exc,
             exc_info=True,
         )
+        # Škoda can answer an error and still do what was asked (#climate: BFF 400 and public 500 while
+        # the car heated). Before telling the user it was refused, look at what the car is doing.
+        state = await _observed_state(command_name, vin, access_token, public_api_key)
+        if state is not None:
+            logger.info("Command %s for vehicle %s: Škoda errored but the car reports %s", command_name, vehicle_id, state)
+            try:
+                from app.services.events import publish_vehicle_refresh
+                await publish_vehicle_refresh(str(vehicle_id))
+            except Exception:
+                pass
+            return CommandResponse(status="completed", message=f"Done. The car reports {state}.")
         return CommandResponse(status="failed", message=humanize_command_error(exc))
+
+
+_CLIMATE_ON = {"HEATING", "COOLING", "VENTILATION", "ON"}
+_CLIMATE_OFF = {"OFF", "INVALID"}
+_READBACK_DELAY_S = 6.0
+
+
+async def _observed_state(command_name: str, vin: str, access_token: str | None, public_api_key: str | None) -> str | None:
+    """For a climate command that errored: what the car reports a few seconds later, as a short phrase,
+    or None when it does not match the command (or cannot be read). Login path first, then the Public API."""
+    if command_name not in ("start_climatization", "stop_climatization"):
+        return None
+    want_on = command_name == "start_climatization"
+    import asyncio
+    await asyncio.sleep(_READBACK_DELAY_S)
+    state: str | None = None
+    if access_token:
+        try:
+            from app.services.skoda_api import SkodaAPIClient
+            api = SkodaAPIClient(access_token)
+            try:
+                state = (await api.get_air_conditioning(vin)).state
+            finally:
+                await api.close()
+        except Exception as e:  # noqa: BLE001
+            logger.info("climate read-back (login) failed: %s", str(e)[:120])
+    if state is None and public_api_key:
+        try:
+            from app.services.skoda_public_api import SkodaPublicAPIClient
+            client = SkodaPublicAPIClient(public_api_key)
+            try:
+                snap, _meta = await client.get_vehicle_snapshot(vin)
+                state = snap.air_conditioning.state if snap.air_conditioning else None
+            finally:
+                await client.close()
+        except Exception as e:  # noqa: BLE001
+            logger.info("climate read-back (public) failed: %s", str(e)[:120])
+    if not state:
+        return None
+    up = state.upper()
+    if want_on and up in _CLIMATE_ON:
+        return {"HEATING": "heating is on", "COOLING": "cooling is on", "VENTILATION": "ventilation is on"}.get(up, "climatisation is on")
+    if not want_on and up in _CLIMATE_OFF:
+        return "climatisation is off"
+    return None
 
 
 @router.post(

@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback } from "react";
 
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 
 import Link from "next/link";
 
@@ -699,6 +700,7 @@ export default function VehicleDetailPage() {
   const params = useParams();
 
   const router = useRouter();
+  const { user } = useAuth();
 
   const vehicleId = params.id as string;
 
@@ -792,7 +794,7 @@ export default function VehicleDetailPage() {
 
      // Check settings preference for commands
 
-     const showCmds = localStorage.getItem("ivdrive_show_commands") === "true";
+     const showCmds = Boolean(user?.show_commands);   // account setting, same on every device
 
      if (!showCmds) {
 
@@ -808,7 +810,7 @@ export default function VehicleDetailPage() {
 
      }
 
-  }, [tab]);
+  }, [tab, user]);
 
 
 

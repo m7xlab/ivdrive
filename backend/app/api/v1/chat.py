@@ -362,6 +362,7 @@ async def call_llm(
             last_error = str(e)
             continue
         if usage_stats is not None:
+            usage_stats["provider"], usage_stats["model"] = prov.name, eff_model   # what actually answered, not what was asked for
             usage_stats["prompt_tokens"] = usage_stats.get("prompt_tokens", 0) + res.prompt_tokens
             usage_stats["completion_tokens"] = usage_stats.get("completion_tokens", 0) + res.completion_tokens
             usage_stats["cached_tokens"] = usage_stats.get("cached_tokens", 0) + res.cached_tokens
@@ -1307,7 +1308,7 @@ async def chat(
     try:
         from app.services.ai_gate import estimate_cost_usd
         estimated_cost_usd = estimate_cost_usd(
-            gate.model_name,
+            usage_stats.get("model") or gate.model_name,
             usage_stats.get("prompt_tokens", 0) or 0,
             usage_stats.get("completion_tokens", 0) or 0,
             usage_stats.get("cached_tokens", 0) or 0,
@@ -1322,8 +1323,8 @@ async def chat(
             db, user_id=str(user_id),
             vehicle_id=str(detected_vehicle_id) if detected_vehicle_id else None,
             session_id=session_id,
-            model_provider=req_provider,
-            model_name=gate.model_name or None,
+            model_provider=usage_stats.get("provider") or req_provider,   # a fallback provider is logged as itself
+            model_name=usage_stats.get("model") or gate.model_name or None,
             prompt_tokens=usage_stats.get("prompt_tokens"), 
             completion_tokens=usage_stats.get("completion_tokens"), 
             cached_tokens=usage_stats.get("cached_tokens"),

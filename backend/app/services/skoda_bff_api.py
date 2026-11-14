@@ -43,7 +43,8 @@ class SkodaBFFClient:
     async def _post(self, path: str, json_body: dict | None = None) -> dict | None:
         resp = await self._client.post(path, json=json_body or {})
         if resp.status_code >= 400:
-            raise SkodaBFFError(f"BFF POST {path} -> HTTP {resp.status_code}", resp.status_code)
+            body = (resp.text or "")[:300].replace("\n", " ")   # Škoda's reason; no credentials are in it
+            raise SkodaBFFError(f"BFF POST {path} -> HTTP {resp.status_code} {body}".rstrip(), resp.status_code)
         if not resp.content:
             return None
         try:
