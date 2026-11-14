@@ -12,6 +12,8 @@ Health roll-up:
 """
 from __future__ import annotations
 
+from app.services.ai_glossary import describe_data_health
+
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -184,7 +186,7 @@ def format_data_health_for_llm(health: VehicleDataHealthResponse) -> str:
     """
     lines = [
         f"Vehicle: {health.display_name or health.vin_last4} (…{health.vin_last4})",
-        f"Data health: {health.status.upper()}",
+        f"Data health: {describe_data_health(health.status)}",
         f"Last telemetry: {health.last_telemetry_at.isoformat() if health.last_telemetry_at else 'NEVER'} "
         f"({health.minutes_since_last_telemetry if health.minutes_since_last_telemetry is not None else 'unknown'} min ago)",
     ]
