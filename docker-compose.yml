@@ -34,7 +34,7 @@ services:
       S3_BUCKET: "${S3_BUCKET}"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
-      #MINIMAX_API_KEY: "${MINIMAX_API_KEY}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY}"   # empty = provider not configured; keep the passthrough for self-hosters who use MiniMax
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL}"

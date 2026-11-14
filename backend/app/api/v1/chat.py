@@ -35,7 +35,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     vehicle_id: str | None = None
     session_id: str | None = None
-    provider: str = Field("minimax", pattern=r"^[a-z0-9_-]{1,32}$")  # tier config decides the real one
+    provider: str = Field("auto", pattern=r"^[a-z0-9_-]{1,32}$")  # kept for API compatibility; the tier config (admin) decides the provider
 
 
 class SourceRef(BaseModel):

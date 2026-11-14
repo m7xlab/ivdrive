@@ -480,7 +480,7 @@ async def search_similar(
     content_types: list[str] | None = None,
     vehicle_ids: list[uuid.UUID] | None = None,
     limit: int = 10,
-    provider: str = "minimax",
+    provider: str = "auto",   # accepted for compatibility; the embedding backend is chosen by EMBEDDING_PROVIDER, not per request
 ) -> list[dict]:
     """
     Hybrid RAG search: parallel per-type vector search + keyword scoring + type boosting.
