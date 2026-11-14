@@ -183,27 +183,57 @@ def glossary_block(context_text: str) -> str:
 
 
 _WRAP = r"[`\"'“”‘’*]*"
+_WRAP_PAIR = r"[`\"'“”‘’*]+"
+# Fenced blocks (json_chart / json_metrics / json_followups) are JSON: scrubbing their quotes
+# would corrupt them, so prose and blocks are handled separately.
+_FENCE_RE = re.compile(r"```[\s\S]*?```")
+
+
+def scrub_bare_tokens(text: str) -> str:
+    """Replace whole vendor tokens in ``text`` with their plain phrase; wrappers are left alone.
+
+    Safe for JSON string values and metric labels: no quote or asterisk is ever removed.
+    """
+    if not text:
+        return text
+    out = text
+    for term, phrase in _SCRUB.items():
+        out = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", phrase, out)
+    return out
+
+
+def _scrub_prose(text: str) -> str:
+    out = text
+    for term, phrase in _SCRUB.items():
+        # "(CONNECT_CABLE)" and " (`CONNECT_CABLE`)" → gone
+        out = re.sub(rf"\s*\(\s*{_WRAP}{re.escape(term)}{_WRAP}\s*\)", "", out)
+        # `CONNECT_CABLE` / "CONNECT_CABLE" / **CONNECT_CABLE**: wrappers go only when the
+        # token is wrapped on both sides, so '"The car is PARKED"' keeps its closing quote.
+        out = re.sub(
+            rf"{_WRAP_PAIR}(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_]){_WRAP_PAIR}",
+            phrase,
+            out,
+        )
+    return scrub_bare_tokens(out)
 
 
 def scrub_raw_terms(answer: str) -> str:
     """Replace any vendor token that leaked into an answer with its plain phrase.
 
     Handles the token bare, in backticks, in quotes or bold, and in a parenthesis such
-    as "(CONNECT_CABLE)". A parenthesised token is removed with its brackets.
+    as "(CONNECT_CABLE)". A parenthesised token is removed with its brackets. Fenced
+    blocks are passed through untouched; normalize_presentation scrubs their strings.
     """
     if not answer:
         return answer
-    out = answer
-    for term, phrase in _SCRUB.items():
-        # "(CONNECT_CABLE)" and " (`CONNECT_CABLE`)" → gone
-        out = re.sub(rf"\s*\(\s*{_WRAP}{re.escape(term)}{_WRAP}\s*\)", "", out)
-        # `CONNECT_CABLE` / "CONNECT_CABLE" / **CONNECT_CABLE** / bare
-        out = re.sub(
-            rf"{_WRAP}(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_]){_WRAP}",
-            phrase,
-            out,
-        )
-    return out
+    parts: list[str] = []
+    last = 0
+    for m in _FENCE_RE.finditer(answer):
+        parts.append(_scrub_prose(answer[last : m.start()]))
+        parts.append(m.group(0))
+        last = m.end()
+    parts.append(_scrub_prose(answer[last:]))
+    return "".join(parts)
 
 
 # (token present in context, pattern an answer must not contain, pattern that excuses it, label)

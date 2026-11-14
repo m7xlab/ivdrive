@@ -124,3 +124,20 @@ def test_system_prompt_asks_for_metrics_and_followups_not_a_chart_per_answer():
     assert "json_metrics" in prompt and "json_followups" in prompt
     assert "Do not append a chart by default" in prompt
     assert "If you are presenting numeric data" not in prompt
+
+
+def test_metric_and_followup_strings_are_scrubbed_of_vendor_tokens():
+    from app.services.ai_glossary import scrub_raw_terms
+
+    answer = (
+        "Status now.\n```json_metrics\n"
+        '{"items":[{"label":"State","value":"PARKED","note":"Data: LIVE"},{"label":"Power","value":3.2,"unit":"kW"}]}\n'
+        "```\n```json_followups\n"
+        '{"questions":["Why is it PARKED?"]}\n'
+        "```"
+    )
+    out = p.normalize_presentation(scrub_raw_terms(answer))
+    metrics = json.loads(out.split("```json_metrics\n")[1].split("\n```")[0])
+    assert metrics["items"][0] == {"label": "State", "value": "parked", "unit": "", "note": "Data: live"}
+    assert metrics["items"][1]["value"] == "3.2"
+    assert p.extract_followups(out) == ["Why is it parked?"]

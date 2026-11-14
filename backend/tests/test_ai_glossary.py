@@ -135,3 +135,19 @@ async def test_current_battery_state_tool_reports_power_while_charging():
     row = (datetime(2026, 11, 14, 13, 12, tzinfo=UTC), 54, 142000, "CHARGING", 10.6, "BlackMagic")
     text = await get_current_battery_state(_FakeDb([row]), uuid.uuid4(), "BlackMagic")
     assert "actively charging" in text and "10.6 kW" in text
+
+
+def test_scrub_leaves_fenced_presentation_blocks_intact():
+    block = '```json_metrics\n{"items":[{"label":"State","value":"PARKED"},{"label":"Power","value":"CHARGING power"}]}\n```'
+    answer = f"Status now.\n{block}\nIt is PARKED."
+    assert g.scrub_raw_terms(answer) == f"Status now.\n{block}\nIt is parked."
+
+
+def test_scrub_keeps_an_unmatched_quote_or_star():
+    assert g.scrub_raw_terms('"The car is PARKED"') == '"The car is parked"'
+    assert g.scrub_raw_terms("**PARKED overnight**") == "**parked overnight**"
+
+
+def test_scrub_bare_tokens_never_touches_wrappers():
+    assert g.scrub_bare_tokens('"PARKED"') == '"parked"'
+    assert g.scrub_bare_tokens("Status: LIVE") == "Status: live"

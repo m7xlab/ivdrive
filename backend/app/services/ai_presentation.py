@@ -20,6 +20,8 @@ import json
 import re
 from typing import Any
 
+from app.services.ai_glossary import scrub_bare_tokens
+
 MIN_CHART_POINTS = 3
 MAX_METRIC_ITEMS = 8
 MAX_FOLLOWUPS = 3
@@ -119,13 +121,13 @@ def clean_metrics(payload: Any) -> list[dict]:
             continue
         num = _number(value)
         item = {
-            "label": label[:40],
-            "value": _fmt(num) if num is not None else str(value)[:24],
+            "label": scrub_bare_tokens(label)[:40],
+            "value": _fmt(num) if num is not None else scrub_bare_tokens(str(value))[:24],
             "unit": str(raw.get("unit") or "")[:16],
         }
         note = raw.get("note")
         if note:
-            item["note"] = str(note)[:80]
+            item["note"] = scrub_bare_tokens(str(note))[:80]
         items.append(item)
     return items[:MAX_METRIC_ITEMS]
 
@@ -141,7 +143,7 @@ def clean_followups(payload: Any) -> list[str]:
     for q in payload:
         if not isinstance(q, str):
             continue
-        q = " ".join(q.split()).strip()
+        q = scrub_bare_tokens(" ".join(q.split()).strip())
         if not q or len(q) > MAX_FOLLOWUP_CHARS or q.lower() in seen:
             continue
         seen.add(q.lower())
