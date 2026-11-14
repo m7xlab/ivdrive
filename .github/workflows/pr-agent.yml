@@ -26,3 +26,7 @@ jobs:
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
+          # A push to an open PR ("synchronize") is only acted on when these two are set; without
+          # them the runner logs "Skipping action: synchronize" and later commits are never reviewed.
+          github_action_config.handle_push_trigger: "true"
+          github_action_config.push_commands: '["/review", "/improve"]'
