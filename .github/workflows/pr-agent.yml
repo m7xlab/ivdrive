@@ -20,7 +20,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           config.model: "google/gemini-3.1-pro-preview"
-          config.fallback_models: '["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-pro", "gemini/gemini-2.5-flash"]'
+          config.fallback_models: '["gemini/gemini-4-carbon", "gemini/gemini-4-argon" , "gemini/gemini-3-flash-preview"]'
           config.custom_model_max_tokens: "1000000"
           # PR-Agent clips the diff it sends at config.max_model_tokens (default 32 000) whatever the
           # model can take, and reads .pr_agent.toml from the default branch, not the PR branch, so
