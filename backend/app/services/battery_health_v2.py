@@ -29,6 +29,7 @@ Methods:
 from __future__ import annotations
 
 import statistics
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
@@ -219,18 +220,45 @@ async def _get_vehicle(db: AsyncSession, vehicle_id: UUID) -> Optional[UserVehic
 
 
 # ===== Method 1: tesla_capacity =====
-async def _measured_session_energy(db: AsyncSession, s: ChargingSession) -> Tuple[Optional[float], float]:
+class _PowerReadings:
+    """The charging_states rows with charge_power_kw > 0 of one vehicle, fetched once for the whole
+    lookback window and looked up per session by time range (one query for all sessions instead
+    of one per session).
+
+    Rows are kept sorted by first_date with a running maximum of last_date, so the rows that can
+    overlap [start, end) are a contiguous slice found by two bisections: rows at or after the first
+    index whose running-max end is past ``start``, and before the first row starting at ``end``."""
+
+    def __init__(self, rows: List[Tuple[datetime, datetime, float]]):
+        self.rows = sorted(rows, key=lambda r: r[0])
+        self._starts = [r[0] for r in self.rows]
+        self._end_max: List[datetime] = []
+        for _, last, _ in self.rows:
+            self._end_max.append(last if not self._end_max or last > self._end_max[-1] else self._end_max[-1])
+
+    @classmethod
+    async def load(cls, db: AsyncSession, vehicle_id: UUID, since: datetime) -> "_PowerReadings":
+        rows = (await db.execute(
+            select(ChargingState.first_date, ChargingState.last_date, ChargingState.charge_power_kw)
+            .where(ChargingState.user_vehicle_id == vehicle_id)
+            .where(ChargingState.charge_power_kw > 0)
+            .where(ChargingState.last_date > since)
+        )).all()
+        return cls([(first, last, kw) for first, last, kw in rows])
+
+    def overlapping(self, start: datetime, end: datetime) -> List[Tuple[datetime, datetime, float]]:
+        """Rows with first_date < end and last_date > start, same as the per-session query had."""
+        lo = bisect_right(self._end_max, start)
+        hi = bisect_left(self._starts, end)
+        return [r for r in self.rows[lo:hi] if r[1] > start]
+
+
+def _measured_session_energy(readings: _PowerReadings, s: ChargingSession) -> Tuple[Optional[float], float]:
     """(kWh integrated from charge_power_kw over the session's charging_states rows, coverage 0..1).
     None when no power reading overlaps the session."""
     if s.session_start is None or s.session_end is None or s.session_end <= s.session_start:
         return None, 0.0
-    rows = (await db.execute(
-        select(ChargingState.first_date, ChargingState.last_date, ChargingState.charge_power_kw)
-        .where(ChargingState.user_vehicle_id == s.user_vehicle_id)
-        .where(ChargingState.charge_power_kw > 0)
-        .where(ChargingState.first_date < s.session_end)
-        .where(ChargingState.last_date > s.session_start)
-    )).all()
+    rows = readings.overlapping(s.session_start, s.session_end)
     if not rows:
         return None, 0.0
     kwh = 0.0
@@ -276,6 +304,8 @@ async def estimate_tesla_capacity(
         .where(ChargingSession.end_level.isnot(None))
         .order_by(desc(ChargingSession.session_start))
     )).scalars().all()
+    # Every session starts at or after the cutoff, so a reading that overlaps one ends after it.
+    readings = await _PowerReadings.load(db, vehicle_id, cutoff) if sessions else _PowerReadings([])
     samples: List[float] = []
     skipped = {"no_power_readings": 0, "low_coverage": 0, "small_or_short": 0, "taper": 0, "disagrees_with_soc": 0}
     for s in sessions:
@@ -287,7 +317,7 @@ async def estimate_tesla_capacity(
         if s.end_level > MAX_END_LEVEL:
             skipped["taper"] += 1
             continue
-        measured, coverage = await _measured_session_energy(db, s)
+        measured, coverage = _measured_session_energy(readings, s)
         if measured is None or measured <= 0:
             skipped["no_power_readings"] += 1
             continue

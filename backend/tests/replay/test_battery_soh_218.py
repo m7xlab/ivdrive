@@ -162,3 +162,25 @@ async def test_a_range_rise_between_the_halves_is_not_reported_as_100_percent_he
     async with replay_sessionmaker() as s:
         r = await bh.estimate_range_drift_over_time(s, vehicle_id, lookback_days=365)
     assert r.soh_pct is None and "rose from 559 to 591 km" in r.inputs["reason"] and r.extra["retention_pct"] > 105
+
+
+@pytest.mark.asyncio
+async def test_capacity_reads_the_power_readings_once_not_once_per_session(replay_sessionmaker, vehicle_id):
+    """Review of #221: the power readings were queried per session (N+1). Now: the sessions and
+    the readings - two statements whatever the number of sessions (the vehicle is a db.get), and
+    the same figures."""
+    for i in range(12):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=i + 1), 2, 40, 70, kw=11.0)
+    async with replay_sessionmaker() as s:
+        statements = []
+        execute = s.execute
+
+        async def counted(stmt, *a, **kw):
+            statements.append(str(stmt))
+            return await execute(stmt, *a, **kw)
+
+        s.execute = counted
+        r = await bh.estimate_tesla_capacity(s, vehicle_id)
+    assert r.sample_count == 12 and abs(r.extra["median_kwh"] - 69.67) < 0.05
+    assert len(statements) == 2, f"{len(statements)} statements for 12 sessions"
+    assert sum("charging_states" in q for q in statements) == 1

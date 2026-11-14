@@ -21,6 +21,7 @@
 
 ### Fixed (continued)
 - **A capacity result the battery cannot have is no longer shown as 100 % (#218)** — a median above the nominal capacity (the charger's power readings are too coarse for that car), fewer than 5 usable sessions, or a range that *rose* between the two halves (season or driving style) now give N/A with the reason instead of a clamped 100 %.
+- **Battery SoH computation grew slower with every charging session** — the capacity method fetched the charger's power readings with one query per session, so a year of charging meant hundreds of round-trips to the database. The readings for the whole window are now read once and matched to the sessions in memory; the figures are unchanged.
 
 ### Notes
 - Rebuild **api** and **web**. The `access_expires_at` cookie is set at the next login or silent refresh; until then the client behaves as before (refresh on 401). Migration `e7f9a1b3c5d7` makes `battery_health_analytics.soh_pct` nullable; the API creates the same change at start if the migration was not run.
