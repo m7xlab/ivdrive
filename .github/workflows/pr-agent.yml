@@ -32,6 +32,9 @@ jobs:
           # model can take, and reads .pr_agent.toml from the default branch, not the PR branch, so
           # the review budget has to be set here to apply to the PR that introduces it.
           config.max_model_tokens: "400000"
+          # A full-diff review of this size takes a reasoning model longer than the 120 s default per
+          # call; the run logged "litellm.Timeout: Timeout passed=120.0" and retried until cancelled.
+          config.ai_timeout: "600"
           config.large_patch_policy: "clip"
           pr_reviewer.enable_large_pr_chunking: "true"
           pr_reviewer.max_number_of_calls: "6"

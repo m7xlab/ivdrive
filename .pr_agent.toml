@@ -7,6 +7,7 @@
 
 [config]
 max_model_tokens = 400000
+ai_timeout = 600                  # seconds per model call; a 60k-token review needs more than the 120 s default
 large_patch_policy = "clip"       # if a single file is still too big, clip it rather than drop it
 
 [pr_reviewer]
