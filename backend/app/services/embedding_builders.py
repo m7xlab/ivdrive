@@ -17,6 +17,8 @@ from typing import Awaitable, Callable, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.ai_glossary import describe_vehicle_state
+
 logger = logging.getLogger(__name__)
 
 
@@ -214,12 +216,12 @@ async def build_vehicle_state_summary(session: AsyncSession, vid: str) -> Option
         return None
     uid = str(rows[0][1])
     name = rows[0][2] or "Unknown"
-    top_states = [f"{r[3]} ({r[4]:.1f}h)" for r in rows if r[3] is not None]
+    top_states = [f"{describe_vehicle_state(r[3])} ({r[4]:.1f}h)" for r in rows if r[3] is not None]
     r0 = rows[0]
     states_str = "; ".join(top_states) if top_states else "No recent data"
     last_str = r0[12].strftime("%Y-%m-%d %H:%M") if r0[12] else "?"
     chunk = (f"Vehicle state summary for {name} (last update {last_str}): "
-             f"Current state: {r0[6] or 'unknown'}. "
+             f"Current state: {describe_vehicle_state(r0[6])}. "
              f"Doors: locked={r0[7]}, open={r0[8] or 'none'}. "
              f"Windows: {r0[9] or 'all closed'}. "
              f"Lights: {r0[10] or 'off'}. "

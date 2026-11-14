@@ -35,6 +35,14 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+@pytest.fixture(autouse=True)
+def open_registration(monkeypatch):
+    """The service defaults to invite-only registration; these tests register directly."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "service_registration", "open")
+
+
 @pytest_asyncio.fixture
 async def client():
     transport = ASGITransport(app=app)
@@ -64,9 +72,24 @@ async def auth_tokens(client: AsyncClient, registered_user):
     return resp.json()
 
 
+def _set_cookie_headers(resp) -> dict[str, str]:
+    """Map cookie name -> raw Set-Cookie header, so flags can be asserted."""
+    out = {}
+    for raw in resp.headers.get_list("set-cookie"):
+        name = raw.split("=", 1)[0].strip()
+        out[name] = raw
+    return out
+
+def _csrf(client: AsyncClient) -> dict[str, str]:
+    """Mirror the csrf_token cookie into the header, as the browser client does."""
+    token = client.cookies.get("csrf_token")
+    return {"X-CSRF-Token": token} if token else {}
+
+
 @pytest_asyncio.fixture
-async def auth_header(auth_tokens):
-    return {"Authorization": f"Bearer {auth_tokens['access_token']}"}
+async def auth_header(client: AsyncClient, auth_tokens):
+    # Auth travels in the HttpOnly cookie the login set on the client; mutations need the CSRF header.
+    return {"Authorization": f"Bearer {auth_tokens['access_token']}", **_csrf(client)}
 
 
 @pytest.mark.asyncio
@@ -95,7 +118,7 @@ async def test_register_duplicate_email(client: AsyncClient, registered_user):
         json={"email": "test@example.com", "password": "anotherpass1"},
     )
     assert resp.status_code == 409
-    assert "already registered" in resp.json()["detail"].lower()
+    assert "already registered" in resp.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -127,7 +150,7 @@ async def test_login_wrong_password(client: AsyncClient, registered_user):
         json={"email": "test@example.com", "password": "wrongpassword"},
     )
     assert resp.status_code == 401
-    assert "invalid" in resp.json()["detail"].lower()
+    assert "invalid" in resp.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -151,7 +174,7 @@ async def test_get_me(client: AsyncClient, auth_header, registered_user):
 @pytest.mark.asyncio
 async def test_get_me_no_token(client: AsyncClient):
     resp = await client.get("/api/v1/auth/me")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -175,11 +198,14 @@ async def test_refresh_token_flow(client: AsyncClient, auth_tokens):
     data = resp.json()
     assert "access_token" in data
     assert "refresh_token" in data
-    assert data["access_token"] != auth_tokens["access_token"]
+    # Tokens minted in the same second as the login are byte-identical (no jti), so the
+    # proof of rotation is the fresh cookie set rather than a differing token string.
+    assert {"access_token", "refresh_token", "csrf_token"} <= set(_set_cookie_headers(resp))
 
 
 @pytest.mark.asyncio
 async def test_refresh_with_access_token_fails(client: AsyncClient, auth_tokens):
+    client.cookies.clear()  # the cookie's refresh token would otherwise be used
     resp = await client.post(
         "/api/v1/auth/refresh",
         json={"refresh_token": auth_tokens["access_token"]},
@@ -200,6 +226,7 @@ async def test_refresh_with_invalid_token(client: AsyncClient):
 async def test_logout(client: AsyncClient, auth_tokens):
     resp = await client.post(
         "/api/v1/auth/logout",
+        headers=_csrf(client),
         json={"refresh_token": auth_tokens["refresh_token"]},
     )
     assert resp.status_code == 200
@@ -229,4 +256,58 @@ async def test_change_password_wrong_old(client: AsyncClient, auth_header, regis
         json={"old_password": "wrongoldpass", "new_password": "newpassword123"},
     )
     assert resp.status_code == 400
-    assert "incorrect" in resp.json()["detail"].lower()
+    assert "incorrect" in resp.json()["error"]["message"].lower()
+
+
+
+@pytest.mark.asyncio
+async def test_login_sets_readable_access_expiry_cookie(client: AsyncClient, registered_user):
+    import time
+    from app.config import settings
+
+    before = int(time.time())
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "test@example.com", "password": "securepass123"},
+    )
+    assert resp.status_code == 200
+    cookies = _set_cookie_headers(resp)
+    assert "access_expires_at" in cookies
+    raw = cookies["access_expires_at"]
+    # Readable by the browser client (not HttpOnly) and outlives the access token.
+    assert "httponly" not in raw.lower()
+    assert "max-age" in raw.lower()
+    assert "httponly" in cookies["access_token"].lower()
+    value = int(resp.cookies["access_expires_at"])
+    expected = before + settings.access_token_expire_minutes * 60
+    assert expected - 2 <= value <= expected + 5
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotates_access_expiry_cookie(client: AsyncClient, auth_tokens):
+    import time
+    from app.config import settings
+
+    before = int(time.time())
+    resp = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": auth_tokens["refresh_token"]},
+    )
+    assert resp.status_code == 200
+    assert "access_expires_at" in _set_cookie_headers(resp)
+    value = int(resp.cookies["access_expires_at"])
+    expected = before + settings.access_token_expire_minutes * 60
+    assert expected - 2 <= value <= expected + 5
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_access_expiry_cookie(client: AsyncClient, auth_tokens):
+    resp = await client.post(
+        "/api/v1/auth/logout",
+        headers=_csrf(client),
+        json={"refresh_token": auth_tokens["refresh_token"]},
+    )
+    assert resp.status_code == 200
+    cookies = _set_cookie_headers(resp)
+    assert "access_expires_at" in cookies
+    assert 'access_expires_at=""' in cookies["access_expires_at"] or "max-age=0" in cookies["access_expires_at"].lower()

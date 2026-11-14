@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE, getCookie } from "./core";
+import { apiFetch, ApiError } from "./core";
 
 export interface StreamHandlers {
   onDelta: (text: string) => void;
@@ -104,18 +104,21 @@ export const chatApi = {
     if (sessionId) body.session_id = sessionId;
     if (vehicleId) body.vehicle_id = vehicleId;
 
-    const csrf = getCookie("csrf_token");
-    const res = await fetch(`${API_BASE}/api/v1/chat/stream`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-      },
-      body: JSON.stringify(body),
-    });
+    // apiFetch refreshes an expiring session before sending, attaches the CSRF header and
+    // retries once on 401. A raw fetch here failed with "Chat request failed (401)" on the
+    // first question after the page had been open 15 minutes.
+    let res: Response;
+    try {
+      res = await apiFetch(`/api/v1/chat/stream`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    } catch (err: unknown) {
+      const status = err instanceof ApiError ? err.status : 0;
+      throw new Error(`Chat request failed (${status})`);
+    }
 
-    if (!res.ok || !res.body) {
+    if (!res.body) {
       throw new Error(`Chat request failed (${res.status})`);
     }
 

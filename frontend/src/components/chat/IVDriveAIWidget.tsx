@@ -11,6 +11,8 @@ import ReactMarkdown from "react-markdown";
 import { chatApi, ChatMessage, SessionInfo } from "@/lib/api/chat";
 
 import { ChartRenderer } from "./ChartRenderer";
+import { MetricsRenderer } from "./MetricsRenderer";
+import { parseMessageContent } from "./messageParts";
 
 import { useAuth } from "@/lib/auth-context";
 
@@ -19,52 +21,6 @@ import { useAuth } from "@/lib/auth-context";
 const MAX_SESSIONS = 15;
 
 const MAX_MESSAGES = 50;
-
-
-
-function parseMessageContent(content: string) {
-
-  // Regex to match ```json_chart ... ``` — tolerate any/no whitespace after the
-
-  // language tag, since the LLM doesn't always emit a leading newline.
-
-  const regex = /```json_chart\s*([\s\S]*?)```/g;
-
-  const parts = [];
-
-  let lastIndex = 0;
-
-  let match;
-
-
-
-  while ((match = regex.exec(content)) !== null) {
-
-    if (match.index > lastIndex) {
-
-      parts.push({ type: "text", content: content.substring(lastIndex, match.index) });
-
-    }
-
-    parts.push({ type: "chart", content: match[1] });
-
-    lastIndex = match.index + match[0].length;
-
-  }
-
-
-
-  if (lastIndex < content.length) {
-
-    parts.push({ type: "text", content: content.substring(lastIndex) });
-
-  }
-
-
-
-  return parts.length > 0 ? parts : [{ type: "text", content }];
-
-}
 
 
 
@@ -79,9 +35,35 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const GREETING_MESSAGE: ChatMessage = {
   role: "assistant",
-  content:
-    "Hello! I'm iVDrive AI. Ask me anything about your vehicles — trips, charging, consumption, range, and more. All answers are based only on your real vehicle data.",
+  content: "Hi! Ask me anything about your vehicles — trips, charging, costs, range, or whether your data is up to date. Everything I say comes from your own vehicle data.",
 };
+
+// Shown under the greeting of a new conversation; each is answerable from the user's data.
+const CONVERSATION_STARTERS = [
+  "How did my car do this week?",
+  "What did charging cost me this month?",
+  "Is my car's data up to date?",
+  "How much am I saving versus petrol?",
+];
+
+function SuggestionChips({ questions, onPick, disabled }: { questions: string[]; onPick: (q: string) => void; disabled?: boolean }) {
+  if (questions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 mt-2 max-w-[85%]">
+      {questions.map((q) => (
+        <button
+          key={q}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(q)}
+          className="text-xs px-3 py-1.5 rounded-full border border-iv-border bg-iv-surface/60 text-iv-text hover:bg-blue-500/10 hover:border-blue-500/40 hover:text-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+        >
+          {q}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function SourceBadge({ type, score }: { type: string; score: number }) {
 
@@ -310,10 +292,13 @@ export function IVDriveAIWidget() {
 
 
   const handleSubmit = async (e: React.FormEvent) => {
-
     e.preventDefault();
+    await sendMessage(input);
+  };
 
-    const trimmed = input.trim();
+  // Shared by the input form and the suggestion chips (starters and follow-ups).
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim();
 
     if (!trimmed || isLoading) return;
 
@@ -740,7 +725,8 @@ export function IVDriveAIWidget() {
                     </div>
                   )}
 
-                  {part.type === "chart" && <ChartRenderer chartJson={part.content} />}
+                  {part.type === "chart" && <ChartRenderer chart={part.chart} />}
+                  {part.type === "metrics" && <MetricsRenderer items={part.items} />}
 
                 </div>
 
@@ -748,6 +734,17 @@ export function IVDriveAIWidget() {
 
             </div>
 
+            {msg.role === "assistant" && i === messages.length - 1 && !isLoading && (
+              <SuggestionChips
+                questions={
+                  i === 0 && !currentSessionId
+                    ? CONVERSATION_STARTERS
+                    : parseMessageContent(msg.content).flatMap((p) => (p.type === "followups" ? p.questions : []))
+                }
+                onPick={sendMessage}
+                disabled={isLoading}
+              />
+            )}
             {msg.sources && msg.sources.length > 0 && (
 
               <div className="flex flex-wrap gap-1.5 mt-2 px-1">

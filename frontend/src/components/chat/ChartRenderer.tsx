@@ -17,27 +17,23 @@ import {
   Legend
 } from "recharts";
 
-interface ChartData {
-  title?: string;
-  type: "bar" | "line" | "pie" | "donut";
-  data: any[];
-  categories: string[];
-  xDataKey?: string;
-}
+import { chartToMetrics, isValidSeries, type ChartSpec } from "./messageParts";
+import { MetricsRenderer } from "./MetricsRenderer";
 
 const COLORS = ["#007AFF", "#34C759", "#FF9500", "#FF3B30", "#5856D6", "#AF52DE"];
 
-export function ChartRenderer({ chartJson }: { chartJson: string }) {
-  let chartData: ChartData | null = null;
-  try {
-    chartData = JSON.parse(chartJson);
-  } catch (e) {
-    return null;
+/**
+ * Renders one chart. A spec that is not a real series (mixed units, under three points)
+ * is shown as metric tiles instead — the API normalises this already; this is the
+ * belt-and-braces for stored messages from before that.
+ */
+export function ChartRenderer({ chart }: { chart: ChartSpec }) {
+  if (!chart || !chart.data || chart.data.length === 0) return null;
+  if (!isValidSeries(chart)) {
+    return <MetricsRenderer items={chartToMetrics(chart)} />;
   }
 
-  if (!chartData || !chartData.data || chartData.data.length === 0) return null;
-
-  const { title, type, data, categories, xDataKey = "name" } = chartData;
+  const { title, type, data, categories, xDataKey = "name" } = chart;
 
   const renderChart = () => {
     switch (type) {
