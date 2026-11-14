@@ -24,6 +24,7 @@
 - **Battery SoH computation grew slower with every charging session** — the capacity method fetched the charger's power readings with one query per session, so a year of charging meant hundreds of round-trips to the database. The readings for the whole window are now read once and matched to the sessions in memory; the figures are unchanged.
 
 ### Notes
+- `docker-compose.yml` now passes `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL` into the API container (any OpenAI-compatible provider) and keeps the `MINIMAX_API_KEY` passthrough. The chat request's `provider` field is accepted for compatibility only; the admin tier config decides the provider.
 - Rebuild **api** and **web**. The `access_expires_at` cookie is set at the next login or silent refresh; until then the client behaves as before (refresh on 401). Migration `e7f9a1b3c5d7` makes `battery_health_analytics.soh_pct` nullable; the API creates the same change at start if the migration was not run.
 - Expect the capacity figure to move: on the reporter's data the power-integrated energy runs about 5–10 % below the SoC-derived one, so this method now reads lower than the BMS value and is weighted as *medium* at most. Where no charger power is recorded (some Public-API-only cars), the method shows N/A instead of a number.
 
