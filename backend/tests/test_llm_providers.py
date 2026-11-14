@@ -145,7 +145,8 @@ async def test_call_llm_uses_tier_model_then_fallback_default(monkeypatch):
     out = await chat.call_llm("hello", [], provider="ollama", model="llama3.2", usage_stats=usage)
     assert out == "answer"
     assert calls == [("ollama", "llama3.2"), ("openai", "gpt-4o-mini")]
-    assert usage == {"prompt_tokens": 1, "completion_tokens": 2, "cached_tokens": 0}
+    # v1.3.14: the stats also say which provider/model actually answered (the fallback, not the tier's choice)
+    assert usage == {"prompt_tokens": 1, "completion_tokens": 2, "cached_tokens": 0, "provider": "openai", "model": "gpt-4o-mini"}
 
 
 @pytest.mark.asyncio

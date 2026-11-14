@@ -42,6 +42,8 @@ type TierConfig = {
 
 };
 
+type ProviderInfo = { name: string; kind: string; base_url: string | null; default_model: string; has_key: boolean };
+
 type UserAI = {
 
   user_id: string;
@@ -65,6 +67,12 @@ type UserAI = {
   model_provider: string;
 
   model_name: string;
+
+  override_model_provider: string | null;
+
+  override_model_name: string | null;
+
+  override_note: string | null;
 
   used_today: number;
 
@@ -131,6 +139,9 @@ export function AIAssistantPanel() {
   const toast = useToast();
 
   const [tiers, setTiers] = useState<TierConfig[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [fallback, setFallback] = useState<string>("");
+  const [modelDraft, setModelDraft] = useState<{ userId: string; provider: string; model: string } | null>(null);
 
   const [users, setUsers] = useState<UserAI[]>([]);
 
@@ -176,9 +187,10 @@ export function AIAssistantPanel() {
 
     try {
 
-      const [t, u, s] = await Promise.all([
+      const [t, p, u, s] = await Promise.all([
 
         api.adminListAITiers(),
+        api.adminListAIProviders().catch(() => ({ providers: [], fallback: "" })),
 
         api.adminListAIUsers({}),
 
@@ -187,6 +199,8 @@ export function AIAssistantPanel() {
       ]);
 
       setTiers(Array.isArray(t) ? t : []);
+      setProviders(Array.isArray(p?.providers) ? p.providers : []);
+      setFallback(p?.fallback || "");
 
       setUsers(Array.isArray(u) ? u : []);
 
@@ -279,6 +293,25 @@ export function AIAssistantPanel() {
   });
 
 
+
+  const providerKnown = (name: string | null | undefined) =>
+    !name || name === "blocked" || providers.some((p) => p.name === name);
+  const providerDefault = (name: string | null | undefined) =>
+    providers.find((p) => p.name === name)?.default_model || "";
+
+  const handleSaveModelOverride = async () => {
+    if (!modelDraft) return;
+    try {
+      // "" clears the override: the user goes back to the tier's provider and model.
+      await api.adminUpdateUserAI(modelDraft.userId, modelDraft.provider === ""
+        ? { model_provider: "" }
+        : { model_provider: modelDraft.provider, model_name: modelDraft.model });
+      setModelDraft(null);
+      await fetchAll();
+    } catch (e) {
+      toast.error(`Failed to save model: ${(e as Error).message}`);
+    }
+  };
 
   const handleToggleUser = async (u: UserAI) => {
 
@@ -502,6 +535,34 @@ export function AIAssistantPanel() {
 
 
 
+      {/* Providers the environment makes available; models are chosen here, not in the environment */}
+      <section>
+        <h3 className="text-sm font-semibold text-iv-muted uppercase tracking-wide mb-3">Providers</h3>
+        <div className="bg-iv-surface/40 border border-iv-border/50 rounded-lg p-4 space-y-2 text-xs">
+          <p className="text-iv-muted">
+            The server environment only carries each provider&apos;s endpoint and key. Which provider and model a tier or a user gets is set on this page; an empty model means the provider&apos;s default.
+          </p>
+          <table className="w-full text-xs">
+            <thead><tr className="text-iv-muted text-left"><th className="py-1 pr-3">Provider</th><th className="py-1 pr-3">Type</th><th className="py-1 pr-3">Endpoint</th><th className="py-1 pr-3">Default model</th><th className="py-1">Key</th></tr></thead>
+            <tbody>
+              {providers.map((p) => (
+                <tr key={p.name} className="border-t border-iv-border/30">
+                  <td className="py-1 pr-3 font-mono text-iv-text">{p.name}</td>
+                  <td className="py-1 pr-3 text-iv-muted">{p.kind}</td>
+                  <td className="py-1 pr-3 text-iv-muted font-mono truncate max-w-[280px]">{p.base_url || "—"}</td>
+                  <td className="py-1 pr-3 font-mono">{p.default_model || "—"}</td>
+                  <td className="py-1">{p.kind === "builtin" ? "—" : p.has_key ? "set" : <span className="text-amber-400">missing</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-iv-muted">Fallback when the chosen provider fails: <span className="font-mono">{fallback || "—"}</span></p>
+          {tiers.some((t) => !providerKnown(t.model_provider)) && (
+            <p className="text-amber-400">A tier below names a provider that is not configured on this server; its questions fall back to another configured provider until you change it.</p>
+          )}
+        </div>
+      </section>
+
       {/* RAG embeddings — corpus health + manual backfill */}
 
       {emb && (
@@ -663,6 +724,9 @@ export function AIAssistantPanel() {
           {tiers.map((t) => (
 
             <TierCard
+              providers={providers}
+              providerKnown={providerKnown}
+              providerDefault={providerDefault}
 
               key={t.tier}
 
@@ -787,11 +851,32 @@ export function AIAssistantPanel() {
                   </td>
 
                   <td className="px-3 py-2 text-xs text-iv-muted">
-
-                    {u.model_provider}
-
-                    {u.model_name && <span className="opacity-60"> / {u.model_name.slice(0, 24)}</span>}
-
+                    {modelDraft?.userId === u.user_id ? (
+                      <div className="flex flex-col gap-1 min-w-[180px]">
+                        <select value={modelDraft.provider} onChange={(e) => setModelDraft({ ...modelDraft, provider: e.target.value })}
+                          className="bg-iv-charcoal text-iv-text text-xs rounded px-2 py-1 border border-iv-border/50">
+                          <option value="">tier default</option>
+                          {providers.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        </select>
+                        {modelDraft.provider && (
+                          <input value={modelDraft.model} onChange={(e) => setModelDraft({ ...modelDraft, model: e.target.value })}
+                            placeholder={providerDefault(modelDraft.provider) ? `default: ${providerDefault(modelDraft.provider)}` : "model"}
+                            className="bg-iv-charcoal text-iv-text text-xs rounded px-2 py-1 border border-iv-border/50" />
+                        )}
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleSaveModelOverride} className="text-blue-400 hover:underline">Save</button>
+                          <button type="button" onClick={() => setModelDraft(null)} className="text-iv-muted hover:underline">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" title="Set this user's provider and model" className="text-left hover:underline"
+                        onClick={() => setModelDraft({ userId: u.user_id, provider: u.override_model_provider || "", model: u.override_model_name || "" })}>
+                        {u.model_provider}
+                        {u.model_name && <span className="opacity-60"> / {u.model_name.slice(0, 24)}</span>}
+                        {u.override_model_provider && <div className="text-[10px] text-amber-400">model override</div>}
+                        {!providerKnown(u.model_provider) && <div className="text-[10px] text-amber-400">not configured</div>}
+                      </button>
+                    )}
                   </td>
 
                   <td className="px-3 py-2 text-xs">
@@ -968,7 +1053,7 @@ function MiniStat({ label, value, sub, pulse, danger }: {
 
 
 
-function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving }: {
+function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving, providers, providerKnown, providerDefault }: {
 
   tier: TierConfig;
 
@@ -981,6 +1066,9 @@ function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving }: {
   onSave: (draft: TierConfig) => void;
 
   saving: boolean;
+  providers: ProviderInfo[];
+  providerKnown: (name: string | null | undefined) => boolean;
+  providerDefault: (name: string | null | undefined) => string;
 
 }) {
 
@@ -1076,9 +1164,11 @@ function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving }: {
 
           <Field label="Daily cost cap (USD)" type="number" value={draft.daily_cost_limit_usd} onChange={(v) => setDraft({ ...draft, daily_cost_limit_usd: v })} step="0.01" />
 
-          <Field label="Model provider" value={draft.model_provider} onChange={(v) => setDraft({ ...draft, model_provider: v })} />
+          <Select label="Model provider" value={draft.model_provider} onChange={(v) => setDraft({ ...draft, model_provider: v })}
+            options={[...providers.map((p) => p.name), ...(providerKnown(draft.model_provider) ? [] : [draft.model_provider])]} />
 
-          <Field label="Model name" value={draft.model_name} onChange={(v) => setDraft({ ...draft, model_name: v })} />
+          <Field label="Model name" value={draft.model_name} onChange={(v) => setDraft({ ...draft, model_name: v })}
+            placeholder={providerDefault(draft.model_provider) ? `default: ${providerDefault(draft.model_provider)}` : ""} />
 
           <Field label="Description" value={draft.description} onChange={(v) => setDraft({ ...draft, description: v })} />
 
@@ -1094,7 +1184,8 @@ function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving }: {
 
           <Row label="Cost cap" value={`$${tier.daily_cost_limit_usd}/day`} />
 
-          <Row label="Model" value={tier.model_name || tier.model_provider} mono />
+          <Row label="Provider" value={<span>{tier.model_provider}{!providerKnown(tier.model_provider) && <span className="text-amber-400 ml-1">not configured</span>}</span>} mono />
+          <Row label="Model" value={tier.model_name || (providerDefault(tier.model_provider) ? `${providerDefault(tier.model_provider)} (default)` : "—")} mono />
 
           <p className="text-xs text-iv-muted mt-2 leading-relaxed">{tier.description}</p>
 
@@ -1110,11 +1201,23 @@ function TierCard({ tier, isEditing, onEdit, onCancel, onSave, saving }: {
 
 
 
-function Field({ label, value, onChange, type = "text", step }: {
+function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+  return (
+    <label className="block">
+      <span className="text-iv-muted">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="mt-0.5 w-full bg-iv-charcoal text-iv-text rounded px-2 py-1 border border-iv-border/50 text-xs">
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function Field({ label, value, onChange, type = "text", step, placeholder }: {
 
   label: string; value: string | number; onChange: (v: any) => void;
 
-  type?: "text" | "number"; step?: string;
+  type?: "text" | "number"; step?: string; placeholder?: string;
 
 }) {
 
@@ -1129,6 +1232,8 @@ function Field({ label, value, onChange, type = "text", step }: {
         type={type}
 
         step={step}
+
+        placeholder={placeholder}
 
         value={value}
 

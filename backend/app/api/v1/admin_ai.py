@@ -55,6 +55,30 @@ class EmbeddingBackfillRequest(BaseModel):
 
 
 # ─── User AI access (per-user overrides) ───────────────────────────────────
+def _check_provider(name: str | None) -> None:
+    """A tier or user may only name a provider the server can actually reach, or 'deterministic'."""
+    from app.services.llm_providers import known_provider_names
+    if name is None or name == "":
+        return
+    known = known_provider_names()
+    if name not in known:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Provider '{name}' is not configured on this server. Configured: {', '.join(sorted(known))}. "
+                   "Set its URL and key in the environment (for example OPENAI_BASE_URL / OPENAI_API_KEY) and restart the API.",
+        )
+
+
+@router.get("/ai/providers")
+async def list_ai_providers(admin: User = Depends(get_current_superuser)):
+    """Providers the environment makes available (no secrets), their default models and the fallback policy.
+    The environment only carries endpoint + key; which provider and model each tier or user gets is set here."""
+    import os
+    from app.services.llm_providers import provider_catalog
+    fb = (os.getenv("LLM_FALLBACK_PROVIDERS") or "").strip()
+    return {"providers": provider_catalog(), "fallback": fb or "any other configured provider"}
+
+
 @router.get("/ai/users")
 async def list_user_ai_access(
     db: AsyncSession = Depends(get_db),
@@ -75,8 +99,11 @@ async def list_user_ai_access(
           o.ai_enabled_override,
           COALESCE(o.max_questions_per_day, t.max_questions_per_day) AS effective_max_day,
           COALESCE(o.max_questions_per_month, t.max_questions_per_month) AS effective_max_month,
-          t.model_provider,
-          t.model_name,
+          COALESCE(NULLIF(o.model_provider, ''), t.model_provider) AS model_provider,
+          COALESCE(NULLIF(o.model_name, ''), t.model_name) AS model_name,
+          o.model_provider AS override_model_provider,
+          o.model_name AS override_model_name,
+          o.note AS override_note,
           COALESCE(today.n, 0) AS used_today,
           COALESCE(monthly.n, 0) AS used_this_month,
           u.created_at
@@ -139,6 +166,11 @@ async def update_user_ai_access(
             params,
         )
 
+    _check_provider(body.model_provider)
+    clear_model = body.model_provider == ""     # "" = back to the tier's provider and model
+    if clear_model:
+        body.model_provider = None
+        body.model_name = None
     # Upsert override row if any override field present
     has_override = any(
         v is not None for v in (
@@ -178,6 +210,11 @@ async def update_user_ai_access(
             },
         )
 
+    if clear_model:
+        await db.execute(
+            text("UPDATE ai_user_overrides SET model_provider = NULL, model_name = NULL, updated_by_user_id = :admin_id, updated_at = NOW() WHERE user_id = :uid"),
+            {"uid": str(user_id), "admin_id": str(admin.id)},
+        )
     await db.commit()
     return {"ok": True, "user_id": str(user_id)}
 
@@ -201,6 +238,7 @@ async def update_tier_config(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_superuser),
 ):
+    _check_provider(body.model_provider)
     sets, params = [], {"tier": tier}
     for field, col in [
         ("max_questions_per_day", "max_questions_per_day"),

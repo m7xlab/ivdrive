@@ -36,6 +36,8 @@ class User(TimestampMixin, Base):
     default_currency: Mapped[str] = mapped_column(
         String(3), default="EUR", nullable=False, server_default="EUR"
     )
+    # The beta remote-command buttons are shown for this account on every device (was a per-browser localStorage flag).
+    show_commands: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     unit_system: Mapped[str] = mapped_column(
         String(16), default="metric", nullable=False, server_default="metric"
     )

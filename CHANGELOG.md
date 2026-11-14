@@ -1,5 +1,26 @@
 # Changelog
 
+## [v1.3.14] - 2026-11-14
+**The AI assistant shows your conversations as soon as it opens, the admin page controls which provider and model each tier and user gets, a climate command that the car carried out is no longer reported as refused, and the command buttons are an account setting.**
+
+### Fixed
+- **AI conversations only appeared after asking a question** — the assistant's open button skipped the code that loads the conversation list, so the history panel said "No previous sessions" until the first answer of a new chat. The list is loaded when the assistant opens and refreshed each time the history panel is opened.
+- **Admin AI usage showed the provider that was asked for, not the one that answered** — with a tier still set to `minimax` and only an OpenAI-compatible endpoint configured, every answer came from the fallback provider but was logged (and priced) as MiniMax. The log and the cost estimate now use the provider and model that actually answered.
+- **Per-user model overrides were stored but never used** — the gate read only the tier's provider and model. A user's own provider/model (set by an admin) now wins over the tier's.
+- **"The car refused this command" while the car was already heating** — Škoda sometimes answers a climate command with an error (the app login path replied 400, the Public API 500) and carries it out anyway. After such an error, iVDrive now waits a few seconds, reads the car's climatisation state, and reports success when the car is doing what was asked ("Done. The car reports heating is on."). The error text in the log now includes Škoda's reason.
+- **The beta command buttons had to be enabled on every device** — the toggle lived in the browser's local storage. It is now a setting of your account (Settings → Vehicle commands) and holds on phone and laptop alike; a browser that had it on carries it over once.
+
+### Added
+- **Admin › AI Assistant › Providers** — lists the providers the server environment makes available (type, endpoint, default model, whether a key is set; never the key itself) and the fallback policy. The environment only needs each provider's endpoint and key (for example `OPENAI_BASE_URL` / `OPENAI_API_KEY` for any OpenAI-compatible service); provider and model per tier are chosen on this page.
+- **Tier editor** — the provider is a drop-down of configured providers (plus `deterministic`); the model is free text and shows the provider's default when left empty. A tier that names a provider the server no longer has is flagged "not configured".
+- **Per-user provider and model** — click a user's model in the users table to give that user a different provider and model, or "tier default" to clear it.
+- **Validation** — a tier or user can only be set to a provider the server can reach; the error names the configured ones.
+
+### Notes
+- Rebuild **api** and **web**. Migration `d6e8f0a2b4c6` adds `users.show_commands`; the API and collector create the column themselves at start if the migration was not run.
+- To use a new OpenAI-compatible provider: set `OPENAI_BASE_URL`, `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` as the default), restart the API, then pick `openai` and the model on the admin page for each tier. A tier left on an unconfigured provider keeps working through the fallback, and is flagged.
+- 500 errors right after a deploy come from the web container proxying before the API has finished starting (about a minute on a NAS). Give the API a healthcheck and make the web service wait for it (see the release notes for the snippet).
+
 ## [v1.3.13] - 2026-11-10
 **A trip MyŠkoda never recorded now gets its real battery and energy even if an earlier version stored the wrong ones, and its estimated time is much closer.**
 

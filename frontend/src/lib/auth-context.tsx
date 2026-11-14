@@ -21,6 +21,7 @@ interface User {
   ai_tier: string;
   default_currency?: string;
   unit_system?: "metric" | "uk" | "us" | "imperial";
+  show_commands?: boolean;
   fx_rate?: number;
   fx_as_of?: string | null;
   created_at: string;

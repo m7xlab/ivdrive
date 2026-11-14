@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     ai_tier: str = "free"
     default_currency: str = "EUR"
     unit_system: str = "metric"
+    show_commands: bool = False
     fx_rate: float | None = None
     fx_as_of: date | None = None
     created_at: datetime
@@ -61,6 +62,7 @@ class UserUpdateRequest(BaseModel):
     display_name: str | None = None
     default_currency: str | None = Field(default=None, min_length=3, max_length=3)
     unit_system: Literal["metric", "uk", "us", "imperial"] | None = None
+    show_commands: bool | None = None
 
 
 class PasswordChangeRequest(BaseModel):

@@ -441,7 +441,7 @@ export function IVDriveAIWidget() {
 
     return (
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={openWidget}   // openWidget also loads the conversation list; a bare setIsOpen left it empty until the first answer
         className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#007AFF] shadow-xl shadow-blue-500/30 hover:scale-105 hover:shadow-2xl transition-all duration-300 flex items-center justify-center group border border-white/10 backdrop-blur-md"
         aria-label="Open iVDrive AI Assistant"
 
@@ -509,7 +509,10 @@ export function IVDriveAIWidget() {
 
           <button type="button"
 
-            onClick={() => setShowSessions(!showSessions)}
+            onClick={() => {
+              if (!showSessions) chatApi.listSessions().then(setSessions).catch(() => {});  // fresh list each time the panel opens
+              setShowSessions(!showSessions);
+            }}
 
             className={`p-2 rounded-full transition-colors ${showSessions ? "bg-iv-surface" : "hover:bg-iv-surface"}`}
 

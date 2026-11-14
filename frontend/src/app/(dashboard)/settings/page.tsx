@@ -559,34 +559,35 @@ export default function SettingsPage() {
 
 
 
+  // The commands toggle is an account setting (users.show_commands) so it holds on every device.
+  // Before v1.3.14 it lived in this browser's localStorage; carry a "true" over once, then drop the key.
   useEffect(() => {
-
-    const stored = localStorage.getItem("ivdrive_show_commands");
-
-    // Default to true if not set, or false? User asked to enable/disable.
-
-    // "lets put this Command under the settings control ... user can enable of disable"
-
-    // Given it's broken, default to false might be safer, but usually we respect existing.
-
-    // I'll default to false as requested by the context of "hard to test... hide it".
-
-    setShowCommands(stored === "true");
-
-  }, []);
+    if (!user) return;
+    const legacy = localStorage.getItem("ivdrive_show_commands");
+    if (legacy === "true" && !user.show_commands) {
+      api.updateMe({ show_commands: true })
+        .then(() => { setShowCommands(true); refreshUser(); })
+        .catch(() => setShowCommands(false))
+        .finally(() => localStorage.removeItem("ivdrive_show_commands"));  // one attempt only; the toggle is a click away
+      return;
+    }
+    if (legacy !== null) localStorage.removeItem("ivdrive_show_commands");
+    setShowCommands(Boolean(user.show_commands));
+  }, [user]);
 
 
 
-  const toggleCommands = () => {
-
+  const toggleCommands = async () => {
     const newValue = !showCommands;
-
     setShowCommands(newValue);
-
-    localStorage.setItem("ivdrive_show_commands", String(newValue));
-
-    showToast("success", `Vehicle commands ${newValue ? "enabled" : "disabled"}`);
-
+    try {
+      await api.updateMe({ show_commands: newValue });
+      refreshUser();
+      showToast("success", `Vehicle commands ${newValue ? "enabled" : "disabled"} for your account`);
+    } catch (e) {
+      setShowCommands(!newValue);
+      showToast("error", e instanceof Error ? e.message : "Could not save the setting");
+    }
   };
 
 

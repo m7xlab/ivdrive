@@ -107,6 +107,13 @@ export const adminApi = {
   },
 
   // ── AI Assistant premium feature ─────────────────────────────────────────
+  async adminListAIProviders(): Promise<{
+    providers: { name: string; kind: string; base_url: string | null; default_model: string; has_key: boolean }[];
+    fallback: string;
+  }> {
+    const res = await apiFetch("/api/v1/admin/ai/providers");
+    return res.json();
+  },
   async adminListAITiers() {
     const res = await apiFetch("/api/v1/admin/ai/tier-configs");
     return res.json();
