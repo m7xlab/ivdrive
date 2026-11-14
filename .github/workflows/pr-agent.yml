@@ -6,6 +6,12 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]   # synchronize: every push is reviewed, not only the opening commit
   issue_comment:
 
+# One review per PR at a time: a new push cancels the run still going for the previous commit.
+# Three chunked reviews on a 400k budget running side by side exhaust the Gemini per-minute quota.
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pr_agent_job:
     if: ${{ github.event.sender.type != 'Bot' }}
