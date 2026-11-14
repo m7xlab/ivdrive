@@ -566,8 +566,9 @@ export default function SettingsPage() {
     const legacy = localStorage.getItem("ivdrive_show_commands");
     if (legacy === "true" && !user.show_commands) {
       api.updateMe({ show_commands: true })
-        .then(() => { localStorage.removeItem("ivdrive_show_commands"); setShowCommands(true); refreshUser(); })
-        .catch(() => setShowCommands(false));
+        .then(() => { setShowCommands(true); refreshUser(); })
+        .catch(() => setShowCommands(false))
+        .finally(() => localStorage.removeItem("ivdrive_show_commands"));  // one attempt only; the toggle is a click away
       return;
     }
     if (legacy !== null) localStorage.removeItem("ivdrive_show_commands");
