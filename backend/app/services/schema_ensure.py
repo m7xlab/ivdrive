@@ -33,6 +33,8 @@ _STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_deleted_trips_user_vehicle_id ON deleted_trips (user_vehicle_id)",
     # v1.3.14 (migration d6e8f0a2b4c6): every login reads users.*, so a missing column would break sign-in
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS show_commands BOOLEAN NOT NULL DEFAULT FALSE",
+    # v1.3.15 (migration e7f9a1b3c5d7): a method with no result is stored as NULL, not 0 %
+    "ALTER TABLE battery_health_analytics ALTER COLUMN soh_pct DROP NOT NULL",
 )
 
 _PRESENT = text("""
@@ -43,7 +45,10 @@ _PRESENT = text("""
       (SELECT count(*) FROM information_schema.tables
         WHERE table_schema = current_schema() AND table_name = 'deleted_trips') AS tbl,
       (SELECT count(*) FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'show_commands') AS ucol
+        WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'show_commands') AS ucol,
+      (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'battery_health_analytics'
+          AND column_name = 'soh_pct' AND is_nullable = 'YES') AS soh_nullable
 """)
 
 
@@ -53,13 +58,13 @@ async def ensure_trip_edit_schema(engine: AsyncEngine, attempts: int = 3) -> boo
         try:
             async with engine.begin() as conn:
                 row = (await conn.execute(_PRESENT)).one()
-                if row.cols == 3 and row.tbl == 1 and row.ucol == 1:
+                if row.cols == 3 and row.tbl == 1 and row.ucol == 1 and row.soh_nullable == 1:
                     return True
                 await conn.execute(text("SET LOCAL lock_timeout = '10s'"))
                 await conn.execute(text(f"SELECT pg_advisory_xact_lock({_LOCK_KEY})"))
                 for stmt in _STATEMENTS:          # every statement is IF NOT EXISTS: safe to repeat
                     await conn.execute(text(stmt))
-            logger.warning("Schema additions (trip edit/delete, users.show_commands) were missing and have been created (run `alembic upgrade head` to record it).")
+            logger.warning("Schema additions (trip edit/delete, users.show_commands, nullable SoH) were missing and have been created (run `alembic upgrade head` to record it).")
             return True
         except Exception:  # noqa: BLE001
             logger.warning("ensure_trip_edit_schema attempt %d/%d failed", attempt, attempts, exc_info=attempt == attempts)

@@ -125,6 +125,32 @@ async def job_detect_anomalies() -> dict[str, Any]:
     return {"vehicles_scanned": len(vehicles), "alerts_fired": alerts_fired}
 
 
+# ─── Job: daily recompute ─────────────────────────────────────────────────────
+
+async def job_daily_recompute() -> dict[str, Any]:
+    """Recompute SoH for every vehicle that charged or drove in the last two days, so the
+    dashboard never shows a months-old result (#218). One vehicle failing does not stop the rest."""
+    from sqlalchemy import text
+    from app.database import async_session
+    done, failed = 0, 0
+    async with async_session() as db:
+        ids = [str(r[0]) for r in (await db.execute(text("""
+            SELECT DISTINCT v.id FROM user_vehicles v
+            WHERE v.collection_enabled
+              AND (EXISTS (SELECT 1 FROM charging_sessions s WHERE s.user_vehicle_id = v.id AND s.session_start > now() - interval '2 days')
+                OR EXISTS (SELECT 1 FROM trips t WHERE t.user_vehicle_id = v.id AND t.start_date > now() - interval '2 days'))
+        """))).all()]
+    for vid in ids:
+        try:
+            await job_recompute_vehicle(vid)
+            done += 1
+        except Exception:  # noqa: BLE001
+            failed += 1
+            log.warning("daily SoH recompute failed for %s", vid, exc_info=True)
+    log.info("daily SoH recompute: %d vehicles, %d failed", done, failed)
+    return {"recomputed": done, "failed": failed}
+
+
 # ─── Job: monthly Passport ─────────────────────────────────────────────────
 
 async def job_monthly_passport() -> dict[str, Any]:
@@ -268,8 +294,17 @@ class BatteryScheduler:
             max_instances=1,
             coalesce=True,
         )
+        self._scheduler.add_job(
+            job_daily_recompute,
+            CronTrigger(hour=3, minute=30),
+            id="battery_daily_recompute",
+            name="Battery SoH daily recompute for recently active vehicles (03:30 UTC)",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         self._scheduler.start()
-        log.info("battery_scheduler started: 3 jobs registered")
+        log.info("battery_scheduler started: 4 jobs registered")
         asyncio.create_task(job_refresh_fx_rates())
 
     async def stop(self) -> None:
@@ -297,4 +332,4 @@ class BatteryScheduler:
 scheduler = BatteryScheduler()
 
 
-__all__ = ["scheduler", "job_recompute_vehicle", "job_detect_anomalies", "job_monthly_passport"]
+__all__ = ["scheduler", "job_recompute_vehicle", "job_detect_anomalies", "job_monthly_passport", "job_daily_recompute"]

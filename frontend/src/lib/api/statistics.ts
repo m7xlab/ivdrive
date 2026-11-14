@@ -388,10 +388,16 @@ export const statisticsApi = {
       confidence: string;
       inputs: Record<string, unknown>;
       extra: Record<string, unknown>;
+      reason?: string | null;
     }>;
     anomalies: string[];
   }> {
     const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/battery-health-analytics`);
+    return res.json();
+  },
+  /** Run all SoH methods now and store the result (the GET reuses a result for 24 h). */
+  async recomputeBatteryHealthAnalytics(vehicleId: string) {
+    const res = await apiFetch(`/api/v1/vehicles/${vehicleId}/battery-health-analytics/recompute`, { method: "POST" });
     return res.json();
   },
 };

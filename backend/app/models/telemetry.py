@@ -559,7 +559,7 @@ class BatteryHealthAnalytics(Base):
         DateTime(timezone=True), nullable=False,
     )
     method: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    soh_pct: Mapped[float] = mapped_column(nullable=False)
+    soh_pct: Mapped[float | None] = mapped_column()   # NULL = the method had no result (not 0 %)
     estimated_kwh: Mapped[float | None] = mapped_column()
     sample_count: Mapped[int | None] = mapped_column(Integer)
     confidence: Mapped[str | None] = mapped_column(String(10))

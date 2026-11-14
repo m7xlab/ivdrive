@@ -18,6 +18,8 @@ async def _strip_to_v1311(engine):
         await conn.execute(text("ALTER TABLE trips DROP COLUMN IF EXISTS manually_edited"))
         await conn.execute(text("ALTER TABLE trips DROP COLUMN IF EXISTS edit_history"))
         await conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS show_commands"))
+        await conn.execute(text("UPDATE battery_health_analytics SET soh_pct = 0 WHERE soh_pct IS NULL"))
+        await conn.execute(text("ALTER TABLE battery_health_analytics ALTER COLUMN soh_pct SET NOT NULL"))
 
 
 async def _has(engine) -> tuple[int, int]:
@@ -25,7 +27,8 @@ async def _has(engine) -> tuple[int, int]:
         cols = (await conn.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name='trips' AND column_name IN ('manually_edited','edit_history')"))).scalar()
         tbl = (await conn.execute(text("SELECT count(*) FROM information_schema.tables WHERE table_name='deleted_trips'"))).scalar()
         ucol = (await conn.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND column_name='show_commands'"))).scalar()
-    return cols, tbl + ucol
+        nullable = (await conn.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name='battery_health_analytics' AND column_name='soh_pct' AND is_nullable='YES'"))).scalar()
+    return cols, tbl + ucol + nullable
 
 
 @pytest.mark.asyncio
@@ -34,7 +37,7 @@ async def test_missing_schema_is_created_and_the_orm_works_afterwards(replay_ses
     await _strip_to_v1311(engine)
     assert await _has(engine) == (0, 0)
     assert await ensure_trip_edit_schema(engine, attempts=1) is True
-    assert await _has(engine) == (2, 2)
+    assert await _has(engine) == (2, 3)
     async with replay_sessionmaker() as s:                       # the ORM selects the new columns
         s.add(_tr(vehicle_id, "08:00", "08:30", 1, 11))
         await s.commit()
@@ -59,7 +62,7 @@ async def test_api_and_collector_starting_together_do_not_clash(replay_sessionma
     engine = replay_sessionmaker.kw["bind"]
     await _strip_to_v1311(engine)
     results = await asyncio.gather(*[ensure_trip_edit_schema(engine, attempts=1) for _ in range(6)])
-    assert all(results) and await _has(engine) == (2, 2)
+    assert all(results) and await _has(engine) == (2, 3)
 
 
 @pytest.mark.asyncio

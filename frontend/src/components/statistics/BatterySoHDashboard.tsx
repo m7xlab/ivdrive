@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/locale";
 interface MethodResult {
   method: string;
   soh_pct: number | null;
+  reason?: string | null;
   estimated_kwh: number | null;
   sample_count: number;
   confidence: string;
@@ -61,6 +62,7 @@ export function BatterySoHDashboard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [recomputing, setRecomputing] = useState(false);
   useEffect(() => {
     let cancelled = false;
     async function fetchAnalytics() {
@@ -78,6 +80,17 @@ export function BatterySoHDashboard({
     fetchAnalytics();
     return () => { cancelled = true; };
   }, [vehicleId]);
+  const recompute = async () => {
+    setRecomputing(true);
+    try {
+      setData(await api.recomputeBatteryHealthAnalytics(vehicleId));
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Recompute failed');
+    } finally {
+      setRecomputing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -112,7 +125,12 @@ export function BatterySoHDashboard({
     <div className="space-y-6">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
         <div className="text-xl font-semibold text-iv-text">Battery State of Health</div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-iv-muted">Computed {formatAgo(data.computed_at)}</span>
+          <button type="button" onClick={recompute} disabled={recomputing}
+            className="text-xs px-2.5 py-1 rounded-lg bg-iv-cyan/10 text-iv-cyan hover:bg-iv-cyan/20 disabled:opacity-50">
+            {recomputing ? 'Recomputing…' : 'Recompute now'}
+          </button>
           <span className="text-xs text-iv-muted">Combined confidence:</span>
           <ConfidenceBadge confidence={data.confidence} />
         </div>
@@ -128,7 +146,7 @@ export function BatterySoHDashboard({
             {formatSoh(data.soh_pct)}
           </div>
           <div className="text-xs text-iv-muted mt-1">
-            {data.cached ? 'cached' : 'freshly computed'}
+            {data.cached ? `stored result from ${new Date(data.computed_at).toLocaleString()}` : 'freshly computed'}
           </div>
         </div>
 
@@ -139,7 +157,7 @@ export function BatterySoHDashboard({
           <div className="text-3xl font-bold text-iv-text">
             {data.estimated_kwh != null ? `${data.estimated_kwh} kWh` : '—'}
           </div>
-          <div className="text-xs text-iv-muted mt-1">Tesla method median</div>
+          <div className="text-xs text-iv-muted mt-1">from the combined SoH × nominal capacity</div>
         </div>
 
         <div className="rounded-xl border border-iv-border bg-iv-surface p-5">
@@ -212,11 +230,13 @@ export function BatterySoHDashboard({
                       {m.confidence}
                     </span>
                   </div>
-                  <div className="text-xl font-bold text-iv-text">
-                    {formatSoh(m.soh_pct)}
+                  <div className={`text-xl font-bold ${m.soh_pct == null ? 'text-iv-muted' : 'text-iv-text'}`}>
+                    {m.soh_pct == null ? 'N/A' : formatSoh(m.soh_pct)}
                   </div>
                   <div className="text-xs text-iv-muted mt-1">
-                    {m.sample_count} samples
+                    {m.soh_pct == null
+                      ? (m.reason || (m.inputs?.reason as string) || 'insufficient data')
+                      : `${m.sample_count} samples`}
                   </div>
                 </div>
               );
@@ -387,6 +407,15 @@ function buildTaperChartData(
     earlier: d.earlier_median_kw,
     recent: d.recent_median_kw,
   }));
+}
+
+function formatAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 'just now';
+  const h = Math.floor(ms / 3600000);
+  if (h < 1) return `${Math.max(1, Math.floor(ms / 60000))} min ago`;
+  if (h < 48) return `${h} h ago`;
+  return `${Math.floor(h / 24)} days ago`;
 }
 
 function formatSoh(value: number | null | undefined): string {

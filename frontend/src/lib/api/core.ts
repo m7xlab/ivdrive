@@ -155,8 +155,14 @@ export async function apiFetch(
     // Attempt to refresh cookie
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      // Retry
-      res = await fetch(`${API_BASE}${path}`, fetchOptions);
+      // Retry. The refresh rotates the CSRF cookie, so a mutation retried with the header built
+      // before the refresh was answered 403 (every POST/PUT/DELETE after a silent refresh).
+      const csrfAfterRefresh = getCookie("csrf_token");
+      const retryHeaders: Record<string, string> = { ...(fetchOptions.headers as Record<string, string>) };
+      if (csrfAfterRefresh && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+        retryHeaders["X-CSRF-Token"] = csrfAfterRefresh;
+      }
+      res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers: retryHeaders });
     } else {
       // If refresh failed, ensure client is marked as logged out.
       clearAuthFlag();

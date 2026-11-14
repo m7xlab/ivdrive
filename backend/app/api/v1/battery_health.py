@@ -8,7 +8,7 @@ Endpoints:
     Admin-only force-recompute (see admin_battery.py for the canonical admin route).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -49,7 +49,7 @@ async def get_battery_health_analytics(
 
     if not force_recompute:
         cached_combined = await _latest_combined(db, vehicle_id)
-        if cached_combined is not None:
+        if cached_combined is not None and _cache_is_fresh(cached_combined, lookback_days):
             methods = await _latest_methods(
                 db, vehicle_id, cached_combined.computed_at
             )
@@ -97,6 +97,18 @@ async def _get_owned_vehicle(
     return veh
 
 
+CACHE_MAX_AGE = timedelta(hours=24)
+
+
+def _cache_is_fresh(cached: BatteryHealthAnalytics, lookback_days: int, now: datetime | None = None) -> bool:
+    """A stored result is reused only while it is recent and was computed for the same window.
+    #218: a September result was still served in November, for whatever lookback was asked."""
+    now = now or datetime.now(timezone.utc)
+    if cached.computed_at is None or now - cached.computed_at > CACHE_MAX_AGE:
+        return False
+    return (cached.extra_json or {}).get("lookback_days") == lookback_days
+
+
 async def _latest_combined(
     db: AsyncSession, vehicle_id: UUID
 ) -> BatteryHealthAnalytics | None:
@@ -140,6 +152,7 @@ def _method_row_to_dict(row: BatteryHealthAnalytics) -> Dict[str, Any]:
         "confidence": row.confidence,
         "inputs": row.inputs_json or {},
         "extra": row.extra_json or {},
+        "reason": (row.inputs_json or {}).get("reason") if row.soh_pct is None else None,
     }
 
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## [v1.3.15] - 2026-11-14
+**Battery SoH stops reporting the configured capacity back as a measurement, never shows a months-old result, and says why a method has no result.**
+
+### Fixed
+- **Capacity estimate was circular (#218)** — a charging session's energy is SoC added × the configured capacity, and the "Tesla capacity" method divided that by the SoC added, so it always returned the configured capacity (× loss factor) with HIGH confidence. The method now integrates the charger's power readings over the session instead and never uses the session's energy field. Sessions without power readings, with less than 80 % of their time covered, adding under 15 %, shorter than 30 minutes, ending above 90 % (charger taper) or disagreeing with the SoC figure by more than 30 % are skipped, and the skip counts are shown. Confidence is capped at *medium* because the charging-loss factor is an assumption.
+- **A result from September was still shown in November (#218)** — the stored result was reused whatever its age or window. It is now reused only for 24 hours and only for the same lookback; a daily job (03:30 UTC) recomputes every vehicle that drove or charged in the last two days; the page shows when the result was computed and has a **Recompute now** button.
+- **Methods with no result showed 0.00 % (#218)** — stored as 0; now stored as empty and shown as **N/A** with the reason under the card. Throughput with no charging energy in the window no longer reports 100 %, which became the combined figure when nothing else had a result.
+- **Range drift said "no data in first or second half" with 11,982 samples (#218)** — the window was split at the middle of the lookback period, so a car whose data started three months ago had everything in the second half. The data is now split at its own median timestamp; the two halves must be at least 60 days apart, and the reason names the data's first and last day and span.
+
+- **A save failed with "CSRF token missing or incorrect" after the page had been open a while** — when the access token had expired, the request was refreshed and retried, but the retry still carried the CSRF header from before the refresh, which rotates the CSRF cookie. Every POST/PUT/DELETE after a silent refresh was affected (trip edits, admin saves, the new Recompute button). The retry now uses the current cookie.
+- **A capacity result the battery cannot have is no longer shown as 100 % (#218)** — a median above the nominal capacity (the charger's power readings are too coarse for that car), fewer than 5 usable sessions, or a range that *rose* between the two halves (season or driving style) now give N/A with the reason instead of a clamped 100 %.
+
+### Notes
+- Rebuild **api** and **web**. Migration `e7f9a1b3c5d7` makes `battery_health_analytics.soh_pct` nullable; the API creates the same change at start if the migration was not run.
+- Expect the capacity figure to move: on the reporter's data the power-integrated energy runs about 5–10 % below the SoC-derived one, so this method now reads lower than the BMS value and is weighted as *medium* at most. Where no charger power is recorded (some Public-API-only cars), the method shows N/A instead of a number.
+
 ## [v1.3.14] - 2026-11-14
 **The AI assistant shows your conversations as soon as it opens, the admin page controls which provider and model each tier and user gets, a climate command that the car carried out is no longer reported as refused, and the command buttons are an account setting.**
 
