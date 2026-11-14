@@ -214,7 +214,7 @@ export async function apiFetch(
     // refresh once and retry with headers rebuilt from the rotated cookies.
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers: buildHeaders(), signal });
+      res = await fetch(cacheKey, { ...fetchOptions, headers: buildHeaders(), signal });
     } else {
       // If refresh failed, ensure client is marked as logged out.
       clearAuthFlag();
