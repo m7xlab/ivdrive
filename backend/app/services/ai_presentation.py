@@ -17,6 +17,7 @@ whatever the model actually produced, so the client never receives a junk chart:
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -38,16 +39,23 @@ def _parse(payload: str) -> Any | None:
 
 
 def _number(v: Any) -> float | None:
+    """A finite float for an int, float or numeric string; None for anything else.
+
+    "NaN", "inf" and overflowing literals such as "1e400" are not numbers here: _fmt
+    would raise on them, and the model is free to emit any string.
+    """
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return float(v)
-    if isinstance(v, str):
+        out = float(v)
+    elif isinstance(v, str):
         try:
-            return float(v.replace(",", "").strip())
+            out = float(v.replace(",", "").strip())
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    return out if math.isfinite(out) else None
 
 
 def _fmt(v: float) -> str:

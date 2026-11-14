@@ -141,3 +141,9 @@ def test_metric_and_followup_strings_are_scrubbed_of_vendor_tokens():
     assert metrics["items"][0] == {"label": "State", "value": "parked", "unit": "", "note": "Data: live"}
     assert metrics["items"][1]["value"] == "3.2"
     assert p.extract_followups(out) == ["Why is it parked?"]
+
+
+def test_non_finite_metric_values_do_not_crash_and_are_kept_as_text():
+    items = p.clean_metrics({"items": [{"label": "a", "value": "NaN"}, {"label": "b", "value": "1e400"}, {"label": "c", "value": float("inf")}, {"label": "d", "value": "1,250"}]})
+    assert [i["value"] for i in items] == ["NaN", "1e400", "inf", "1 250"]
+    assert p.chart_to_metrics({"data": [{"name": "x", "value": "inf"}]}) == []

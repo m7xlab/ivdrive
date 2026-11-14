@@ -37,6 +37,7 @@ jobs:
           config.ai_timeout: "600"
           config.large_patch_policy: "clip"
           pr_reviewer.enable_large_pr_chunking: "true"
+          pr_reviewer.final_update_message: "false"
           pr_reviewer.max_number_of_calls: "6"
           pr_code_suggestions.max_number_of_calls: "6"
           pr_code_suggestions.enable_suggestions_coverage_footer: "true"

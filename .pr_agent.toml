@@ -12,6 +12,7 @@ large_patch_policy = "clip"       # if a single file is still too big, clip it r
 
 [pr_reviewer]
 enable_large_pr_chunking = true   # review the diff in chunks and merge, instead of dropping files
+final_update_message = false  # no 'Persistent review updated' stub comment per push; the guide is updated in place
 max_number_of_calls = 6
 
 [pr_code_suggestions]
