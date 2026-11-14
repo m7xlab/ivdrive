@@ -1,0 +1,18 @@
+# PR-Agent (Qodo) repository settings. The workflow in .github/workflows/pr-agent.yml sets the model.
+#
+# Why this file exists: PR-Agent caps the diff it sends at config.max_model_tokens (default 32 000)
+# whatever the model can take, so on a 30-file PR the review and the suggestions silently skipped
+# two thirds of the files ("Review coverage: not included because of the token budget").
+# Gemini 3.1 Pro takes 1M tokens; 400k leaves room for the prompt and the answer.
+
+[config]
+max_model_tokens = 400000
+large_patch_policy = "clip"       # if a single file is still too big, clip it rather than drop it
+
+[pr_reviewer]
+enable_large_pr_chunking = true   # review the diff in chunks and merge, instead of dropping files
+max_number_of_calls = 6
+
+[pr_code_suggestions]
+max_number_of_calls = 6
+enable_suggestions_coverage_footer = true   # say which files, if any, were still left out
