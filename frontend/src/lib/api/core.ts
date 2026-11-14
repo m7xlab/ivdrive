@@ -4,21 +4,29 @@ export const API_BASE =
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
     : "";
 
+// localStorage can be missing (server render, a test without a stub) or throw (storage
+// disabled in the browser); the flag is a hint, so those cases read as "not logged in".
 export function setAuthFlag() {
-  if (typeof window !== "undefined") {
-    localStorage.setItem("is_logged_in", "true");
+  try {
+    if (typeof window !== "undefined") localStorage.setItem("is_logged_in", "true");
+  } catch {
+    // ignore
   }
 }
 
 export function clearAuthFlag() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("is_logged_in");
+  try {
+    if (typeof window !== "undefined") localStorage.removeItem("is_logged_in");
+  } catch {
+    // ignore
   }
 }
 
 export function hasAuthFlag(): boolean {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("is_logged_in") === "true";
+  try {
+    if (typeof window !== "undefined") return localStorage.getItem("is_logged_in") === "true";
+  } catch {
+    // ignore
   }
   return false;
 }
@@ -28,17 +36,59 @@ export function clearTokens() {
   // Deprecated: No longer used for localStorage, backend handles HttpOnly cookies.
 }
 
+// One refresh at a time. Several requests that notice an expired token together (page
+// load, the sidebar poll and a dashboard query all at once) share the same refresh call
+// instead of each rotating the token pair and the CSRF cookie underneath the others.
+let refreshInFlight: Promise<boolean> | null = null;
+
 export async function refreshAccessToken(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+// Refresh this many seconds before the access token lapses, so a request that is being
+// prepared right now still carries a live token when it reaches the server.
+const REFRESH_AHEAD_SECONDS = 30;
+
+/** Unix seconds at which the access token expires, from the readable cookie the API sets. */
+export function getAccessTokenExpiry(): number | null {
+  const raw = getCookie("access_expires_at");
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Refresh the session before a request if the access token is about to expire (or already
+ * has). The API's access token lives 15 minutes and the client used to find out only by
+ * sending a request and getting a 401 back, which the browser prints to the console on every
+ * page left open for a while (the announcements poll was the usual first victim). With the
+ * expiry known, no request is sent with a dead token. Returns false only when a refresh was
+ * needed and failed.
+ */
+export async function ensureFreshAccessToken(): Promise<boolean> {
+  if (!hasAuthFlag()) return true;
+  const expiresAt = getAccessTokenExpiry();
+  if (expiresAt === null) return true;
+  const secondsLeft = expiresAt - Date.now() / 1000;
+  if (secondsLeft > REFRESH_AHEAD_SECONDS) return true;
+  const ok = await refreshAccessToken();
+  if (!ok) clearAuthFlag();
+  return ok;
 }
 
 export class ApiError extends Error {
@@ -109,26 +159,9 @@ export async function apiFetch(
   options: RequestInit = {},
   signal?: AbortSignal,
 ): Promise<Response> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-
   const method = options.method?.toUpperCase() || "GET";
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    const csrfToken = getCookie("csrf_token");
-    if (csrfToken) {
-      headers["X-CSRF-Token"] = csrfToken;
-    }
-  }
-
-  const fetchOptions: RequestInit = {
-    ...options,
-    headers,
-    credentials: "include",
-  };
-
-  const isGet = !options.method || options.method.toUpperCase() === "GET";
+  const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  const isGet = method === "GET";
   const cacheKey = `${API_BASE}${path}`;
 
   // Serve from cache if fresh
@@ -149,20 +182,39 @@ export async function apiFetch(
     }
   }
 
+  // Refresh ahead of expiry so the request below never carries a dead token. Logout is the
+  // one call that must go out as-is: a refresh there would only mint tokens to discard.
+  if (path !== "/api/v1/auth/logout") {
+    await ensureFreshAccessToken();
+  }
+
+  // Headers are built after the pre-emptive refresh: a refresh rotates the CSRF cookie.
+  const buildHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+    if (isMutation) {
+      const csrfToken = getCookie("csrf_token");
+      if (csrfToken) h["X-CSRF-Token"] = csrfToken;
+    }
+    return h;
+  };
+
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers: buildHeaders(),
+    credentials: "include",
+  };
+
   let res = await fetch(cacheKey, { ...fetchOptions, signal });
 
   if (res.status === 401) {
-    // Attempt to refresh cookie
+    // Fallback for a token that expired anyway (clock skew, a cookie cleared elsewhere):
+    // refresh once and retry with headers rebuilt from the rotated cookies.
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      // Retry. The refresh rotates the CSRF cookie, so a mutation retried with the header built
-      // before the refresh was answered 403 (every POST/PUT/DELETE after a silent refresh).
-      const csrfAfterRefresh = getCookie("csrf_token");
-      const retryHeaders: Record<string, string> = { ...(fetchOptions.headers as Record<string, string>) };
-      if (csrfAfterRefresh && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-        retryHeaders["X-CSRF-Token"] = csrfAfterRefresh;
-      }
-      res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers: retryHeaders });
+      res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers: buildHeaders(), signal });
     } else {
       // If refresh failed, ensure client is marked as logged out.
       clearAuthFlag();

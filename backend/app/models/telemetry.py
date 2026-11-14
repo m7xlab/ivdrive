@@ -4,9 +4,13 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Index, func
+from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Any
+
+# JSONB on Postgres; a plain JSON column where the models are created on sqlite (tests).
+_JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 from app.models.base import Base
 
@@ -202,7 +206,7 @@ class Trip(Base):
     # A user corrected this trip. Syncs, merges and repair tools must never rewrite or delete it.
     manually_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # [{"at": iso, "changes": {"field": [old, new]}}] - what the collector/sync had before each edit.
-    edit_history: Mapped[Any | None] = mapped_column(JSONB)
+    edit_history: Mapped[Any | None] = mapped_column(_JSONB)
 
     user_vehicle: Mapped["UserVehicle"] = relationship(back_populates="trips")  # noqa: F821
 
@@ -520,16 +524,16 @@ class CollectorRawResponse(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
     # Raw JSON blobs — one per API endpoint; NULL when endpoint was not called or failed
-    raw_connection_status: Mapped[Any | None] = mapped_column(JSONB)
-    raw_vehicle_status: Mapped[Any | None] = mapped_column(JSONB)
-    raw_charging: Mapped[Any | None] = mapped_column(JSONB)
-    raw_driving_range: Mapped[Any | None] = mapped_column(JSONB)
-    raw_position: Mapped[Any | None] = mapped_column(JSONB)
-    raw_air_conditioning: Mapped[Any | None] = mapped_column(JSONB)
-    raw_maintenance: Mapped[Any | None] = mapped_column(JSONB)
-    raw_warning_lights: Mapped[Any | None] = mapped_column(JSONB)
-    raw_garage_vehicle: Mapped[Any | None] = mapped_column(JSONB)
-    raw_vehicle_renders: Mapped[Any | None] = mapped_column(JSONB)
+    raw_connection_status: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_vehicle_status: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_charging: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_driving_range: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_position: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_air_conditioning: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_maintenance: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_warning_lights: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_garage_vehicle: Mapped[Any | None] = mapped_column(_JSONB)
+    raw_vehicle_renders: Mapped[Any | None] = mapped_column(_JSONB)
 
     user_vehicle: Mapped["UserVehicle"] = relationship()  # noqa: F821
 
@@ -563,8 +567,8 @@ class BatteryHealthAnalytics(Base):
     estimated_kwh: Mapped[float | None] = mapped_column()
     sample_count: Mapped[int | None] = mapped_column(Integer)
     confidence: Mapped[str | None] = mapped_column(String(10))
-    inputs_json: Mapped[Any | None] = mapped_column(JSONB)
-    extra_json: Mapped[Any | None] = mapped_column(JSONB)
+    inputs_json: Mapped[Any | None] = mapped_column(_JSONB)
+    extra_json: Mapped[Any | None] = mapped_column(_JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

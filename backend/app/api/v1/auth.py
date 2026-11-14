@@ -72,6 +72,54 @@ def _generate_recovery_codes(n: int = 10) -> list[str]:
     return ["".join(secrets.choice(alphabet) for _ in range(8)) for _ in range(n)]
 
 
+def _set_session_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Set the session cookies for a freshly minted token pair.
+
+    ``access_expires_at`` is deliberately readable by the browser client: it holds only a
+    Unix timestamp, and the client uses it to refresh *before* the access token lapses so
+    that no request is ever sent with a dead token. Without it the first request after the
+    15-minute access lifetime (typically the announcements poll) was answered 401 and only
+    then refreshed and retried, which left a "401" line in the browser console on every page
+    left open for a while. The cookie outlives the access token so the client still knows the
+    token is gone once it has expired.
+    """
+    access_max_age = settings.access_token_expire_minutes * 60
+    refresh_max_age = settings.refresh_token_expire_days * 24 * 60 * 60
+    expires_at = int(time.time()) + access_max_age
+    csrf_token = str(uuid.uuid4())
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=access_max_age,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=refresh_max_age,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+    )
+    response.set_cookie(
+        key="access_expires_at",
+        value=str(expires_at),
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=refresh_max_age,
+    )
+
+
 def _totp_counter() -> int:
     """Return the current 30-second TOTP window counter (epoch // 30)."""
     return int(time.time() // 30)
@@ -196,31 +244,7 @@ async def login(response: Response, body: LoginRequest, db: AsyncSession = Depen
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
-    csrf_token = str(uuid.uuid4())
-    
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        max_age=settings.access_token_expire_minutes * 60,
-    )
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
-    )
-    response.set_cookie(
-        key="csrf_token",
-        value=csrf_token,
-        httponly=False,
-        secure=settings.cookie_secure,
-        samesite="lax",
-    )
+    _set_session_cookies(response, access_token, refresh_token)
 
     return LoginResponse(
         access_token=access_token,
@@ -277,10 +301,7 @@ async def verify_2fa_login(response: Response, body: TwoFactorLoginRequest, db: 
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
-    csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
+    _set_session_cookies(response, access_token, refresh_token)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -340,10 +361,7 @@ async def verify_recovery_code_login(response: Response, body: RecoveryCodeLogin
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
-    csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
+    _set_session_cookies(response, access_token, refresh_token)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -395,10 +413,7 @@ async def refresh(request: Request, response: Response, body: RefreshRequest = N
 
     access_token = create_access_token(subject)
     new_refresh = create_refresh_token(subject)
-    csrf_token = str(uuid.uuid4())
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.access_token_expire_minutes * 60)
-    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.refresh_token_expire_days * 24 * 60 * 60)
-    response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, secure=settings.cookie_secure, samesite="lax")
+    _set_session_cookies(response, access_token, new_refresh)
     return TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh,
@@ -426,6 +441,12 @@ async def logout(response: Response, request: Request, body: RefreshRequest = No
         httponly=False, 
         secure=settings.cookie_secure,
         samesite="lax"
+    )
+    response.delete_cookie(
+        key="access_expires_at",
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
     )
     return {"detail": "Successfully logged out"}
 
