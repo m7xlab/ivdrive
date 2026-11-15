@@ -1,5 +1,16 @@
 # Changelog
 
+## [v1.3.16] - 2026-11-15
+**The assistant no longer throws a finished answer away after 50 seconds in the browser, and says where the time went when it does run out.**
+
+### Fixed
+- **"I'm taking longer than usual to put that together" on a hard question** — every chat request had a hard 50-second budget for all model calls, chosen so that a plain request stays under a typical 60-second gateway limit. The browser uses the streaming endpoint, which sends a status event every two seconds and sits behind a proxy that allows hours, so the limit only cut off good answers there. v1.3.15 made each answer longer to produce (metric tiles, follow-up questions, the glossary in the prompt), and on a reasoning model (mimo-v2.6-pro) a question comparing a diesel car at old and new fuel prices with the EV ran past 50 s on production: the data lookups had finished and the answer was discarded. The streaming endpoint now allows 150 s; the plain `POST /chat` keeps 50 s.
+- **The timeout message asked the user to try again in a moment** — retrying the same question would time out the same way. It now says the answer ran out of time and suggests asking in smaller parts.
+- **A timeout said nothing about where the time went** — the API now logs, for every chat request, how long the intent router, the data tools and the final answer took against the budget, with the provider and model that answered.
+
+### Notes
+- Rebuild **api** only. No migration, no frontend change.
+
 ## [v1.3.15] - 2026-11-14
 **Battery SoH stops reporting the configured capacity back as a measurement, never shows a months-old result, and says why a method has no result.**
 
