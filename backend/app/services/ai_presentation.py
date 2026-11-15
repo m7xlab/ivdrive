@@ -65,14 +65,15 @@ def _fmt(v: float) -> str:
 
 
 def _scrub_strings(obj: Any) -> Any:
-    """The same payload with every string value scrubbed of vendor tokens (keys untouched):
-    a chart's title and point labels are shown to the user like metric labels are."""
+    """The same payload with every string, keys included, scrubbed of vendor tokens: a chart's
+    title, categories and point labels are shown to the user like metric labels are. Keys are
+    scrubbed too so a category such as "PARKED" still names its row key after scrubbing."""
     if isinstance(obj, str):
         return scrub_bare_tokens(obj)
     if isinstance(obj, list):
         return [_scrub_strings(v) for v in obj]
     if isinstance(obj, dict):
-        return {k: _scrub_strings(v) for k, v in obj.items()}
+        return {_scrub_strings(k): _scrub_strings(v) for k, v in obj.items()}
     return obj
 
 

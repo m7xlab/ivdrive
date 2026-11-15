@@ -157,6 +157,11 @@ def test_chart_title_and_point_labels_are_scrubbed_of_vendor_tokens():
     assert kinds[0][0] == "json_chart"
     assert kinds[0][1]["title"] == "Hours parked per day"
     assert [r["name"] for r in kinds[0][1]["data"]] == ["Mon parked", "Tue", "Wed live"]
+    keyed = {"type": "bar", "categories": ["PARKED"], "xDataKey": "day",
+             "data": [{"day": "Mon", "PARKED": 3}, {"day": "Tue", "PARKED": 5}, {"day": "Wed", "PARKED": 4}]}
+    kinds = _blocks(p.normalize_presentation("```json_chart\n" + json.dumps(keyed) + "\n```"))
+    assert kinds[0][0] == "json_chart" and kinds[0][1]["categories"] == ["parked"]     # category and row key stay in step
+    assert kinds[0][1]["data"][0] == {"day": "Mon", "parked": 3}
     mixed = {"type": "bar", "categories": ["km"], "data": [{"name": "PARKED", "km": 1}, {"name": "x", "kWh": 2}, {"name": "y", "km": 3}]}
     items = p.chart_to_metrics(p._scrub_strings(mixed))
     assert items[0]["label"] == "parked"
