@@ -1432,9 +1432,13 @@ async def chat_stream(
     with STREAM_BUDGET_S instead of REQUEST_BUDGET_S.
     """
     async def gen():
-        # The task copies the current context, so the pipeline sees the stream budget.
-        _BUDGET.set(STREAM_BUDGET_S)
-        task = asyncio.create_task(chat(req, user, db))
+        # The task copies the context as it is created, so it sees the stream budget; the
+        # variable is reset right after so the generator's own (caller's) context is unchanged.
+        _budget_token = _BUDGET.set(STREAM_BUDGET_S)
+        try:
+            task = asyncio.create_task(chat(req, user, db))
+        finally:
+            _BUDGET.reset(_budget_token)
         # First byte immediately so the proxy considers the response "started".
         yield _sse({"type": "status", "state": "thinking"})
         try:

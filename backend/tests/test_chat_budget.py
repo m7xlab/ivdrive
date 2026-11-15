@@ -36,6 +36,7 @@ async def test_stream_runs_the_pipeline_with_the_stream_budget(monkeypatch):
     events = _events([c async for c in resp.body_iterator])
 
     assert seen["budget"] == chat_api.STREAM_BUDGET_S == 150.0
+    assert chat_api._BUDGET.get() == chat_api.REQUEST_BUDGET_S       # the caller's context is left as it was
     assert events[0] == {"type": "status", "state": "thinking"}
     assert "".join(e["text"] for e in events if e["type"] == "delta") == "Hello there."
     assert events[-1]["type"] == "done" and events[-1]["followups"] == ["More?"]
