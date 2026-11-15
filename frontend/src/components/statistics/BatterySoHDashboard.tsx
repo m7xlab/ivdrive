@@ -29,11 +29,11 @@ interface BatteryHealthAnalytics {
 }
 
 const METHOD_LABELS: Record<string, { name: string; icon: string; blurb: string }> = {
-  tesla_capacity: { name: "Tesla Capacity", icon: "🔋", blurb: "est_kwh = median(charging.energy_kwh / delta_soc)" },
+  tesla_capacity: { name: "Tesla Capacity", icon: "🔋", blurb: "Charger power integrated per session ÷ SoC added (median)" },
   charging_curve_taper: { name: "Charging Taper", icon: "⚡", blurb: "DC power at same SOC over time" },
   cell_imbalance: { name: "Cell Imbalance", icon: "📊", blurb: "Monthly imbalance_mv trend" },
   throughput: { name: "Throughput", icon: "📈", blurb: "Total kWh throughput vs expected" },
-  range_drift_over_time: { name: "Range vs New", icon: "🛣️", blurb: "First half vs second half of lookback" },
+  range_drift_over_time: { name: "Range vs New", icon: "🛣️", blurb: "Earlier half vs later half of the recorded range data" },
   fleet_benchmark: { name: "Fleet Benchmark", icon: "🏁", blurb: "Similar-age fleet average (model_year peer)" },
 };
 
@@ -282,8 +282,8 @@ export function BatterySoHDashboard({
         </div>
       )}
 
-      {/* 🛣️ Range vs New */}
-      {rangeDrift?.extra && (
+      {/* 🛣️ Range vs New — only with figures; N/A and the reason are on the scorecard card (#218) */}
+      {rangeDrift?.extra?.retention_pct != null && (
         <div className="rounded-xl border border-iv-border bg-iv-surface p-5">
           <div className="text-sm font-semibold text-iv-text mb-1">
             🛣️ Range vs New
@@ -314,8 +314,8 @@ export function BatterySoHDashboard({
         </div>
       )}
 
-      {/* 🏁 Fleet Benchmark */}
-      {fleet?.extra && (
+      {/* 🏁 Fleet Benchmark — only with peers; a one-car server shows N/A on the scorecard card (#218) */}
+      {fleet?.extra?.peer_count != null && fleet.extra.peer_count > 0 && (
         <div className="rounded-xl border border-iv-border bg-iv-surface p-5">
           <div className="text-sm font-semibold text-iv-text mb-1">
             🏁 Fleet Benchmark

@@ -8,7 +8,7 @@ Endpoints:
     Admin-only force-recompute (see admin_battery.py for the canonical admin route).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -22,7 +22,9 @@ from app.models.telemetry import BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.services.battery_health_v2 import (
+    CACHE_MAX_AGE,
     CombinedAnalytics,
+    cache_is_fresh,
     compute_full_analytics,
     persist_analytics,
 )
@@ -97,16 +99,10 @@ async def _get_owned_vehicle(
     return veh
 
 
-CACHE_MAX_AGE = timedelta(hours=24)
-
-
-def _cache_is_fresh(cached: BatteryHealthAnalytics, lookback_days: int, now: datetime | None = None) -> bool:
-    """A stored result is reused only while it is recent and was computed for the same window.
-    #218: a September result was still served in November, for whatever lookback was asked."""
-    now = now or datetime.now(timezone.utc)
-    if cached.computed_at is None or now - cached.computed_at > CACHE_MAX_AGE:
-        return False
-    return (cached.extra_json or {}).get("lookback_days") == lookback_days
+# The freshness rule lives in the service so the legacy /analytics/battery-health endpoint applies
+# the same one (#218). Kept under the old name for the tests and callers of this module.
+_cache_is_fresh = cache_is_fresh
+__all__ = ["router", "CACHE_MAX_AGE", "_cache_is_fresh"]
 
 
 async def _latest_combined(

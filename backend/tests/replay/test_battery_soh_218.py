@@ -7,10 +7,13 @@ import pytest
 from sqlalchemy import select
 
 from .conftest import *  # noqa: F401,F403  (fixtures)
+from app.api.v1 import analytics as analytics_api
 from app.api.v1.battery_health import _cache_is_fresh
-from app.models.telemetry import (BatteryHealthAnalytics, ChargingSession, ChargingState, Drive,
-                                  DriveRangeEstimatedFull)
+from app.models.telemetry import (BatteryHealth, BatteryHealthAnalytics, ChargingCurve, ChargingSession,
+                                  ChargingState, Drive, DriveRangeEstimatedFull)
+from app.models.vehicle import UserVehicle
 from app.services import battery_health_v2 as bh
+from app.services import battery_scheduler, battery_soh
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -85,6 +88,9 @@ async def test_range_drift_explains_a_short_data_span_instead_of_no_data_in_firs
         r = await bh.estimate_range_drift_over_time(s, vehicle_id, lookback_days=365)
     assert r.soh_pct is None and r.sample_count == 210
     assert "span only 69 days" in r.inputs["reason"] and r.inputs["samples_first_half"] > 0 and r.inputs["samples_second_half"] > 0
+    # the reporter asked how the samples fall between the halves: the reason names both counts and median days
+    assert "105 in the earlier half" in r.inputs["reason"] and "105 in the later half" in r.inputs["reason"]
+    assert r.inputs["first_half_median_date"] < r.inputs["second_half_median_date"]
 
 
 @pytest.mark.asyncio
@@ -184,3 +190,85 @@ async def test_capacity_reads_the_power_readings_once_not_once_per_session(repla
     assert r.sample_count == 12 and abs(r.extra["median_kwh"] - 69.67) < 0.05
     assert len(statements) == 2, f"{len(statements)} statements for 12 sessions"
     assert sum("charging_states" in q for q in statements) == 1
+
+
+@pytest.mark.asyncio
+async def test_methods_without_a_data_source_say_which_source_is_missing(replay_sessionmaker, vehicle_id):
+    """Taper, cell imbalance and fleet benchmark said "no ... in lookback", which reads as a gap a
+    longer window would fill. The Skoda API has no cell voltages, an AC-only car has no DC samples,
+    and a one-car server has no peers; the reason now says which."""
+    async with replay_sessionmaker() as s:
+        for i in range(3):
+            s.add(BatteryHealth(user_vehicle_id=vehicle_id, captured_at=NOW - timedelta(hours=i), imbalance_mv=None))
+            s.add(ChargingCurve(user_vehicle_id=vehicle_id, captured_at=NOW - timedelta(hours=i), soc_pct=50.0 + i, power_kw=11.0))
+        (await s.get(UserVehicle, vehicle_id)).model_year = "2026"
+        await s.commit()
+    async with replay_sessionmaker() as s:
+        taper = await bh.estimate_charging_curve_taper(s, vehicle_id)
+        imbalance = await bh.estimate_cell_imbalance(s, vehicle_id)
+        fleet = await bh.estimate_fleet_benchmark(s, vehicle_id)
+    assert taper.soh_pct is None and "3 charging power samples in lookback, all AC" in taper.inputs["reason"]
+    assert imbalance.soh_pct is None and "does not report cell voltages" in imbalance.inputs["reason"]
+    assert imbalance.inputs["readings_without_cell_data"] == 3
+    assert fleet.soh_pct is None and "only one vehicle" in fleet.inputs["reason"] and fleet.inputs["other_vehicles"] == 0
+
+
+@pytest.mark.asyncio
+async def test_daily_recompute_refreshes_the_rows_the_battery_soh_page_reads(replay_sessionmaker, vehicle_id, monkeypatch):
+    """The 03:30 job wrote the ops model only (battery_soh_estimates); the page reads
+    battery_health_analytics, so its stored result aged until someone opened the page."""
+    now = datetime.now(timezone.utc)
+    for i in range(6):
+        await _session(replay_sessionmaker, vehicle_id, now - timedelta(hours=6 * (i + 1)), 2, 40, 70, kw=11.0)
+
+    async def _ops_model_stub(db, vid, capacity_kwh, lookback_days):   # the ops tables are raw-SQL migrations, absent from the scratch DB
+        return None
+
+    monkeypatch.setattr(battery_scheduler, "compute_and_store_estimate", _ops_model_stub)
+    assert await battery_scheduler.job_daily_recompute(session_factory=replay_sessionmaker) == {"recomputed": 1, "failed": 0}
+    async with replay_sessionmaker() as s:
+        rows = (await s.execute(select(BatteryHealthAnalytics).where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
+                                .where(BatteryHealthAnalytics.method == "combined"))).scalars().all()
+    assert len(rows) == 1 and rows[0].extra_json["lookback_days"] == 365
+    assert rows[0].soh_pct is not None and abs(rows[0].soh_pct - 90.48) < 0.1
+    assert _cache_is_fresh(rows[0], 365)      # the page will reuse it tomorrow morning instead of recomputing
+
+
+@pytest.mark.asyncio
+async def test_ops_model_capacity_method_no_longer_returns_the_configured_capacity(replay_sessionmaker, vehicle_id):
+    """battery_soh.estimate_capacity_based (admin page, monthly Passport) divided energy_kwh = SoC x 77 by
+    the SoC delta: any 8 sessions gave 77 x 0.95 -> 95.0 % with HIGH confidence. It now takes the
+    measured path: nothing without power readings, the integrated figure with them."""
+    for i in range(8):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=i + 1), 2, 40, 70)
+    async with replay_sessionmaker() as s:
+        assert await battery_soh.estimate_capacity_based(s, vehicle_id, 77.0) is None
+    for i in range(8):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=20 + i), 2, 40, 70, kw=11.0)
+    async with replay_sessionmaker() as s:
+        r = await battery_soh.estimate_capacity_based(s, vehicle_id, 77.0)
+    assert r is not None and abs(r.soh_pct - 90.48) < 0.1 and r.confidence == "medium"
+    assert abs(r.estimated_kwh - 69.67) < 0.05 and r.sample_count == 8
+    assert r.inputs["source"] == "battery_health_v2.estimate_tesla_capacity"
+
+
+@pytest.mark.asyncio
+async def test_legacy_battery_health_endpoint_serves_a_stored_no_result_without_crashing(replay_sessionmaker, vehicle_id):
+    """/analytics/battery-health did float(cached.soh_pct) on the stored combined row: once a method-less
+    vehicle stores NULL, that was a TypeError (500). It also kept a result for a week, not a day."""
+    async with replay_sessionmaker() as s:
+        analytics = await bh.compute_full_analytics(s, vehicle_id, lookback_days=365)
+        await bh.persist_analytics(s, analytics)
+        user_id = (await s.get(UserVehicle, vehicle_id)).user_id
+    async with replay_sessionmaker() as s:
+        out = await analytics_api.get_battery_health(vehicle_id, db=s, user=SimpleNamespace(id=user_id))
+    assert out["derived_soh_pct"] is None and out["derived_capacity_kwh"] is None
+    assert out["derived_source"] == "battery_health_analytics" and out["curve"] == []
+    # a stored result older than a day is not reused by this endpoint either
+    async with replay_sessionmaker() as s:
+        row = (await s.execute(select(BatteryHealthAnalytics).where(BatteryHealthAnalytics.method == "combined"))).scalar_one()
+        row.computed_at = datetime.now(timezone.utc) - timedelta(days=3)
+        await s.commit()
+    async with replay_sessionmaker() as s:
+        out = await analytics_api.get_battery_health(vehicle_id, db=s, user=SimpleNamespace(id=user_id))
+    assert out["derived_source"] == "v2_live_compute"

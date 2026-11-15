@@ -15,15 +15,20 @@ Combined confidence:
   Thresholds: >= 1.5 high, >= 0.5 medium, else low.
 
 Methods:
-  1. tesla_capacity         est_kwh = median(charging.energy_kwh / delta_soc),
-                             SoH = est / factory_capacity * 100
+  1. tesla_capacity         est_kwh = median(measured_kwh x loss / delta_soc), where
+                             measured_kwh is the charger's power integrated over the
+                             session (#218: a session's energy_kwh is SoC x nominal
+                             capacity and is never used); SoH = est / factory * 100
   2. charging_curve_taper   DC-only power comparison across SOC buckets
                              over time. Round-3 fix: just exclude AC
                              (power_kw < 22.0), include all DC.
   3. cell_imbalance         monthly trend of imbalance_mv
   4. throughput             total kWh throughput vs expected
   5. fleet_benchmark        similar-age fleet average (model_year peer group)
-  6. range_drift_over_time  median range first-half vs second-half
+  6. range_drift_over_time  median range of the earlier half of the recorded data vs
+                             the later half (split at the data's median timestamp)
+
+A stored result is reused by the API only while ``cache_is_fresh`` (24 h, same lookback).
 """
 
 from __future__ import annotations
@@ -219,6 +224,19 @@ async def _get_vehicle(db: AsyncSession, vehicle_id: UUID) -> Optional[UserVehic
     return await db.get(UserVehicle, vehicle_id)
 
 
+CACHE_MAX_AGE = timedelta(hours=24)
+
+
+def cache_is_fresh(cached: BatteryHealthAnalytics, lookback_days: int, now: Optional[datetime] = None) -> bool:
+    """A stored combined result is reused only while it is recent and was computed for the same
+    window. #218: a September result was still served in November, for whatever lookback was
+    asked. Rows written before the lookback was recorded (pre-v1.3.15) are never reused."""
+    now = now or datetime.now(timezone.utc)
+    if cached is None or cached.computed_at is None or now - cached.computed_at > CACHE_MAX_AGE:
+        return False
+    return (cached.extra_json or {}).get("lookback_days") == lookback_days
+
+
 # ===== Method 1: tesla_capacity =====
 class _PowerReadings:
     """The charging_states rows with charge_power_kw > 0 of one vehicle, fetched once for the whole
@@ -410,11 +428,25 @@ async def estimate_charging_curve_taper(
     )).scalars().all()
 
     if not rows:
+        # Say what the car did record: a car that only charges on AC will never have DC samples,
+        # however long the lookback (#218: "no DC samples in lookback" read as a data gap).
+        ac_samples = (await db.execute(
+            select(func.count()).select_from(ChargingCurve)
+            .where(ChargingCurve.user_vehicle_id == vehicle_id)
+            .where(ChargingCurve.captured_at >= cutoff)
+            .where(ChargingCurve.power_kw.isnot(None))
+        )).scalar() or 0
+        if ac_samples:
+            reason = (f"{ac_samples} charging power samples in lookback, all AC (below {AC_CHARGING_KW_THRESHOLD:.0f} kW); "
+                      "this method compares DC fast-charging power at the same SoC over time and needs DC sessions")
+        else:
+            reason = (f"no charging power samples in lookback; this method needs DC fast-charging sessions "
+                      f"(>= {AC_CHARGING_KW_THRESHOLD:.0f} kW)")
         return MethodResult(
             method="charging_curve_taper", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": "no DC samples (power_kw >= 22.0) in lookback",
-                    "lookback_days": lookback_days},
+            inputs={"reason": reason, "lookback_days": lookback_days, "ac_samples": ac_samples,
+                    "dc_threshold_kw": AC_CHARGING_KW_THRESHOLD},
         )
 
     bucket_powers: Dict[Tuple[int, int], List[Tuple[datetime, float]]] = {
@@ -498,11 +530,23 @@ async def estimate_cell_imbalance(
     )).scalars().all()
 
     if not rows:
+        # The collector writes a battery_health row per poll with every cell field empty because the
+        # Skoda API does not expose cell voltages. Say so, instead of a "no data in lookback" that
+        # suggests a longer window would help (#218).
+        readings = (await db.execute(
+            select(func.count()).select_from(BatteryHealth)
+            .where(BatteryHealth.user_vehicle_id == vehicle_id)
+            .where(BatteryHealth.captured_at >= cutoff)
+        )).scalar() or 0
+        if readings:
+            reason = (f"the car's API does not report cell voltages: {readings} battery readings in lookback, "
+                      "none with a cell imbalance value (an OBD reader sees it, the cloud API does not)")
+        else:
+            reason = "no battery readings in lookback; this method needs cell voltage data, which the Skoda API does not expose"
         return MethodResult(
             method="cell_imbalance", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": "no imbalance_mv data in lookback",
-                    "lookback_days": lookback_days},
+            inputs={"reason": reason, "lookback_days": lookback_days, "readings_without_cell_data": readings},
         )
 
     values = [r.imbalance_mv for r in rows]
@@ -610,11 +654,19 @@ async def estimate_fleet_benchmark(
     )).scalars().all()
 
     if not peers:
+        others = (await db.execute(
+            select(func.count()).select_from(UserVehicle).where(UserVehicle.id != vehicle_id)
+        )).scalar() or 0
+        if others == 0:
+            reason = (f"this installation has only one vehicle; the benchmark compares against other cars of "
+                      f"model year {veh.model_year} on the same server")
+        else:
+            reason = (f"none of the {others} other vehicles on this installation is a model year {veh.model_year} car; "
+                      "the benchmark needs same-year peers")
         return MethodResult(
             method="fleet_benchmark", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": f"no peers for model_year={veh.model_year}",
-                    "model_year": veh.model_year},
+            inputs={"reason": reason, "model_year": veh.model_year, "other_vehicles": others},
         )
 
     peer_ids = [p.id for p in peers]
@@ -686,19 +738,26 @@ async def estimate_range_drift_over_time(
     mid = rows[len(rows) // 2].last_date
     first_rows = [r for r in rows if r.last_date < mid]
     second_rows = [r for r in rows if r.last_date >= mid]
-    halves_apart_days = ((second_rows[len(second_rows) // 2].last_date - first_rows[len(first_rows) // 2].last_date).total_seconds() / 86400.0
-                         if first_rows and second_rows else 0.0)
+    first_mid = first_rows[len(first_rows) // 2].last_date if first_rows else None
+    second_mid = second_rows[len(second_rows) // 2].last_date if second_rows else None
+    halves_apart_days = ((second_mid - first_mid).total_seconds() / 86400.0 if first_mid and second_mid else 0.0)
     data_window = {"first_sample": first_day.date().isoformat(), "last_sample": last_day.date().isoformat(),
                    "span_days": round(span_days, 1), "samples_first_half": len(first_rows),
                    "samples_second_half": len(second_rows), "halves_apart_days": round(halves_apart_days, 1),
+                   "first_half_median_date": first_mid.date().isoformat() if first_mid else None,
+                   "second_half_median_date": second_mid.date().isoformat() if second_mid else None,
                    "lookback_days": lookback_days}
     if not first_rows or not second_rows or halves_apart_days < MIN_HALF_SPAN_DAYS:
+        # #218: the reporter asked why 11,982 samples give no comparison, and how they fall between
+        # the halves. Name the span, the count and median day of each half, and the gap needed.
         return MethodResult(
             method="range_drift_over_time", soh_pct=None,
             sample_count=len(rows), confidence=CONF_LOW,
             inputs={"reason": f"the {len(rows)} samples span only {span_days:.0f} days "
-                              f"({first_day.date()} to {last_day.date()}); the two halves need to be "
-                              f">= {MIN_HALF_SPAN_DAYS} days apart to measure drift", **data_window},
+                              f"({first_day.date()} to {last_day.date()}): {len(first_rows)} in the earlier half "
+                              f"(median day {first_mid.date() if first_mid else 'n/a'}), {len(second_rows)} in the later half "
+                              f"(median day {second_mid.date() if second_mid else 'n/a'}), {halves_apart_days:.0f} days apart; "
+                              f"the halves need to be >= {MIN_HALF_SPAN_DAYS} days apart to measure drift", **data_window},
         )
     first_med = statistics.median([r.range_estimated_full for r in first_rows])
     second_med = statistics.median([r.range_estimated_full for r in second_rows])
