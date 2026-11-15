@@ -109,6 +109,10 @@ def _set_session_cookies(response: Response, access_token: str, refresh_token: s
         httponly=False,
         secure=settings.cookie_secure,
         samesite="lax",
+        # Lives as long as the refresh token. As a session cookie it was gone after the browser
+        # was closed while the persistent access token was still valid, so the first save after
+        # reopening was refused "CSRF token missing" with nothing to trigger a refresh.
+        max_age=refresh_max_age,
     )
     response.set_cookie(
         key="access_expires_at",

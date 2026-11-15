@@ -204,6 +204,21 @@ async def test_refresh_token_flow(client: AsyncClient, auth_tokens):
 
 
 @pytest.mark.asyncio
+async def test_csrf_cookie_outlives_the_browser_session(client: AsyncClient, registered_user):
+    """The CSRF cookie had no Max-Age, so closing the browser dropped it while the persistent
+    access token stayed valid: the first save after reopening within 15 minutes was refused
+    "CSRF token missing" and nothing triggered a refresh. It now lives as long as the refresh token."""
+    resp = await client.post("/api/v1/auth/login", json={"email": "test@example.com", "password": "securepass123"})
+    assert resp.status_code == 200
+    cookies = _set_cookie_headers(resp)
+    assert "max-age=" in cookies["csrf_token"].lower()
+    assert "max-age=" in cookies["refresh_token"].lower()
+    csrf_age = int(cookies["csrf_token"].lower().split("max-age=")[1].split(";")[0])
+    refresh_age = int(cookies["refresh_token"].lower().split("max-age=")[1].split(";")[0])
+    assert csrf_age == refresh_age
+
+
+@pytest.mark.asyncio
 async def test_refresh_with_access_token_fails(client: AsyncClient, auth_tokens):
     client.cookies.clear()  # the cookie's refresh token would otherwise be used
     resp = await client.post(

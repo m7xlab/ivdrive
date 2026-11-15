@@ -18,17 +18,36 @@ from app.services import battery_scheduler, battery_soh
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
 
 
-async def _session(sm, vid, start, hours, s0, s1, kw=None, cover=1.0, ctype="AC"):
+async def _session(sm, vid, start, hours, s0, s1, kw=None, cover=1.0, ctype="AC", idle_hours=0.0):
     """A closed session with SoC-derived energy (as analytics.py writes it) and, if kw is given,
-    charging-state rows carrying that power over `cover` of the session."""
-    end = start + timedelta(hours=hours)
+    charging-state rows carrying that power over `cover` of the charging time. `idle_hours` is the
+    cable-still-connected tail analytics.py leaves in session_end (last_soc_change_at marks the
+    end of the charge, as it does for a session closed by the flat-SoC timeout)."""
+    charge_end = start + timedelta(hours=hours)
+    end = charge_end + timedelta(hours=idle_hours)
     async with sm() as s:
         s.add(ChargingSession(user_vehicle_id=vid, session_start=start, session_end=end, start_level=s0, end_level=s1,
-                              charging_type=ctype, energy_kwh=(s1 - s0) / 100.0 * 77.0))
+                              charging_type=ctype, energy_kwh=(s1 - s0) / 100.0 * 77.0,
+                              last_soc_change_at=charge_end if idle_hours else None))
         if kw is not None:
             s.add(ChargingState(user_vehicle_id=vid, first_date=start, last_date=start + timedelta(hours=hours * cover),
                                 state="CHARGING", charge_power_kw=kw, battery_pct=s1))
         await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_idle_tail_after_the_charge_does_not_count_against_coverage(replay_sessionmaker, vehicle_id):
+    """A charge finished with the cable still in is closed 30 minutes after the SoC went flat, so
+    session_end carries an idle half hour with no power. Coverage was measured against the whole
+    session: a one-hour 11 kW charge was 67 % covered and skipped, so a car charged in short
+    top-ups never got a capacity figure. The charge ends where the SoC last changed."""
+    for i in range(8):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=i + 1), 1, 40, 56, kw=11.0, idle_hours=0.5)
+    async with replay_sessionmaker() as s:
+        r = await bh.estimate_tesla_capacity(s, vehicle_id)
+    assert r.inputs["skipped"]["low_coverage"] == 0
+    assert r.sample_count == 8 and r.soh_pct is not None
+    assert abs(r.extra["median_kwh"] - 11.0 * 0.95 / 0.16) < 0.05       # 65.31 kWh, the idle tail added nothing
 
 
 @pytest.mark.asyncio

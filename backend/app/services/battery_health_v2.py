@@ -271,9 +271,22 @@ class _PowerReadings:
         return [r for r in self.rows[lo:hi] if r[1] > start]
 
 
+def _charge_end(s: ChargingSession) -> datetime:
+    """When the charge itself ended. A session closed because the cable stayed in after a full
+    charge is closed FLAT_SOC_MINUTES after the SoC last moved, so session_end carries an idle
+    tail with no power in it; the last SoC change is the end of the charge. Rows without it
+    (pre-v1.3.x) fall back to session_end."""
+    last = s.last_soc_change_at
+    if last is not None and s.session_start < last < s.session_end:
+        return last
+    return s.session_end
+
+
 def _measured_session_energy(readings: _PowerReadings, s: ChargingSession) -> Tuple[Optional[float], float]:
     """(kWh integrated from charge_power_kw over the session's charging_states rows, coverage 0..1).
-    None when no power reading overlaps the session."""
+    None when no power reading overlaps the session. Coverage is the share of the charging time
+    (session_start to the last SoC change, see _charge_end) with a power reading; the idle tail
+    of a session left plugged in after the charge is not charging and must not lower it."""
     if s.session_start is None or s.session_end is None or s.session_end <= s.session_start:
         return None, 0.0
     rows = readings.overlapping(s.session_start, s.session_end)
@@ -286,7 +299,7 @@ def _measured_session_energy(readings: _PowerReadings, s: ChargingSession) -> Tu
         hours = max((b - a).total_seconds(), 0.0) / 3600.0
         kwh += float(kw) * hours
         covered += hours
-    total = (s.session_end - s.session_start).total_seconds() / 3600.0
+    total = (_charge_end(s) - s.session_start).total_seconds() / 3600.0
     return kwh, (min(covered / total, 1.0) if total > 0 else 0.0)
 
 
