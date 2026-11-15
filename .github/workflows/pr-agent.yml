@@ -3,8 +3,14 @@ name: PR Agent (Gemini)
 on:
   pull_request:
     branches: [main, development]
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]   # synchronize: every push is reviewed, not only the opening commit
   issue_comment:
+
+# One review per PR at a time: a new push cancels the run still going for the previous commit.
+# Three chunked reviews on a 400k budget running side by side exhaust the Gemini per-minute quota.
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pr_agent_job:
@@ -19,10 +25,27 @@ jobs:
         uses: qodo-ai/pr-agent@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          config.model: "google/gemini-3.1-pro-preview"
-          config.fallback_models: '["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-pro", "gemini/gemini-2.5-flash"]'
+          config.model: "gemini/gemini-4-carbon"
+          config.fallback_models: '["gemini/gemini-4-carbon", "gemini/gemini-4-argon" , "gemini/gemini-3-flash-preview"]'
           config.custom_model_max_tokens: "1000000"
+          # PR-Agent clips the diff it sends at config.max_model_tokens (default 32 000) whatever the
+          # model can take, and reads .pr_agent.toml from the default branch, not the PR branch, so
+          # the review budget has to be set here to apply to the PR that introduces it.
+          config.max_model_tokens: "400000"
+          # A full-diff review of this size takes a reasoning model longer than the 120 s default per
+          # call; the run logged "litellm.Timeout: Timeout passed=120.0" and retried until cancelled.
+          config.ai_timeout: "600"
+          config.large_patch_policy: "clip"
+          pr_reviewer.enable_large_pr_chunking: "true"
+          pr_reviewer.final_update_message: "false"
+          pr_reviewer.max_number_of_calls: "6"
+          pr_code_suggestions.max_number_of_calls: "6"
+          pr_code_suggestions.enable_suggestions_coverage_footer: "true"
           GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
+          # A push to an open PR ("synchronize") is only acted on when these two are set; without
+          # them the runner logs "Skipping action: synchronize" and later commits are never reviewed.
+          github_action_config.handle_push_trigger: "true"
+          github_action_config.push_commands: '["/review", "/improve"]'

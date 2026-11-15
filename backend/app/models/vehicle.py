@@ -2,8 +2,12 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+# JSONB on Postgres; a plain JSON column where the models are created on sqlite (tests).
+_JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 from app.models.base import Base, TimestampMixin, generate_uuid
 
@@ -37,9 +41,9 @@ class UserVehicle(TimestampMixin, Base):
     max_charging_power_kw: Mapped[float | None] = mapped_column(Float)
     engine_power_kw: Mapped[float | None] = mapped_column(Float)
     software_version: Mapped[str | None] = mapped_column(String(100))
-    capabilities: Mapped[list | None] = mapped_column(JSONB)
-    specifications: Mapped[dict | None] = mapped_column(JSONB)
-    warning_lights: Mapped[list | None] = mapped_column(JSONB)
+    capabilities: Mapped[list | None] = mapped_column(_JSONB)
+    specifications: Mapped[dict | None] = mapped_column(_JSONB)
+    warning_lights: Mapped[list | None] = mapped_column(_JSONB)
     country_code: Mapped[str] = mapped_column(String(2), default="LT", nullable=False)
 
     # Efficiency calibration (null = use app-level defaults)
@@ -158,7 +162,7 @@ class ConnectorAuthEvent(TimestampMixin, Base):
     )
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(255))
-    details: Mapped[dict | None] = mapped_column(JSONB)
+    details: Mapped[dict | None] = mapped_column(_JSONB)
 
     session: Mapped["ConnectorSession"] = relationship(back_populates="auth_events")
 

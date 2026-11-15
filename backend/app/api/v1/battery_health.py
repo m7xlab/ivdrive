@@ -8,7 +8,7 @@ Endpoints:
     Admin-only force-recompute (see admin_battery.py for the canonical admin route).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -22,7 +22,9 @@ from app.models.telemetry import BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.services.battery_health_v2 import (
+    CACHE_MAX_AGE,
     CombinedAnalytics,
+    cache_is_fresh,
     compute_full_analytics,
     persist_analytics,
 )
@@ -49,7 +51,7 @@ async def get_battery_health_analytics(
 
     if not force_recompute:
         cached_combined = await _latest_combined(db, vehicle_id)
-        if cached_combined is not None:
+        if cached_combined is not None and _cache_is_fresh(cached_combined, lookback_days):
             methods = await _latest_methods(
                 db, vehicle_id, cached_combined.computed_at
             )
@@ -97,6 +99,12 @@ async def _get_owned_vehicle(
     return veh
 
 
+# The freshness rule lives in the service so the legacy /analytics/battery-health endpoint applies
+# the same one (#218). Kept under the old name for the tests and callers of this module.
+_cache_is_fresh = cache_is_fresh
+__all__ = ["router", "CACHE_MAX_AGE", "_cache_is_fresh"]
+
+
 async def _latest_combined(
     db: AsyncSession, vehicle_id: UUID
 ) -> BatteryHealthAnalytics | None:
@@ -140,6 +148,7 @@ def _method_row_to_dict(row: BatteryHealthAnalytics) -> Dict[str, Any]:
         "confidence": row.confidence,
         "inputs": row.inputs_json or {},
         "extra": row.extra_json or {},
+        "reason": (row.inputs_json or {}).get("reason") if row.soh_pct is None else None,
     }
 
 

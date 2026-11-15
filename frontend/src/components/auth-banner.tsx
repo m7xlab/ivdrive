@@ -5,6 +5,7 @@ import { AlertTriangle, KeyRound, Loader2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Vehicle } from "@/lib/hooks/use-vehicles";
 import { PasswordInput } from "@/components/password-input";
+import { apiFetch } from "@/lib/api/core";
 
 /**
  * Shown at the top of a vehicle card (or above the dashboard) when the
@@ -37,15 +38,10 @@ export function AuthReauthBanner({ vehicle }: { vehicle: Vehicle }) {
     setErr(null);
     try {
       // We POST credentials back so the user can re-attempt silent login manually.
-      const res = await fetch(`/api/v1/vehicles/${vehicle.id}/reauthenticate`, {
+      await apiFetch(`/api/v1/vehicles/${vehicle.id}/reauthenticate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skoda_username: username, skoda_password: password }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.detail || `HTTP ${res.status}`);
-      }
       setOpen(false);
       setPassword("");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });

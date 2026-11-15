@@ -15,20 +15,26 @@ Combined confidence:
   Thresholds: >= 1.5 high, >= 0.5 medium, else low.
 
 Methods:
-  1. tesla_capacity         est_kwh = median(charging.energy_kwh / delta_soc),
-                             SoH = est / factory_capacity * 100
+  1. tesla_capacity         est_kwh = median(measured_kwh x loss / delta_soc), where
+                             measured_kwh is the charger's power integrated over the
+                             session (#218: a session's energy_kwh is SoC x nominal
+                             capacity and is never used); SoH = est / factory * 100
   2. charging_curve_taper   DC-only power comparison across SOC buckets
                              over time. Round-3 fix: just exclude AC
                              (power_kw < 22.0), include all DC.
   3. cell_imbalance         monthly trend of imbalance_mv
   4. throughput             total kWh throughput vs expected
   5. fleet_benchmark        similar-age fleet average (model_year peer group)
-  6. range_drift_over_time  median range first-half vs second-half
+  6. range_drift_over_time  median range of the earlier half of the recorded data vs
+                             the later half (split at the data's median timestamp)
+
+A stored result is reused by the API only while ``cache_is_fresh`` (24 h, same lookback).
 """
 
 from __future__ import annotations
 
 import statistics
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
@@ -44,6 +50,7 @@ from app.models.telemetry import (
     ChargingSession,
     Drive,
     DriveRangeEstimatedFull,
+    ChargingState,
 )
 from app.models.vehicle import UserVehicle
 
@@ -78,6 +85,23 @@ SAMPLE_THRESHOLDS: Dict[str, Tuple[int, int]] = {
 AC_CHARGING_KW_THRESHOLD = 22.0   # max AC charging (3-phase 32A); above is DC
 TEMP_REF_CELSIUS = 25.0
 TEMP_COEFFICIENT = 0.003         # 0.3% per degree below reference
+# Measured charging energy = sum(charge_power_kw x hours) over the charging_states rows of a session.
+# Sessions whose energy_kwh is only SoC x nominal capacity carry no information about capacity
+# (#218: the estimator returned the configured capacity with HIGH confidence), so only integrated
+# power counts, and the integration must cover most of the session and agree roughly with the SoC
+# figure. The charger tapers near a full battery and a merged state row carries one power value,
+# so charges ending above MAX_END_LEVEL are left out.
+MIN_HALF_SPAN_DAYS = 60          # range drift: the two halves of the data must be this far apart
+MIN_COVERAGE = 0.8               # share of the session covered by power readings
+MIN_DELTA_SOC = 0.15             # at least 15 % added
+MAX_END_LEVEL = 90.0             # no taper phase
+MIN_SESSION_MINUTES = 30
+RATIO_TOLERANCE = 0.30           # |measured / SoC-derived - 1| must be within this
+CAPACITY_MAX_CONFIDENCE = "medium"   # the AC loss factor is an assumption, never a measurement
+CAPACITY_MIN_SAMPLES = 5
+CAPACITY_OVER_NOMINAL_TOLERANCE = 0.03   # a median above nominal + 3 % means the inputs are wrong, not the battery
+CAPACITY_MAX_SPREAD_FRACTION = 0.25      # samples spread wider than a quarter of the pack: low confidence
+RANGE_RISE_TOLERANCE = 0.02              # range retention above 102 % is season or driving style, not health
 AC_LOSS_FACTOR = 0.95            # 5% charging loss for AC
 DC_LOSS_FACTOR = 0.98            # 2% charging loss for DC
 SOH_CAP_LOWER = 0.0
@@ -102,6 +126,7 @@ class MethodResult:
             "soh_pct": self.soh_pct,
             "sample_count": self.sample_count,
             "confidence": self.confidence,
+            "reason": self.inputs.get("reason") if self.soh_pct is None else None,
             "inputs": self.inputs,
             "extra": self.extra,
         }
@@ -116,6 +141,7 @@ class CombinedAnalytics:
     methods: List[MethodResult]
     anomalies: List[str]
     computed_at: datetime
+    lookback_days: int = 365
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -198,21 +224,104 @@ async def _get_vehicle(db: AsyncSession, vehicle_id: UUID) -> Optional[UserVehic
     return await db.get(UserVehicle, vehicle_id)
 
 
+CACHE_MAX_AGE = timedelta(hours=24)
+
+
+def cache_is_fresh(cached: BatteryHealthAnalytics, lookback_days: int, now: Optional[datetime] = None) -> bool:
+    """A stored combined result is reused only while it is recent and was computed for the same
+    window. #218: a September result was still served in November, for whatever lookback was
+    asked. Rows written before the lookback was recorded (pre-v1.3.15) are never reused."""
+    now = now or datetime.now(timezone.utc)
+    if cached is None or cached.computed_at is None or now - cached.computed_at > CACHE_MAX_AGE:
+        return False
+    return (cached.extra_json or {}).get("lookback_days") == lookback_days
+
+
 # ===== Method 1: tesla_capacity =====
+class _PowerReadings:
+    """The charging_states rows with charge_power_kw > 0 of one vehicle, fetched once for the whole
+    lookback window and looked up per session by time range (one query for all sessions instead
+    of one per session).
+
+    Rows are kept sorted by first_date with a running maximum of last_date, so the rows that can
+    overlap [start, end) are a contiguous slice found by two bisections: rows at or after the first
+    index whose running-max end is past ``start``, and before the first row starting at ``end``."""
+
+    def __init__(self, rows: List[Tuple[datetime, datetime, float]]):
+        self.rows = sorted(rows, key=lambda r: r[0])
+        self._starts = [r[0] for r in self.rows]
+        self._end_max: List[datetime] = []
+        for _, last, _ in self.rows:
+            self._end_max.append(last if not self._end_max or last > self._end_max[-1] else self._end_max[-1])
+
+    @classmethod
+    async def load(cls, db: AsyncSession, vehicle_id: UUID, since: datetime) -> "_PowerReadings":
+        rows = (await db.execute(
+            select(ChargingState.first_date, ChargingState.last_date, ChargingState.charge_power_kw)
+            .where(ChargingState.user_vehicle_id == vehicle_id)
+            .where(ChargingState.charge_power_kw > 0)
+            .where(ChargingState.last_date > since)
+        )).all()
+        return cls([(first, last, kw) for first, last, kw in rows])
+
+    def overlapping(self, start: datetime, end: datetime) -> List[Tuple[datetime, datetime, float]]:
+        """Rows with first_date < end and last_date > start, same as the per-session query had."""
+        lo = bisect_right(self._end_max, start)
+        hi = bisect_left(self._starts, end)
+        return [r for r in self.rows[lo:hi] if r[1] > start]
+
+
+def _charge_end(s: ChargingSession) -> datetime:
+    """When the charge itself ended. A session closed because the cable stayed in after a full
+    charge is closed FLAT_SOC_MINUTES after the SoC last moved, so session_end carries an idle
+    tail with no power in it; the last SoC change is the end of the charge. Rows without it
+    (pre-v1.3.x) fall back to session_end."""
+    last = s.last_soc_change_at
+    if last is not None and s.session_start < last < s.session_end:
+        return last
+    return s.session_end
+
+
+def _measured_session_energy(readings: _PowerReadings, s: ChargingSession) -> Tuple[Optional[float], float]:
+    """(kWh integrated from charge_power_kw over the session's charging_states rows, coverage 0..1).
+    None when no power reading overlaps the session. Coverage is the share of the charging time
+    (session_start to the last SoC change, see _charge_end) with a power reading; the idle tail
+    of a session left plugged in after the charge is not charging and must not lower it."""
+    if s.session_start is None or s.session_end is None or s.session_end <= s.session_start:
+        return None, 0.0
+    # Energy and coverage use the same window: a power row that runs on into the idle tail
+    # (a merged state row carries one value for its whole span) must not add energy the
+    # battery never took in.
+    end = _charge_end(s)
+    rows = readings.overlapping(s.session_start, end)
+    if not rows:
+        return None, 0.0
+    kwh = 0.0
+    covered = 0.0
+    for first, last, kw in rows:
+        a, b = max(first, s.session_start), min(last, end)
+        hours = max((b - a).total_seconds(), 0.0) / 3600.0
+        kwh += float(kw) * hours
+        covered += hours
+    total = (end - s.session_start).total_seconds() / 3600.0
+    return kwh, (min(covered / total, 1.0) if total > 0 else 0.0)
+
+
 async def estimate_tesla_capacity(
     db: AsyncSession,
     vehicle_id: UUID,
     lookback_days: int = 365,
 ) -> MethodResult:
     """
-    Tesla-style range estimation:
-        est_kwh = median(charging.energy_kwh / delta_soc)
+    Capacity from charging energy:
+        est_kwh = median(measured_kwh x loss / delta_soc)
         SoH = (est_kwh / factory_capacity) * 100
-    AC charging has 5% loss; DC 2%. Temperature adjusts for cold-weather
-    capacity loss (0.3% per degree below 25 C).
+    measured_kwh is integrated from the charger power readings of the session (see MIN_COVERAGE);
+    a session's energy_kwh column is SoC x nominal capacity and is never used here. AC charging
+    loss 5 %, DC 2 %; cold weather adds 0.3 % per degree below 25 C. Confidence is capped at
+    medium because the loss factor is assumed, not measured.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-
     veh = await _get_vehicle(db, vehicle_id)
     if veh is None or veh.battery_capacity_kwh is None or veh.battery_capacity_kwh <= 0:
         return MethodResult(
@@ -220,54 +329,98 @@ async def estimate_tesla_capacity(
             confidence=CONF_LOW,
             inputs={"reason": "vehicle or battery_capacity_kwh missing"},
         )
-
     factory_kwh = veh.battery_capacity_kwh
-
     sessions = (await db.execute(
         select(ChargingSession)
         .where(ChargingSession.user_vehicle_id == vehicle_id)
         .where(ChargingSession.session_start >= cutoff)
+        .where(ChargingSession.session_end.isnot(None))
         .where(ChargingSession.start_level.isnot(None))
         .where(ChargingSession.end_level.isnot(None))
-        .where(ChargingSession.energy_kwh.isnot(None))
-        .where(ChargingSession.energy_kwh > 0)
         .order_by(desc(ChargingSession.session_start))
     )).scalars().all()
-
+    # Every session starts at or after the cutoff, so a reading that overlaps one ends after it.
+    readings = await _PowerReadings.load(db, vehicle_id, cutoff) if sessions else _PowerReadings([])
     samples: List[float] = []
+    skipped = {"no_power_readings": 0, "low_coverage": 0, "small_or_short": 0, "taper": 0, "disagrees_with_soc": 0,
+               "over_nominal": 0}
+    over_nominal: List[float] = []
     for s in sessions:
         delta_soc = (s.end_level - s.start_level) / 100.0
-        if delta_soc < 0.05 or delta_soc > 0.95:
+        minutes = (s.session_end - s.session_start).total_seconds() / 60.0
+        if delta_soc < MIN_DELTA_SOC or minutes < MIN_SESSION_MINUTES:
+            skipped["small_or_short"] += 1
+            continue
+        if s.end_level > MAX_END_LEVEL:
+            skipped["taper"] += 1
+            continue
+        measured, coverage = _measured_session_energy(readings, s)
+        if measured is None or measured <= 0:
+            skipped["no_power_readings"] += 1
+            continue
+        if coverage < MIN_COVERAGE:
+            skipped["low_coverage"] += 1
+            continue
+        soc_derived = delta_soc * factory_kwh
+        if abs(measured / soc_derived - 1.0) > RATIO_TOLERANCE:
+            skipped["disagrees_with_soc"] += 1
             continue
         is_ac = (s.charging_type or "").upper().startswith("AC")
         loss = AC_LOSS_FACTOR if is_ac else DC_LOSS_FACTOR
-        battery_kwh = s.energy_kwh * loss
-        est_kwh = battery_kwh / delta_soc
+        est_kwh = (measured * loss) / delta_soc
         if s.avg_temp_celsius is not None and s.avg_temp_celsius < TEMP_REF_CELSIUS:
             temp_delta = TEMP_REF_CELSIUS - s.avg_temp_celsius
             correction = 1.0 - (temp_delta * TEMP_COEFFICIENT)
             est_kwh = est_kwh / max(correction, 0.5)
+        if est_kwh > factory_kwh * (1.0 + CAPACITY_OVER_NOMINAL_TOLERANCE):
+            # A battery cannot take in more than it holds: this session's power readings overstate
+            # its energy (one 94.8 kWh session on a 77 kWh pack doubled the spread and dropped the
+            # confidence to low). It is not a measurement of the battery, so it is left out.
+            skipped["over_nominal"] += 1
+            over_nominal.append(est_kwh)
+            continue
         samples.append(est_kwh)
-
+    inputs = {"factory_kwh": factory_kwh, "lookback_days": lookback_days,
+              "energy_source": "charging power integrated over time (session energy_kwh is SoC x nominal capacity and not used)",
+              "sessions_in_window": len(sessions), "skipped": skipped}
     if not samples:
+        if over_nominal:
+            # Every measurable session came out above the pack: the power readings overstate the
+            # energy for this car as a whole. A clamped "100 %" would be a fiction, so say so.
+            over_median = statistics.median(over_nominal)
+            return MethodResult(
+                method="tesla_capacity", soh_pct=None, sample_count=len(over_nominal), confidence=CONF_LOW,
+                inputs={"reason": f"integrated charging energy implies {over_median:.1f} kWh, above the {factory_kwh:.0f} kWh "
+                                  "nominal capacity: the charger power readings are too coarse for this car", **inputs},
+            )
+        reason = ("no charging session with usable power readings in lookback"
+                  if sessions else "no closed charging sessions in lookback window")
         return MethodResult(
             method="tesla_capacity", soh_pct=None, sample_count=0,
-            confidence=CONF_LOW,
-            inputs={"reason": "no valid charging sessions in lookback window",
-                    "lookback_days": lookback_days},
+            confidence=CONF_LOW, inputs={"reason": reason, **inputs},
         )
-
     median_kwh = statistics.median(samples)
+    spread = (max(samples) - min(samples)) if len(samples) > 1 else 0.0
+    inputs.update({"median_kwh": round(median_kwh, 2), "spread_kwh": round(spread, 2), "samples": len(samples)})
+    if len(samples) < CAPACITY_MIN_SAMPLES:
+        return MethodResult(
+            method="tesla_capacity", soh_pct=None, sample_count=len(samples), confidence=CONF_LOW,
+            inputs={"reason": f"only {len(samples)} usable charging sessions; need {CAPACITY_MIN_SAMPLES}", **inputs},
+        )
     soh_pct = _clamp_soh((median_kwh / factory_kwh) * 100.0)
-
+    conf = _confidence_from_samples("tesla_capacity", len(samples))
+    if CONF_RANK.get(conf, 0) > CONF_RANK.get(CAPACITY_MAX_CONFIDENCE, 0):
+        conf = CAPACITY_MAX_CONFIDENCE
+    if spread > factory_kwh * CAPACITY_MAX_SPREAD_FRACTION:
+        conf = CONF_LOW     # the sessions disagree with each other by more than a quarter of the pack
     return MethodResult(
         method="tesla_capacity",
         soh_pct=soh_pct,
         sample_count=len(samples),
-        confidence=_confidence_from_samples("tesla_capacity", len(samples)),
-        inputs={"factory_kwh": factory_kwh, "lookback_days": lookback_days},
-        extra={"median_kwh": round(median_kwh, 2),
-               "raw_samples_count": len(samples)},
+        confidence=conf,
+        inputs=inputs,
+        extra={"median_kwh": round(median_kwh, 2), "raw_samples_count": len(samples),
+               "spread_kwh": round(max(samples) - min(samples), 2) if len(samples) > 1 else 0.0},
     )
 
 
@@ -301,11 +454,25 @@ async def estimate_charging_curve_taper(
     )).scalars().all()
 
     if not rows:
+        # Say what the car did record: a car that only charges on AC will never have DC samples,
+        # however long the lookback (#218: "no DC samples in lookback" read as a data gap).
+        ac_samples = (await db.execute(
+            select(func.count()).select_from(ChargingCurve)
+            .where(ChargingCurve.user_vehicle_id == vehicle_id)
+            .where(ChargingCurve.captured_at >= cutoff)
+            .where(ChargingCurve.power_kw.isnot(None))
+        )).scalar() or 0
+        if ac_samples:
+            reason = (f"{ac_samples} charging power samples in lookback, all AC (below {AC_CHARGING_KW_THRESHOLD:.0f} kW); "
+                      "this method compares DC fast-charging power at the same SoC over time and needs DC sessions")
+        else:
+            reason = (f"no charging power samples in lookback; this method needs DC fast-charging sessions "
+                      f"(>= {AC_CHARGING_KW_THRESHOLD:.0f} kW)")
         return MethodResult(
             method="charging_curve_taper", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": "no DC samples (power_kw >= 22.0) in lookback",
-                    "lookback_days": lookback_days},
+            inputs={"reason": reason, "lookback_days": lookback_days, "ac_samples": ac_samples,
+                    "dc_threshold_kw": AC_CHARGING_KW_THRESHOLD},
         )
 
     bucket_powers: Dict[Tuple[int, int], List[Tuple[datetime, float]]] = {
@@ -389,11 +556,23 @@ async def estimate_cell_imbalance(
     )).scalars().all()
 
     if not rows:
+        # The collector writes a battery_health row per poll with every cell field empty because the
+        # Skoda API does not expose cell voltages. Say so, instead of a "no data in lookback" that
+        # suggests a longer window would help (#218).
+        readings = (await db.execute(
+            select(func.count()).select_from(BatteryHealth)
+            .where(BatteryHealth.user_vehicle_id == vehicle_id)
+            .where(BatteryHealth.captured_at >= cutoff)
+        )).scalar() or 0
+        if readings:
+            reason = (f"the car's API does not report cell voltages: {readings} battery readings in lookback, "
+                      "none with a cell imbalance value (an OBD reader sees it, the cloud API does not)")
+        else:
+            reason = "no battery readings in lookback; this method needs cell voltage data, which the Skoda API does not expose"
         return MethodResult(
             method="cell_imbalance", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": "no imbalance_mv data in lookback",
-                    "lookback_days": lookback_days},
+            inputs={"reason": reason, "lookback_days": lookback_days, "readings_without_cell_data": readings},
         )
 
     values = [r.imbalance_mv for r in rows]
@@ -452,6 +631,14 @@ async def estimate_throughput(
     )).scalar() or 0
 
     cycles = total_kwh / factory_kwh if factory_kwh else 0
+    if total_kwh <= 0:
+        # No charging energy in the window says nothing about the battery; 100 % here would become
+        # the combined figure when every other method has no result (#218).
+        return MethodResult(
+            method="throughput", soh_pct=None, sample_count=0, confidence=CONF_LOW,
+            inputs={"reason": "no charging energy recorded in lookback window",
+                    "factory_kwh": factory_kwh, "lookback_days": lookback_days},
+        )
     degradation_pct = min(cycles / 100.0, 50.0)
     soh_pct = _clamp_soh(100.0 - degradation_pct)
 
@@ -493,11 +680,19 @@ async def estimate_fleet_benchmark(
     )).scalars().all()
 
     if not peers:
+        others = (await db.execute(
+            select(func.count()).select_from(UserVehicle).where(UserVehicle.id != vehicle_id)
+        )).scalar() or 0
+        if others == 0:
+            reason = (f"this installation has only one vehicle; the benchmark compares against other cars of "
+                      f"model year {veh.model_year} on the same server")
+        else:
+            reason = (f"none of the {others} other vehicles on this installation is a model year {veh.model_year} car; "
+                      "the benchmark needs same-year peers")
         return MethodResult(
             method="fleet_benchmark", soh_pct=None, sample_count=0,
             confidence=CONF_LOW,
-            inputs={"reason": f"no peers for model_year={veh.model_year}",
-                    "model_year": veh.model_year},
+            inputs={"reason": reason, "model_year": veh.model_year, "other_vehicles": others},
         )
 
     peer_ids = [p.id for p in peers]
@@ -542,13 +737,13 @@ async def estimate_range_drift_over_time(
     lookback_days: int = 365,
 ) -> MethodResult:
     """
-    Compare median range in first half vs second half of the lookback window.
-    Real-world degradation signal: range retention % maps directly to SoH.
+    Compare median full-charge range in the earlier half of the recorded data with the later half.
+    The split is at the median timestamp of the data itself, not at the middle of the lookback
+    window: a car that joined three months ago has all its samples in the "second half" of a
+    365-day window (#218: 11,982 samples, "no data in first or second half"). The two halves
+    must be at least MIN_HALF_SPAN_DAYS apart to say anything about drift.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    now = datetime.now(timezone.utc)
-    mid_cutoff = cutoff + (now - cutoff) / 2
-
     rows = (await db.execute(
         select(DriveRangeEstimatedFull)
         .join(Drive, Drive.id == DriveRangeEstimatedFull.drive_id)
@@ -558,49 +753,71 @@ async def estimate_range_drift_over_time(
         .where(DriveRangeEstimatedFull.range_estimated_full > 0)
         .order_by(DriveRangeEstimatedFull.last_date.asc())
     )).scalars().all()
-
     if len(rows) < 10:
         return MethodResult(
             method="range_drift_over_time", soh_pct=None,
             sample_count=len(rows), confidence=CONF_LOW,
-            inputs={"reason": "need >= 10 range samples",
-                    "lookback_days": lookback_days},
+            inputs={"reason": "need >= 10 range samples", "lookback_days": lookback_days},
         )
-
-    first_half = [r.range_estimated_full for r in rows if r.last_date < mid_cutoff]
-    second_half = [r.range_estimated_full for r in rows if r.last_date >= mid_cutoff]
-    if not first_half or not second_half:
+    first_day, last_day = rows[0].last_date, rows[-1].last_date
+    span_days = (last_day - first_day).total_seconds() / 86400.0
+    mid = rows[len(rows) // 2].last_date
+    first_rows = [r for r in rows if r.last_date < mid]
+    second_rows = [r for r in rows if r.last_date >= mid]
+    first_mid = first_rows[len(first_rows) // 2].last_date if first_rows else None
+    second_mid = second_rows[len(second_rows) // 2].last_date if second_rows else None
+    halves_apart_days = ((second_mid - first_mid).total_seconds() / 86400.0 if first_mid and second_mid else 0.0)
+    data_window = {"first_sample": first_day.date().isoformat(), "last_sample": last_day.date().isoformat(),
+                   "span_days": round(span_days, 1), "samples_first_half": len(first_rows),
+                   "samples_second_half": len(second_rows), "halves_apart_days": round(halves_apart_days, 1),
+                   "first_half_median_date": first_mid.date().isoformat() if first_mid else None,
+                   "second_half_median_date": second_mid.date().isoformat() if second_mid else None,
+                   "lookback_days": lookback_days}
+    if not first_rows or not second_rows or halves_apart_days < MIN_HALF_SPAN_DAYS:
+        # #218: the reporter asked why 11,982 samples give no comparison, and how they fall between
+        # the halves. Name the span, the count and median day of each half, and the gap needed.
         return MethodResult(
             method="range_drift_over_time", soh_pct=None,
             sample_count=len(rows), confidence=CONF_LOW,
-            inputs={"reason": "no data in first or second half"},
+            inputs={"reason": f"the {len(rows)} samples span only {span_days:.0f} days "
+                              f"({first_day.date()} to {last_day.date()}): {len(first_rows)} in the earlier half "
+                              f"(median day {first_mid.date() if first_mid else 'n/a'}), {len(second_rows)} in the later half "
+                              f"(median day {second_mid.date() if second_mid else 'n/a'}), {halves_apart_days:.0f} days apart; "
+                              f"the halves need to be >= {MIN_HALF_SPAN_DAYS} days apart to measure drift", **data_window},
         )
-
-    first_med = statistics.median(first_half)
-    second_med = statistics.median(second_half)
+    first_med = statistics.median([r.range_estimated_full for r in first_rows])
+    second_med = statistics.median([r.range_estimated_full for r in second_rows])
     if first_med <= 0:
         return MethodResult(
             method="range_drift_over_time", soh_pct=None,
             sample_count=len(rows), confidence=CONF_LOW,
-            inputs={"reason": "first_half median is 0"},
+            inputs={"reason": "first_half median is 0", **data_window},
         )
-
     retention = second_med / first_med
+    if retention > 1.0 + RANGE_RISE_TOLERANCE:
+        # Range went UP between the halves (winter vs summer, a change of driving): that is not a
+        # health signal, and a clamped 100 % with high confidence would overstate it.
+        return MethodResult(
+            method="range_drift_over_time", soh_pct=None, sample_count=len(rows), confidence=CONF_LOW,
+            inputs={"reason": f"median full-charge range rose from {first_med:.0f} to {second_med:.0f} km "
+                              f"({(retention - 1) * 100:.1f} %): season or driving style dominates, no degradation signal",
+                    **data_window},
+            extra={"first_half_median_km": round(first_med, 1), "second_half_median_km": round(second_med, 1),
+                   "retention_pct": round(retention * 100.0, 2)},
+        )
     soh_pct = _clamp_soh(retention * 100.0)
-
     return MethodResult(
         method="range_drift_over_time",
         soh_pct=soh_pct,
         sample_count=len(rows),
         confidence=_confidence_from_samples("range_drift_over_time", len(rows)),
-        inputs={"lookback_days": lookback_days},
+        inputs=data_window,
         extra={"first_half_median_km": round(first_med, 1),
                "second_half_median_km": round(second_med, 1),
                "retention_pct": round(retention * 100.0, 2)},
     )
 
 
-# ===== Combined orchestrator =====
 async def compute_full_analytics(
     db: AsyncSession,
     vehicle_id: UUID,
@@ -655,6 +872,7 @@ async def compute_full_analytics(
         methods=list(results),
         anomalies=anomalies,
         computed_at=datetime.now(timezone.utc),
+        lookback_days=lookback_days,
     )
 
 
@@ -686,7 +904,7 @@ async def persist_analytics(db: AsyncSession, analytics: CombinedAnalytics) -> N
             user_vehicle_id=analytics.user_vehicle_id,
             computed_at=now,
             method=m.method,
-            soh_pct=m.soh_pct if m.soh_pct is not None else 0.0,
+            soh_pct=m.soh_pct,                      # NULL = no result; 0 % would read as a dead battery
             estimated_kwh=_extract_kwh(m),
             sample_count=m.sample_count,
             confidence=m.confidence,
@@ -698,12 +916,12 @@ async def persist_analytics(db: AsyncSession, analytics: CombinedAnalytics) -> N
         user_vehicle_id=analytics.user_vehicle_id,
         computed_at=now,
         method="combined",
-        soh_pct=analytics.soh_pct if analytics.soh_pct is not None else 0.0,
+        soh_pct=analytics.soh_pct,
         estimated_kwh=analytics.estimated_kwh,
         sample_count=sum(m.sample_count for m in analytics.methods),
         confidence=analytics.confidence,
         inputs_json=None,
-        extra_json={"anomalies": analytics.anomalies},
+        extra_json={"anomalies": analytics.anomalies, "lookback_days": analytics.lookback_days},
     )
     db.add(combined_row)
     await db.commit()

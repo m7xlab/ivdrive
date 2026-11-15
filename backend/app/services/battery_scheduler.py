@@ -15,7 +15,8 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.vehicle import UserVehicle
+from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.battery_soh import (
     compute_and_store_estimate,
     detect_sudden_drop,
@@ -36,8 +38,15 @@ log = logging.getLogger("app.battery_scheduler")
 
 # ─── Job: recompute single vehicle ──────────────────────────────────────────
 
-async def job_recompute_vehicle(vehicle_id: str, lookback_days: int = 365) -> dict[str, Any]:
-    async with async_session() as db:
+async def job_recompute_vehicle(
+    vehicle_id: str, lookback_days: int = 365, session_factory: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Recompute one vehicle: the six-method analytics the Battery SoH page reads
+    (battery_health_analytics), then the ops model (battery_soh_estimates: admin page, Passport,
+    alerts). #218: the job only refreshed the ops model, so the page could still show a result
+    months old until someone opened it."""
+    session_factory = session_factory or async_session
+    async with session_factory() as db:
         v = (await db.execute(
             text("SELECT battery_capacity_kwh FROM user_vehicles WHERE id = :vid"),
             {"vid": vehicle_id},
@@ -45,9 +54,12 @@ async def job_recompute_vehicle(vehicle_id: str, lookback_days: int = 365) -> di
         if not v or not v.battery_capacity_kwh:
             return {"vehicle_id": vehicle_id, "skipped": "no_capacity"}
 
+        analytics = await compute_full_analytics(db, UUID(str(vehicle_id)), lookback_days)
+        await persist_analytics(db, analytics)
+
         result = await compute_and_store_estimate(db, vehicle_id, float(v.battery_capacity_kwh), lookback_days)
         if not result:
-            return {"vehicle_id": vehicle_id, "skipped": "no_data"}
+            return {"vehicle_id": vehicle_id, "skipped": "no_data", "dashboard_soh_pct": analytics.soh_pct}
 
         await db.execute(text("""
             INSERT INTO battery_soh_usage_log (user_id, user_vehicle_id, event_type, soh_pct, confidence)
@@ -61,6 +73,7 @@ async def job_recompute_vehicle(vehicle_id: str, lookback_days: int = 365) -> di
             "soh_pct": result.soh_pct,
             "estimated_kwh": result.estimated_kwh,
             "confidence": result.confidence,
+            "dashboard_soh_pct": analytics.soh_pct,
         }
 
 
@@ -123,6 +136,31 @@ async def job_detect_anomalies() -> dict[str, Any]:
         await db.commit()
 
     return {"vehicles_scanned": len(vehicles), "alerts_fired": alerts_fired}
+
+
+# ─── Job: daily recompute ─────────────────────────────────────────────────────
+
+async def job_daily_recompute(session_factory: Callable[..., Any] | None = None) -> dict[str, Any]:
+    """Recompute SoH for every vehicle that charged or drove in the last two days, so the
+    dashboard never shows a months-old result (#218). One vehicle failing does not stop the rest."""
+    session_factory = session_factory or async_session
+    done, failed = 0, 0
+    async with session_factory() as db:
+        ids = [str(r[0]) for r in (await db.execute(text("""
+            SELECT DISTINCT v.id FROM user_vehicles v
+            WHERE v.collection_enabled
+              AND (EXISTS (SELECT 1 FROM charging_sessions s WHERE s.user_vehicle_id = v.id AND s.session_start > now() - interval '2 days')
+                OR EXISTS (SELECT 1 FROM trips t WHERE t.user_vehicle_id = v.id AND t.start_date > now() - interval '2 days'))
+        """))).all()]
+    for vid in ids:
+        try:
+            await job_recompute_vehicle(vid, session_factory=session_factory)
+            done += 1
+        except Exception:  # noqa: BLE001
+            failed += 1
+            log.warning("daily SoH recompute failed for %s", vid, exc_info=True)
+    log.info("daily SoH recompute: %d vehicles, %d failed", done, failed)
+    return {"recomputed": done, "failed": failed}
 
 
 # ─── Job: monthly Passport ─────────────────────────────────────────────────
@@ -268,8 +306,17 @@ class BatteryScheduler:
             max_instances=1,
             coalesce=True,
         )
+        self._scheduler.add_job(
+            job_daily_recompute,
+            CronTrigger(hour=3, minute=30),
+            id="battery_daily_recompute",
+            name="Battery SoH daily recompute for recently active vehicles (03:30 UTC)",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         self._scheduler.start()
-        log.info("battery_scheduler started: 3 jobs registered")
+        log.info("battery_scheduler started: 4 jobs registered")
         asyncio.create_task(job_refresh_fx_rates())
 
     async def stop(self) -> None:
@@ -297,4 +344,4 @@ class BatteryScheduler:
 scheduler = BatteryScheduler()
 
 
-__all__ = ["scheduler", "job_recompute_vehicle", "job_detect_anomalies", "job_monthly_passport"]
+__all__ = ["scheduler", "job_recompute_vehicle", "job_detect_anomalies", "job_monthly_passport", "job_daily_recompute"]

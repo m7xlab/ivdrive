@@ -9,6 +9,8 @@ import httpx
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.services.ai_glossary import describe_charging_state
+
 logger = logging.getLogger(__name__)
 
 # C2 defense-in-depth: the analytical SQL tool may only reference these relations.
@@ -288,14 +290,14 @@ async def get_current_battery_state(db: AsyncSession, user_id: uuid.UUID, vehicl
     date_str = r[0].strftime("%Y-%m-%d %H:%M") if r[0] else "?"
     soc = r[1]
     range_km = (r[2] / 1000) if r[2] is not None else 0
-    state = r[3] or "Unknown"
     power = r[4] or 0.0
 
     parts = [f"Current battery state for {r[5]} (as of {date_str}):"]
     if soc is not None: parts.append(f"- State of Charge (SOC): {soc}%")
     if range_km > 0: parts.append(f"- Estimated remaining range: {range_km:.1f} km")
-    parts.append(f"- Charging state: {state}")
-    if state.lower() == "charging": parts.append(f"- Charging power: {power:.1f} kW")
+    # Plain language, never the vendor token: CONNECT_CABLE reads as "cable connected" to a
+    # model, and it means the opposite (see ai_glossary).
+    parts.append(f"- {describe_charging_state(r[3], power)}")
 
     return "\n".join(parts)
 

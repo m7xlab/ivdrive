@@ -17,7 +17,7 @@ from app.models.telemetry import Trip, ChargingSession, VehiclePosition, Chargin
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import ChargingSessionCreate, PulseResponse
-from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
+from app.services.battery_health_v2 import cache_is_fresh, compute_full_analytics, persist_analytics
 from app.services.cache import invalidate_vehicle_cache
 from app.services.vampire_drain import vampire_drain_for_vehicle
 
@@ -449,10 +449,12 @@ async def get_battery_health(
                 "sample_count": r.sample_count,
             }
             for r in rows
+            if r.soh_pct is not None      # a month whose every result was "no result" has no point to plot
         ]
 
-    # Cache-first: latest 'combined' row from battery_health_analytics (v2 cache)
-    cache_max_age = timedelta(days=7)  # refresh weekly via scheduler
+    # Cache-first: latest 'combined' row from battery_health_analytics (v2 cache), reused under the
+    # same rule as the Battery SoH page (24 h, same 365-day window; #218 - this endpoint kept a
+    # week-old result and crashed on a stored "no result" once soh_pct became nullable).
     cached = (await db.execute(
         select(BatteryHealthAnalytics)
         .where(BatteryHealthAnalytics.user_vehicle_id == vehicle_id)
@@ -460,19 +462,14 @@ async def get_battery_health(
         .order_by(desc(BatteryHealthAnalytics.computed_at))
         .limit(1)
     )).scalar_one_or_none()
-    cache_is_fresh = (
-        cached is not None
-        and cached.computed_at is not None
-        and (datetime.now(timezone.utc) - cached.computed_at) < cache_max_age
-    )
 
-    if cache_is_fresh:
+    if cached is not None and cache_is_fresh(cached, 365):
         curve_data = await _build_curve_rows(str(vehicle_id))
         return {
             "skoda_soh_pct": latest_bh.hv_battery_soh if latest_bh else None,
             "skoda_degradation_pct": latest_bh.hv_battery_degradation_pct if latest_bh else None,
             "factory_capacity_kwh": factory_kwh,
-            "derived_soh_pct": float(cached.soh_pct),
+            "derived_soh_pct": float(cached.soh_pct) if cached.soh_pct is not None else None,
             "derived_capacity_kwh": float(cached.estimated_kwh) if cached.estimated_kwh else None,
             "derived_confidence": cached.confidence,
             "derived_estimated_at": cached.computed_at.isoformat(),

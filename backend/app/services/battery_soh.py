@@ -5,7 +5,9 @@ Three independent methods, plus an aggregate:
 1. CAPACITY-BASED (primary)
    Per charging session with valid SoC delta, compute the effective
    full-pack capacity:
-       estimated_kwh = energy_kwh / (delta_soc / 100)
+       estimated_kwh = measured_kwh x loss / (delta_soc / 100), measured_kwh being the
+                      charger's power integrated over the session (battery_health_v2;
+                      #218: energy_kwh is SoC x nominal capacity and is never used)
    Then SoH_pct = (estimated_kwh / factory_kwh) * 100.
 
    Noise corrections applied:
@@ -204,135 +206,37 @@ async def estimate_capacity_based(
     factory_kwh: float,
     lookback_days: int = 365,
 ) -> MethodResult | None:
-    """Estimate SoH from charging sessions using capacity-based method.
+    """Capacity-based SoH for the ops model (admin page, monthly Passport, alerts).
 
-    Filters:
-      - end_level IS NOT NULL AND start_level IS NOT NULL
-      - energy_kwh > 0
-      - delta_soc BETWEEN [SOC_DELTA_MIN, SOC_DELTA_MAX]
-      - within lookback window
-
-    Per-session estimate:
-      est_kwh_raw = energy_kwh / (delta_soc / 100)
-      est_kwh_corrected = temperature-correct(SoC-calibrate(end_level))
-      soh_pct = (est_kwh_corrected / factory_kwh) * 100
-
-    Aggregate: monthly median of valid estimates.
+    #218: this method divided a session's ``energy_kwh`` by its SoC delta, but the collector writes
+    ``energy_kwh`` as SoC added x the configured capacity, so the answer was the configured capacity
+    (x loss factor) with HIGH confidence. The capacity now comes from the same measured-energy
+    method as the Battery SoH page (``battery_health_v2.estimate_tesla_capacity``: the charger's
+    power readings integrated over the session, SoC-derived energy never used). Without usable
+    power readings there is no capacity result, and the aggregate falls back to the other methods.
     """
     if not factory_kwh or factory_kwh <= 0:
         return None
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    floor_kwh = factory_kwh * CAPACITY_FLOOR_FRAC
-    ceil_kwh = factory_kwh * CAPACITY_CEIL_FRAC
+    from app.services.battery_health_v2 import estimate_tesla_capacity
 
-    query = text("""
-        SELECT
-            session_start,
-            start_level,
-            end_level,
-            energy_kwh,
-            avg_temp_celsius,
-            charging_type
-        FROM charging_sessions
-        WHERE user_vehicle_id = :vehicle_id
-          AND session_start >= :cutoff
-          AND end_level IS NOT NULL
-          AND start_level IS NOT NULL
-          AND energy_kwh IS NOT NULL
-          AND energy_kwh > 0
-          AND (end_level - start_level) BETWEEN :delta_min AND :delta_max
-        ORDER BY session_start DESC
-    """)
-
-    rows = (await db.execute(query, {
-        "vehicle_id": str(user_vehicle_id),
-        "cutoff": cutoff,
-        "delta_min": SOC_DELTA_MIN,
-        "delta_max": SOC_DELTA_MAX,
-    })).fetchall()
-
-    if not rows:
+    measured = await estimate_tesla_capacity(db, user_vehicle_id, lookback_days)
+    if measured.soh_pct is None:
         return None
-
-    estimates: list[SessionEstimate] = []
-    for row in rows:
-        end_calibrated = _apply_soc_calibration(float(row.end_level))
-        delta_soc = end_calibrated - float(row.start_level)
-        if delta_soc <= 0:
-            continue
-
-        # Strip charging losses to get battery energy, not grid energy.
-        loss_pct = CHARGING_LOSS_PCT.get(row.charging_type, CHARGING_LOSS_DEFAULT_PCT) \
-            if row.charging_type else CHARGING_LOSS_DEFAULT_PCT
-        battery_kwh = float(row.energy_kwh) * (1.0 - loss_pct)
-
-        raw_est_kwh = battery_kwh / (delta_soc / 100.0)
-        corrected_kwh, temp_correction_pct = _apply_temperature_correction(
-            raw_est_kwh, row.avg_temp_celsius
-        )
-
-        # Outlier filter on corrected value
-        if corrected_kwh < floor_kwh or corrected_kwh > ceil_kwh:
-            continue
-
-        soh_pct = (corrected_kwh / factory_kwh) * 100.0
-        estimates.append(SessionEstimate(
-            session_start=row.session_start,
-            start_level=float(row.start_level),
-            end_level=float(row.end_level),
-            delta_soc=delta_soc,
-            energy_kwh=float(row.energy_kwh),
-            avg_temp_c=float(row.avg_temp_celsius) if row.avg_temp_celsius is not None else None,
-            raw_estimated_kwh=raw_est_kwh,
-            corrected_estimated_kwh=corrected_kwh,
-            soh_pct=soh_pct,
-        ))
-
-    if not estimates:
-        return None
-
-    # Monthly median
-    monthly: dict[str, list[float]] = {}
-    for e in estimates:
-        month_key = e.session_start.strftime("%Y-%m")
-        monthly.setdefault(month_key, []).append(e.soh_pct)
-
-    monthly_breakdown = []
-    for month in sorted(monthly.keys()):
-        vals = monthly[month]
-        monthly_breakdown.append({
-            "month": month,
-            "soh_pct": round(statistics.median(vals), 2),
-            "sample_count": len(vals),
-        })
-
-    # Final estimate: median of latest 90 days of valid sessions
-    latest_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-    recent = [e.soh_pct for e in estimates if e.session_start >= latest_cutoff]
-    if not recent:
-        # fall back to most recent month
-        latest_month = max(monthly.keys())
-        recent = monthly[latest_month]
-    final_soh = round(statistics.median(recent), 2)
-    final_kwh = round((final_soh / 100.0) * factory_kwh, 2)
-
+    median_kwh = measured.extra.get("median_kwh")
+    final_kwh = round(float(median_kwh), 2) if median_kwh is not None else round(measured.soh_pct / 100.0 * factory_kwh, 2)
     return MethodResult(
         method="capacity",
-        soh_pct=final_soh,
+        soh_pct=measured.soh_pct,
         estimated_kwh=final_kwh,
-        sample_count=len(estimates),
-        confidence=_confidence_from_samples(len(estimates)),
+        sample_count=measured.sample_count,
+        confidence=measured.confidence,
         inputs={
-            "factory_kwh": factory_kwh,
-            "lookback_days": lookback_days,
-            "soc_delta_window": [SOC_DELTA_MIN, SOC_DELTA_MAX],
-            "outlier_bounds_kwh": [floor_kwh, ceil_kwh],
-            "soc_calibration_offset_pct": SOC_CALIBRATION_OFFSET_PCT,
-            "temp_correction_coefficient": TEMP_COEFF_PER_C,
-            "method": "median_of_recent_90d_per_month_aggregated",
+            "source": "battery_health_v2.estimate_tesla_capacity",
+            "method": "median_of_integrated_charging_power_per_session",
+            **measured.inputs,
         },
-        monthly_breakdown=monthly_breakdown,
+        monthly_breakdown=[],
     )
 
 
