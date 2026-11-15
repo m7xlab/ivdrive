@@ -3,6 +3,7 @@ RAG Chat endpoint — /api/v1/chat
 Multi-tenant: user can only query their own vehicles' data.
 """
 import asyncio
+from contextvars import ContextVar
 import json
 import logging
 import os
@@ -31,6 +32,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 # ─── Request/Response models ─────────────────────────────────────────────────────
+# Total time one request may spend in LLM calls (intent router, tool loop, final answer).
+# The plain POST /chat has no keep-alive, so it stays under a typical 60 s gateway limit.
+# POST /chat/stream sends a status event every 2 s and the front proxy allows hours, so it
+# may wait for a reasoning model: v1.3.15 made answers longer (metric tiles, follow-ups,
+# glossary) and a hard question on mimo-v2.6-pro ran past 50 s and was thrown away.
+REQUEST_BUDGET_S = 50.0
+STREAM_BUDGET_S = 150.0
+_BUDGET: ContextVar[float] = ContextVar("chat_budget_s", default=REQUEST_BUDGET_S)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     vehicle_id: str | None = None
@@ -1119,7 +1130,10 @@ async def chat(
     # call below is bounded against this shared deadline; if it runs out we
     # synthesize from whatever context we already have rather than hanging.
     _loop = asyncio.get_running_loop()
-    _deadline = _loop.time() + 50.0  # seconds — stays under typical 60s gateway limit
+    _budget = _BUDGET.get()
+    _t0 = _loop.time()
+    _deadline = _t0 + _budget
+    _phase_s: dict[str, float] = {}
 
     def _remaining() -> float:
         return max(1.0, _deadline - _loop.time())
@@ -1145,6 +1159,7 @@ async def chat(
         tool_calls = []
 
     seen_tool_sigs: set[str] = set()
+    _phase_s["router"] = _loop.time() - _t0
     for _ in range(max_loops):
         logger.info(f"LLM tool router decided to call: {tool_calls}")
         if not tool_calls:
@@ -1219,6 +1234,8 @@ async def chat(
         for c in agg_chunks:
             if c.get("id") == "aggregate":
                 c["chunk"] = f"{vname}: {c['chunk']}"
+
+    _phase_s["tools"] = _loop.time() - _t0 - _phase_s["router"]
 
     # Step 4: Run vector search WITHOUT vehicle_ids filter (to keep all trip/charging chunks)
     vec_chunks = await search_similar(
@@ -1308,11 +1325,21 @@ async def chat(
             timeout=_remaining(),
         )
     except asyncio.TimeoutError:
-        logger.warning("Final synthesis timed out against request budget; returning graceful message.")
         answer = (
-            "I'm taking longer than usual to put that together right now. "
-            "Please try asking again in a moment."
+            "I ran out of time putting that answer together. Ask it in smaller parts, "
+            "or ask once more: a shorter question usually gets through."
         )
+        _timed_out = True
+    else:
+        _timed_out = False
+    _phase_s["answer"] = _loop.time() - _t0 - _phase_s["router"] - _phase_s["tools"]
+    _timing = (f"chat timing: router {_phase_s['router']:.1f}s, tools {_phase_s['tools']:.1f}s, "
+               f"answer {_phase_s['answer']:.1f}s of a {_budget:.0f}s budget; "
+               f"provider {usage_stats.get('provider') or req_provider}, model {usage_stats.get('model') or gate.model_name}")
+    if _timed_out:
+        logger.warning(f"Final synthesis timed out against request budget; returning graceful message. {_timing}")
+    else:
+        logger.info(_timing)
 
     # Answer guards: vendor tokens that leaked through become plain words, charts that are
     # not a series become metrics, and an answer that contradicts the glossary (the
@@ -1401,9 +1428,17 @@ async def chat_stream(
     task and emit `status` heartbeats every 2s so the connection is never idle,
     then stream the answer text as `delta` events and finish with a `done` event
     carrying session_id + sources. No behaviour drift in the RAG/agentic logic.
+    Because the heartbeats keep the connection alive, this path runs the pipeline
+    with STREAM_BUDGET_S instead of REQUEST_BUDGET_S.
     """
     async def gen():
-        task = asyncio.create_task(chat(req, user, db))
+        # The task copies the context as it is created, so it sees the stream budget; the
+        # variable is reset right after so the generator's own (caller's) context is unchanged.
+        _budget_token = _BUDGET.set(STREAM_BUDGET_S)
+        try:
+            task = asyncio.create_task(chat(req, user, db))
+        finally:
+            _BUDGET.reset(_budget_token)
         # First byte immediately so the proxy considers the response "started".
         yield _sse({"type": "status", "state": "thinking"})
         try:
