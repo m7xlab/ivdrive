@@ -64,6 +64,18 @@ def _fmt(v: float) -> str:
     return f"{v:,.1f}".replace(",", " ")
 
 
+def _scrub_strings(obj: Any) -> Any:
+    """The same payload with every string value scrubbed of vendor tokens (keys untouched):
+    a chart's title and point labels are shown to the user like metric labels are."""
+    if isinstance(obj, str):
+        return scrub_bare_tokens(obj)
+    if isinstance(obj, list):
+        return [_scrub_strings(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _scrub_strings(v) for k, v in obj.items()}
+    return obj
+
+
 def chart_is_valid_series(chart: Any) -> bool:
     """True when a chart object is a real series: one unit, at least MIN_CHART_POINTS points."""
     if not isinstance(chart, dict):
@@ -184,6 +196,7 @@ def normalize_presentation(answer: str) -> str:
         if kind == "json_chart":
             if payload is None:
                 return ""
+            payload = _scrub_strings(payload)
             if chart_is_valid_series(payload) and not chart_kept:
                 chart_kept = True
                 return "```json_chart\n" + json.dumps(payload, ensure_ascii=False) + "\n```"

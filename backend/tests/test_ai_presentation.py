@@ -147,3 +147,16 @@ def test_non_finite_metric_values_do_not_crash_and_are_kept_as_text():
     items = p.clean_metrics({"items": [{"label": "a", "value": "NaN"}, {"label": "b", "value": "1e400"}, {"label": "c", "value": float("inf")}, {"label": "d", "value": "1,250"}]})
     assert [i["value"] for i in items] == ["NaN", "1e400", "inf", "1 250"]
     assert p.chart_to_metrics({"data": [{"name": "x", "value": "inf"}]}) == []
+
+
+def test_chart_title_and_point_labels_are_scrubbed_of_vendor_tokens():
+    chart = {"type": "bar", "title": "Hours PARKED per day", "xDataKey": "name", "categories": ["hours"],
+             "data": [{"name": "Mon PARKED", "hours": 3}, {"name": "Tue", "hours": 5}, {"name": "Wed LIVE", "hours": 4}]}
+    answer = "Here.\n```json_chart\n" + json.dumps(chart) + "\n```"
+    kinds = _blocks(p.normalize_presentation(answer))
+    assert kinds[0][0] == "json_chart"
+    assert kinds[0][1]["title"] == "Hours parked per day"
+    assert [r["name"] for r in kinds[0][1]["data"]] == ["Mon parked", "Tue", "Wed live"]
+    mixed = {"type": "bar", "categories": ["km"], "data": [{"name": "PARKED", "km": 1}, {"name": "x", "kWh": 2}, {"name": "y", "km": 3}]}
+    items = p.chart_to_metrics(p._scrub_strings(mixed))
+    assert items[0]["label"] == "parked"
