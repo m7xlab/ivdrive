@@ -289,17 +289,21 @@ def _measured_session_energy(readings: _PowerReadings, s: ChargingSession) -> Tu
     of a session left plugged in after the charge is not charging and must not lower it."""
     if s.session_start is None or s.session_end is None or s.session_end <= s.session_start:
         return None, 0.0
-    rows = readings.overlapping(s.session_start, s.session_end)
+    # Energy and coverage use the same window: a power row that runs on into the idle tail
+    # (a merged state row carries one value for its whole span) must not add energy the
+    # battery never took in.
+    end = _charge_end(s)
+    rows = readings.overlapping(s.session_start, end)
     if not rows:
         return None, 0.0
     kwh = 0.0
     covered = 0.0
     for first, last, kw in rows:
-        a, b = max(first, s.session_start), min(last, s.session_end)
+        a, b = max(first, s.session_start), min(last, end)
         hours = max((b - a).total_seconds(), 0.0) / 3600.0
         kwh += float(kw) * hours
         covered += hours
-    total = (_charge_end(s) - s.session_start).total_seconds() / 3600.0
+    total = (end - s.session_start).total_seconds() / 3600.0
     return kwh, (min(covered / total, 1.0) if total > 0 else 0.0)
 
 
@@ -338,7 +342,9 @@ async def estimate_tesla_capacity(
     # Every session starts at or after the cutoff, so a reading that overlaps one ends after it.
     readings = await _PowerReadings.load(db, vehicle_id, cutoff) if sessions else _PowerReadings([])
     samples: List[float] = []
-    skipped = {"no_power_readings": 0, "low_coverage": 0, "small_or_short": 0, "taper": 0, "disagrees_with_soc": 0}
+    skipped = {"no_power_readings": 0, "low_coverage": 0, "small_or_short": 0, "taper": 0, "disagrees_with_soc": 0,
+               "over_nominal": 0}
+    over_nominal: List[float] = []
     for s in sessions:
         delta_soc = (s.end_level - s.start_level) / 100.0
         minutes = (s.session_end - s.session_start).total_seconds() / 60.0
@@ -366,11 +372,27 @@ async def estimate_tesla_capacity(
             temp_delta = TEMP_REF_CELSIUS - s.avg_temp_celsius
             correction = 1.0 - (temp_delta * TEMP_COEFFICIENT)
             est_kwh = est_kwh / max(correction, 0.5)
+        if est_kwh > factory_kwh * (1.0 + CAPACITY_OVER_NOMINAL_TOLERANCE):
+            # A battery cannot take in more than it holds: this session's power readings overstate
+            # its energy (one 94.8 kWh session on a 77 kWh pack doubled the spread and dropped the
+            # confidence to low). It is not a measurement of the battery, so it is left out.
+            skipped["over_nominal"] += 1
+            over_nominal.append(est_kwh)
+            continue
         samples.append(est_kwh)
     inputs = {"factory_kwh": factory_kwh, "lookback_days": lookback_days,
               "energy_source": "charging power integrated over time (session energy_kwh is SoC x nominal capacity and not used)",
               "sessions_in_window": len(sessions), "skipped": skipped}
     if not samples:
+        if over_nominal:
+            # Every measurable session came out above the pack: the power readings overstate the
+            # energy for this car as a whole. A clamped "100 %" would be a fiction, so say so.
+            over_median = statistics.median(over_nominal)
+            return MethodResult(
+                method="tesla_capacity", soh_pct=None, sample_count=len(over_nominal), confidence=CONF_LOW,
+                inputs={"reason": f"integrated charging energy implies {over_median:.1f} kWh, above the {factory_kwh:.0f} kWh "
+                                  "nominal capacity: the charger power readings are too coarse for this car", **inputs},
+            )
         reason = ("no charging session with usable power readings in lookback"
                   if sessions else "no closed charging sessions in lookback window")
         return MethodResult(
@@ -380,15 +402,6 @@ async def estimate_tesla_capacity(
     median_kwh = statistics.median(samples)
     spread = (max(samples) - min(samples)) if len(samples) > 1 else 0.0
     inputs.update({"median_kwh": round(median_kwh, 2), "spread_kwh": round(spread, 2), "samples": len(samples)})
-    if median_kwh > factory_kwh * (1.0 + CAPACITY_OVER_NOMINAL_TOLERANCE):
-        # A battery cannot take in more than it holds: the power readings overstate the energy for
-        # this car (a merged state row carries one power value for its whole span). A clamped
-        # "100 %" would be a fiction, so say what happened instead.
-        return MethodResult(
-            method="tesla_capacity", soh_pct=None, sample_count=len(samples), confidence=CONF_LOW,
-            inputs={"reason": f"integrated charging energy implies {median_kwh:.1f} kWh, above the {factory_kwh:.0f} kWh "
-                              "nominal capacity: the charger power readings are too coarse for this car", **inputs},
-        )
     if len(samples) < CAPACITY_MIN_SAMPLES:
         return MethodResult(
             method="tesla_capacity", soh_pct=None, sample_count=len(samples), confidence=CONF_LOW,

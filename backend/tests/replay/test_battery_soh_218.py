@@ -85,7 +85,7 @@ async def test_sessions_that_cannot_be_measured_are_skipped_for_a_named_reason(r
     async with replay_sessionmaker() as s:
         r = await bh.estimate_tesla_capacity(s, vehicle_id)
     assert r.sample_count == 1
-    assert r.inputs["skipped"] == {"no_power_readings": 0, "low_coverage": 1, "small_or_short": 1, "taper": 1, "disagrees_with_soc": 1}
+    assert r.inputs["skipped"] == {"no_power_readings": 0, "low_coverage": 1, "small_or_short": 1, "taper": 1, "disagrees_with_soc": 1, "over_nominal": 0}
 
 
 async def _ranges(sm, vid, days_ago: list[int], km=400.0):
@@ -154,6 +154,34 @@ async def test_capacity_above_nominal_is_no_result_not_a_clamped_100_percent(rep
     async with replay_sessionmaker() as s:
         r = await bh.estimate_tesla_capacity(s, vehicle_id)
     assert r.soh_pct is None and r.sample_count == 8 and "above the 77 kWh" in r.inputs["reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_single_implausible_session_is_left_out_not_averaged_in(replay_sessionmaker, vehicle_id):
+    """QA follow-up on #218 (commit 68c19f9): one AC session came out at 94.83 kWh on a 77 kWh pack
+    and was accepted; the spread went from 12.97 to 28.65 kWh and the confidence from medium to
+    low. A session that implies more energy than the battery holds is not a measurement of it."""
+    for i in range(24):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=i + 1), 2, 40, 70, kw=11.0)      # 69.67 kWh
+    await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=30), 2, 40, 70, kw=14.9)              # 94.37 kWh, SoC ratio 1.29
+    async with replay_sessionmaker() as s:
+        r = await bh.estimate_tesla_capacity(s, vehicle_id)
+    assert r.inputs["skipped"]["over_nominal"] == 1 and r.sample_count == 24
+    assert r.confidence == "medium" and r.inputs["spread_kwh"] < 0.01
+    assert abs(r.extra["median_kwh"] - 69.67) < 0.05
+
+
+@pytest.mark.asyncio
+async def test_energy_is_integrated_over_the_same_window_as_coverage(replay_sessionmaker, vehicle_id):
+    """A merged charging-state row can run on past the last SoC change (the plugged-in idle tail).
+    Coverage stops at the charge end; the energy must too, or the tail's hours are counted as
+    charged energy (11 kW x 2 h = 22 kWh for a one-hour charge: ratio 1.79, session skipped)."""
+    for i in range(8):
+        await _session(replay_sessionmaker, vehicle_id, NOW - timedelta(days=i + 1), 1, 40, 56, kw=11.0, cover=2.0, idle_hours=1.0)
+    async with replay_sessionmaker() as s:
+        r = await bh.estimate_tesla_capacity(s, vehicle_id)
+    assert r.inputs["skipped"]["disagrees_with_soc"] == 0 and r.sample_count == 8
+    assert abs(r.extra["median_kwh"] - 11.0 * 0.95 / 0.16) < 0.05       # 65.31 kWh: one hour of 11 kW, not two
 
 
 @pytest.mark.asyncio
