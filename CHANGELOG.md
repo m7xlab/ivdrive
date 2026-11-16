@@ -1,5 +1,16 @@
 # Changelog
 
+## [v1.4.1] - 2026-11-16
+**An install that has not run the v1.4.0 migration yet no longer breaks: the API and collector now create the missing session-version column themselves, as v1.4.0's notes said they would.**
+
+### Fixed
+- **The self-repair for `users.token_version` never ran.** v1.4.0 added the column to the list of startup repairs but not to the check that decides whether any repair is needed. On an install that already had every older column, that check returned early, so the repair was skipped and every query that reads users failed with "column users.token_version does not exist" until `alembic upgrade head` was run. In production this showed as about 90 seconds of failed collector polls between starting the new containers and finishing the migration (the collector recovered by itself when the column appeared). The check now includes the column, and a test fails whenever a column is added to the repair list without being added to the check.
+
+### Notes
+- Rebuild **api** and **collector** (the web app is unchanged). No migration.
+- If you already ran `alembic upgrade head` for v1.4.0 nothing changes for you. The correct upgrade order is still: run the migration, then start the new containers.
+- v1.4.0's release notes said the API creates this column at startup if the migration is skipped. That was not true until this release.
+
 ## [v1.4.0] - 2026-11-16
 **Security release: the dependency chain is rebuilt and pinned, the AI assistant's database access is fenced per user, logins are rate-limited and sessions can be revoked, and the code hygiene the scanners complained about is cleaned up.**
 
