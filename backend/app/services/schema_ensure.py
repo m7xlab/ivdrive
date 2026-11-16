@@ -33,6 +33,8 @@ _STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_deleted_trips_user_vehicle_id ON deleted_trips (user_vehicle_id)",
     # v1.3.14 (migration d6e8f0a2b4c6): every login reads users.*, so a missing column would break sign-in
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS show_commands BOOLEAN NOT NULL DEFAULT FALSE",
+    # v1.4.0 (migration d2b5f1c8e3a0): session revocation; tokens carry this number.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1",
     # v1.3.15 (migration e7f9a1b3c5d7): a method with no result is stored as NULL, not 0 %
     "ALTER TABLE battery_health_analytics ALTER COLUMN soh_pct DROP NOT NULL",
 )

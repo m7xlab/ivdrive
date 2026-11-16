@@ -1,7 +1,9 @@
 import uuid
+import logging
+
+from app.services.crypto import decrypt_field
 import os
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +17,6 @@ from app.schemas.geofence import GeofenceCreate, GeofenceResponse, GeofenceUpdat
 from app.schemas.charging_plan import ChargingPlanCreate, ChargingPlanResponse, ChargingPlanUpdate
 from app.schemas.fx import CurrencyResponse
 from app.services.fx import list_currencies
-from app.services.export import ExportService
 from app.services.charging_plans import (
     invalidate_user_vehicle_caches,
     validate_plan_fields,
@@ -23,6 +24,7 @@ from app.services.charging_plans import (
 from app.tasks.extraction import process_data_extraction
 from app.services.storage import StorageProvider
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── Data Export ─────────────────────────────────────────────────────────────
@@ -87,11 +89,16 @@ async def get_download_link(
         storage = StorageProvider(use_gcs=use_gcs)
         download_url = storage.generate_download_url(job.file_url)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("export download URL for job %s: %s", job.id, e)
+        raise HTTPException(status_code=500, detail="The export could not be prepared for download. Please try again later.")
     
+    try:
+        password = decrypt_field(job.password) if job.password else None
+    except Exception:
+        password = job.password  # export created before v1.4.0 stored it in clear
     return {
         "url": download_url,
-        "password": job.password,
+        "password": password,
         "expires_at": job.expires_at
     }
 

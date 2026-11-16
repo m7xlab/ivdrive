@@ -18,6 +18,16 @@ let failures = 0;
 let queueTail: Promise<void> = Promise.resolve();
 let persistTail: Promise<void> = Promise.resolve();
 
+/** Drop the reverse-geocode cache (place names of this account's positions) at logout, so a shared
+ * browser does not keep the previous user's location history. */
+export function clearGeoCache(): void {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* storage unavailable: nothing to clear */
+  }
+}
+
 export function geoCoordKey(lat: number, lon: number): string {
   return `${Number(lat).toFixed(5)},${Number(lon).toFixed(5)}`;
 }

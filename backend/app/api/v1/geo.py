@@ -10,7 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
+from app.models.user import User
 from app.services.cache import cache_get, cache_set
 
 router = APIRouter()
@@ -307,6 +309,7 @@ async def _resolve(lat: Decimal, lon: Decimal, db: AsyncSession) -> tuple[str, i
 async def reverse_geocode(
     req: GeoRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_active_user),
 ):
     """Valkey → Postgres → Nominatim → Photon. Location is a miss, not a final name."""
     lat = _rounded_coord(req.latitude)

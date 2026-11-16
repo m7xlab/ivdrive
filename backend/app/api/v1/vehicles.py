@@ -1,11 +1,10 @@
 import json
 import logging
-import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,11 +15,8 @@ from app.constants.calibration import VEHICLE_CALIBRATION_DEFAULTS
 from app.database import get_db
 from app.models.geofence import Geofence  # noqa: F401
 from app.models.telemetry import (
-    DriveConsumption,
-    DriveRangeEstimatedFull,
     BatteryTemperature,
     ChargingPower,
-    OutsideTemperature,
     AirConditioningState,
     ChargingSession,
     ChargingState,
@@ -44,11 +40,9 @@ from app.schemas.telemetry import (
     ChargingSessionItem,
     ChargingStateItem,
     ConnectionStateItem,
-    EfficiencyPoint,
     MaintenanceItem,
     OdometerItem,
     PositionItem,
-    RangeAt100Point,
     RangeHistoryItem,
     StateBandItem,
     StatisticsPeriod,
@@ -56,11 +50,9 @@ from app.schemas.telemetry import (
     TripItem,
     TripAnalyticsItem,
     TripElevationStats,
-    VehicleStateItem,
     WLTPResponse,
 )
 from app.schemas.vehicle import (
-    DataHealthTimeline,
     VehicleCreate,
     VehicleDataHealthResponse,
     VehicleResponse,
@@ -267,8 +259,14 @@ async def create_vehicle(
     existing = await db.execute(
         select(UserVehicle).where(UserVehicle.vin_hash == vin_hash)
     )
-    if existing.scalar_one_or_none():
+    other = existing.scalar_one_or_none()
+    if other is not None:
+        # The same wording whether the VIN is this user's or someone else's: a 409 that only
+        # fired for other people's cars would let anyone probe which VINs are on the platform.
         raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This VIN cannot be added to this account. If it is your car and it is missing, contact the administrator.",
+        ) if other.user_id != user.id else HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Vehicle with this VIN already registered",
         )

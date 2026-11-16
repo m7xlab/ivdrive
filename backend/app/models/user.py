@@ -26,9 +26,12 @@ class User(TimestampMixin, Base):
     # window is rejected.
     last_totp_at: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
-    # Phase 4: recovery codes — list of SHA-256-hashed 8-char alphanumeric codes
-    # stored as a JSON array. Each code is consumed (deleted) on use.
+    # Recovery codes as a JSON array of hashes, each consumed (deleted) on use. v1.4.0 stores
+    # keyed HMAC-SHA256 (prefix "v2:"); older rows hold plain SHA-256 until the codes are regenerated.
     recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
+
+    # v1.4.0: tokens carry this number; bumping it logs the user out everywhere.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     # AI Premium gating
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")

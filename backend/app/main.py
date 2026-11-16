@@ -10,7 +10,6 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-import json
 
 from app.api.v1 import auth, commands, admin, admin_ai, notifications, geo, chat, integrations
 from app.api.v1 import settings as settings_router
@@ -19,11 +18,9 @@ from app.api.v1 import analytics
 from app.api.v1 import battery_health
 from app.config import settings
 from app.services.cache import cache_get, cache_set, init_cache, close_cache
-import asyncio
 
 
 from app.security import decode_token
-from app.config import settings
 
 class CacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -161,6 +158,10 @@ app = FastAPI(
     description="Electric vehicle monitoring API for Volkswagen Group EVs",
     version="0.1.0",
     lifespan=lifespan,
+    # v1.4.0: the interactive docs describe every route to anyone; on by API_DOCS_ENABLED=true only.
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
 )
 
 @app.middleware("http")
@@ -216,7 +217,10 @@ app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # v1.4.0: the exception's headers travel with the envelope (Retry-After on a 429,
+    # WWW-Authenticate on a 401); they were dropped before.
     return JSONResponse(
+        headers=getattr(exc, "headers", None) or None,
         status_code=exc.status_code,
         content={"error": {"code": "HTTP_ERROR", "message": str(exc.detail)}}
     )
