@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import uuid
 import json
-import httpx
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -27,19 +26,75 @@ _AI_SQL_ALLOWED_TABLES = {
     "v_climate_penalty_breakdown", "v_winter_penalty_stats", "v_phantom_drain_stats",
     "v_vehicle_state_durations", "v_place_stay_durations",
 }
-_FROM_JOIN_RE = re.compile(r"\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_\.]*)", re.IGNORECASE)
+# A relation name after FROM/JOIN: unquoted, "quoted", or schema-qualified. Quoted names are
+# captured so that `FROM "users"` is judged like `FROM users` instead of slipping past the check.
+_FROM_JOIN_RE = re.compile(
+    r"\b(?:from|join)\s+((?:\"[^\"]+\"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:\"[^\"]+\"|[a-zA-Z_][a-zA-Z0-9_]*))*)",
+    re.IGNORECASE,
+)
+
+# Constructs the analytical tool never needs. Each one is a way out of the per-user fence:
+# set_config/current_setting rewrite the user id the row-security policies read; pg_* and
+# information_schema expose other sessions and the catalogue; comments, dollar quoting and
+# backslashes hide tokens from this check; pg_sleep/generate_series are one-line denial of service.
+_SQL_FORBIDDEN_RE = re.compile(
+    r"(?:\bset_config\b|\bcurrent_setting\b|\bpg_[a-z_]*|\binformation_schema\b|\bpg_sleep\b|"
+    r"\bgenerate_series\b|\bdblink\b|\blo_[a-z_]*\(|\bcopy\b|\bdo\b\s*\$|--|/\*|\$\$|\\)",
+    re.IGNORECASE,
+)
+# Statement-level keywords that never belong in a read query (word-bounded; `update` inside
+# `updated_at` or `created` inside a column name no longer trips it).
+_SQL_WRITE_RE = re.compile(
+    r"\b(?:insert|update|delete|drop|create|alter|truncate|grant|revoke|commit|rollback|"
+    r"set|reset|call|execute|prepare|deallocate|listen|notify|vacuum|analyze|refresh|lock|security)\b",
+    re.IGNORECASE,
+)
+AI_SQL_STATEMENT_TIMEOUT_MS = 5000
+AI_SQL_WORK_MEM = "16MB"
+AI_SQL_ROW_CAP = 50
+
+
+_CTE_NAME_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s+as\s*\(", re.IGNORECASE)
 
 
 def _ai_sql_tables_allowed(sql_query: str) -> tuple[bool, str]:
-    """Return (ok, disallowed_csv). Rejects any relation after FROM/JOIN not on the allow-list."""
+    """Return (ok, disallowed_csv). Rejects any relation after FROM/JOIN not on the allow-list.
+    Names the query defines itself (`WITH x AS (...)`) are relations of its own making and pass."""
     referenced = {
-        m.group(1).split(".")[-1].lower()
+        m.group(1).split(".")[-1].strip('"').lower()
         for m in _FROM_JOIN_RE.finditer(sql_query)
     }
-    disallowed = referenced - _AI_SQL_ALLOWED_TABLES
+    own_names = {m.group(1).lower() for m in _CTE_NAME_RE.finditer(sql_query)}
+    disallowed = referenced - _AI_SQL_ALLOWED_TABLES - own_names
     if disallowed:
         return False, ", ".join(sorted(disallowed))
     return True, ""
+
+
+def check_ai_sql(sql_query: str) -> str | None:
+    """Static guard for model-written SQL. Returns the SQL_ERROR text to hand back to the model,
+    or None when the query may run. The database role, row-security policies, statement timeout
+    and the LIMIT wrapper in execute_read_only_sql are the real fence; this keeps obviously
+    out-of-scope queries from reaching them and gives the model a message it can act on."""
+    lower_sql = sql_query.lower()
+    if not (lower_sql.startswith("select") or lower_sql.startswith("with")):
+        return "SQL_ERROR: Only SELECT/WITH queries are allowed."
+    if ";" in sql_query:
+        return "SQL_ERROR: Only a single read-only SELECT query is allowed."
+    if _SQL_WRITE_RE.search(sql_query):
+        return "SQL_ERROR: Only single read-only SELECT queries are allowed."
+    if _SQL_FORBIDDEN_RE.search(sql_query):
+        return ("SQL_ERROR: The query uses a construct this tool does not support (settings functions, "
+                "pg_* catalogue objects, comments, dollar quoting or series generators). Rewrite it as a plain SELECT.")
+    if '"' in sql_query:
+        # Quoted identifiers are not needed for any curated table or column; refusing them keeps
+        # the relation check above exact and stops `"users"`-style name smuggling.
+        return "SQL_ERROR: Do not quote identifiers; write table and column names without double quotes."
+    ok, disallowed = _ai_sql_tables_allowed(sql_query)
+    if not ok:
+        return (f"SQL_ERROR: Access to table(s) not permitted: {disallowed}. "
+                "Only the analytical tables in the schema may be queried.")
+    return None
 
 LLM_TOOLS = [
     {
@@ -151,8 +206,8 @@ async def run_query(db: AsyncSession, sql: text, params: dict) -> list:
         logger.error(f"Tool query error: {e}")
         try:
             await db.rollback()
-        except:
-            pass
+        except Exception as rollback_exc:  # noqa: BLE001
+            logger.warning("Tool query rollback failed: %s", rollback_exc)
         return []
 
 
@@ -192,27 +247,27 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
     # with one, and rejecting it broke every well-formed SELECT. Any ";" that
     # survives this strip is a genuine second statement and is still rejected below.
     sql_query = sql_query.strip().rstrip(";").strip()
-    lower_sql = sql_query.lower()
-    # Must be a read query.
-    if not (lower_sql.startswith("select") or lower_sql.startswith("with")):
-        return "SQL_ERROR: Only SELECT/WITH queries are allowed."
-    if any(forbidden in lower_sql for forbidden in ["insert ", "update ", "delete ", "drop ", "create ", "alter ", "truncate ", "grant ", "revoke ", "commit", "rollback", ";"]):
-        return "SQL_ERROR: Only single read-only SELECT queries are allowed."
-    # C2: hard table allow-list - reject any relation outside the curated analytical set.
-    ok, disallowed = _ai_sql_tables_allowed(sql_query)
-    if not ok:
-        return f"SQL_ERROR: Access to table(s) not permitted: {disallowed}. Only the analytical tables in the schema may be queried."
+    problem = check_ai_sql(sql_query)
+    if problem:
+        return problem
 
+    # The model's query runs as a subquery so the row cap is enforced by the database and a
+    # trailing ORDER BY / LIMIT written by the model still works. The transaction is read-only,
+    # time-boxed and memory-boxed; the role switch and the user id are set before any of it.
+    wrapped = f"SELECT * FROM (\n{sql_query}\n) AS ai_q LIMIT {AI_SQL_ROW_CAP + 1}"
     try:
         async with db.bind.connect() as conn:
             async with conn.begin():
-                await conn.execute(text("SET LOCAL ROLE ivdrive_ai_readonly;"))
+                await conn.execute(text("SET TRANSACTION READ ONLY"))
+                await conn.execute(text(f"SET LOCAL statement_timeout = {int(AI_SQL_STATEMENT_TIMEOUT_MS)}"))
+                await conn.execute(text(f"SET LOCAL work_mem = '{AI_SQL_WORK_MEM}'"))
+                await conn.execute(text("SET LOCAL ROLE ivdrive_ai_readonly"))
                 # 1-1: parameterized GUC instead of f-string interpolation.
                 await conn.execute(
                     text("SELECT set_config('app.current_user_id', :uid, true)"),
                     {"uid": str(user_id)},
                 )
-                result = await conn.execute(text(sql_query))
+                result = await conn.execute(text(wrapped))
                 rows = result.fetchall()
                 keys = list(result.keys())
 
@@ -229,10 +284,24 @@ async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query:
                             # cannot serialize - coerce to float for the LLM payload.
                             row[k] = float(v)
 
-                json_res = json.dumps(dict_rows[:50])
-                return f"SQL SUCCESS! Rows returned:\n{json_res}"
+                truncated = len(dict_rows) > AI_SQL_ROW_CAP
+                json_res = json.dumps(dict_rows[:AI_SQL_ROW_CAP])
+                note = f" (first {AI_SQL_ROW_CAP} rows; aggregate or narrow the query for the rest)" if truncated else ""
+                return f"SQL SUCCESS!{note} Rows returned:\n{json_res}"
     except Exception as e:
-        return f"SQL_ERROR: {str(e)}"
+        return f"SQL_ERROR: {_sql_error_for_model(e)}"
+
+
+def _sql_error_for_model(exc: Exception) -> str:
+    """The part of a database error the model can act on (undefined column, bad syntax, timeout),
+    without the connection, role or server details that sit behind it."""
+    msg = str(getattr(exc, "orig", exc)).splitlines()[0] if str(exc) else exc.__class__.__name__
+    if "statement timeout" in msg or "canceling statement" in msg:
+        return f"The query took longer than {AI_SQL_STATEMENT_TIMEOUT_MS // 1000} s and was cancelled; aggregate or narrow it."
+    if "permission denied" in msg:
+        return "That table is not available to the assistant; use the tables listed by get_database_schema."
+    return msg[:300]
+
 
 async def get_fleet_overview(db: AsyncSession, user_id: uuid.UUID) -> str:
     """Returns high-level stats for all vehicles owned by the user."""
@@ -418,14 +487,14 @@ async def get_trip_and_charging_stats(
         if r[5] > 0:
             res.append(f"  [ANOMALY: Detected {r[5]} zero-km phantom trips which may inflate trip counts.]")
     else:
-        res.append(f"- Trips: No trips found in this period.")
+        res.append("- Trips: No trips found in this period.")
 
     if c_rows and c_rows[0] and c_rows[0][0] > 0:
         r = c_rows[0]
         last_c = r[3].strftime("%Y-%m-%d") if r[3] else "N/A"
         res.append(f"- Charging: {r[0]} sessions, {r[1]:.1f} kWh total added, €{r[2]:.2f} total cost. Last charge: {last_c}.")
     else:
-        res.append(f"- Charging: No charging sessions found in this period.")
+        res.append("- Charging: No charging sessions found in this period.")
 
     return "\n".join(res)
 

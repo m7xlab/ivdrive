@@ -6,6 +6,8 @@ import logging
 
 import httpx
 
+from app.services.vin import vin_path
+
 from app.services.skoda_bff_auth import MYSMOB_BASE, bearer_headers
 
 logger = logging.getLogger(__name__)
@@ -66,59 +68,59 @@ class SkodaBFFClient:
     # ── telemetry ──────────────────────────────────────────────────────────
 
     async def get_charging(self, vin: str) -> dict:
-        return await self._get(f"/api/v1/charging/{vin}")
+        return await self._get(f"/api/v1/charging/{vin_path(vin)}")
 
     async def get_vehicle_status(self, vin: str) -> dict:
-        return await self._get(f"/api/v2/vehicle-status/{vin}")
+        return await self._get(f"/api/v2/vehicle-status/{vin_path(vin)}")
 
     async def get_driving_range(self, vin: str) -> dict:
-        return await self._get(f"/api/v2/vehicle-status/{vin}/driving-range")
+        return await self._get(f"/api/v2/vehicle-status/{vin_path(vin)}/driving-range")
 
     async def get_parking(self, vin: str) -> dict:
-        return await self._get(f"/api/v3/maps/positions/vehicles/{vin}/parking")
+        return await self._get(f"/api/v3/maps/positions/vehicles/{vin_path(vin)}/parking")
 
     async def get_readiness(self, vin: str) -> dict:
-        return await self._get(f"/api/v2/connection-status/{vin}/readiness")
+        return await self._get(f"/api/v2/connection-status/{vin_path(vin)}/readiness")
 
     async def get_vehicle_info(self, vin: str) -> dict:
-        return await self._get(f"/api/v1/vehicle-information/{vin}")
+        return await self._get(f"/api/v1/vehicle-information/{vin_path(vin)}")
 
     async def get_maintenance(self, vin: str) -> dict:
-        return await self._get(f"/api/v3/vehicle-maintenance/vehicles/{vin}")
+        return await self._get(f"/api/v3/vehicle-maintenance/vehicles/{vin_path(vin)}")
 
     # ── commands ───────────────────────────────────────────────────────────
 
     async def wake(self, vin: str) -> None:
-        await self._post(f"/api/v1/vehicle-wakeup/{vin}")
+        await self._post(f"/api/v1/vehicle-wakeup/{vin_path(vin)}")
 
     async def lock(self, vin: str) -> None:
-        await self._post(f"/api/v1/vehicle-access/{vin}/lock")
+        await self._post(f"/api/v1/vehicle-access/{vin_path(vin)}/lock")
 
     async def unlock(self, vin: str, spin: str | None = None) -> None:
         body = {"spin": spin} if spin else None
-        await self._post(f"/api/v1/vehicle-access/{vin}/unlock", body)
+        await self._post(f"/api/v1/vehicle-access/{vin_path(vin)}/unlock", body)
 
     async def start_charging(self, vin: str) -> None:
-        await self._post(f"/api/v1/charging/{vin}/start")
+        await self._post(f"/api/v1/charging/{vin_path(vin)}/start")
 
     async def stop_charging(self, vin: str) -> None:
-        await self._post(f"/api/v1/charging/{vin}/stop")
+        await self._post(f"/api/v1/charging/{vin_path(vin)}/stop")
 
     async def set_charge_limit(self, vin: str, percent: int) -> None:
         await self._put(
-            f"/api/v1/charging/{vin}/set-charge-limit",
+            f"/api/v1/charging/{vin_path(vin)}/set-charge-limit",
             {"targetStateOfChargeInPercent": int(percent)},
         )
 
     async def set_charge_mode(self, vin: str, mode: str) -> None:
         await self._put(
-            f"/api/v1/charging/{vin}/set-charge-mode",
+            f"/api/v1/charging/{vin_path(vin)}/set-charge-mode",
             {"chargeMode": mode},
         )
 
     async def start_climate(self, vin: str, temp_c: float) -> None:
         await self._post(
-            f"/api/v2/air-conditioning/{vin}/start",
+            f"/api/v2/air-conditioning/{vin_path(vin)}/start",
             {
                 "targetTemperature": {"value": float(temp_c), "unit": "CELSIUS"},
                 "airConditioningWithoutExternalPower": True,
@@ -126,7 +128,7 @@ class SkodaBFFClient:
         )
 
     async def stop_climate(self, vin: str) -> None:
-        await self._post(f"/api/v2/air-conditioning/{vin}/stop")
+        await self._post(f"/api/v2/air-conditioning/{vin_path(vin)}/stop")
 
     # ── public API key minting ─────────────────────────────────────────────
 

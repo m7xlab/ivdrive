@@ -4,6 +4,8 @@ import logging
 
 import httpx
 
+from app.services.vin import vin_path
+
 from app.config import settings
 from app.schemas.skoda import (
     AirConditioningResponse,
@@ -46,22 +48,22 @@ class SkodaAPIClient:
         return GarageResponse.model_validate(resp.json())
 
     async def get_charging(self, vin: str) -> ChargingResponse:
-        resp = await self._client.get(f"/api/v1/charging/{vin}")
+        resp = await self._client.get(f"/api/v1/charging/{vin_path(vin)}")
         resp.raise_for_status()
         return ChargingResponse.model_validate(resp.json())
 
     async def get_driving_range(self, vin: str) -> DrivingRangeResponse:
-        resp = await self._client.get(f"/api/v2/vehicle-status/{vin}/driving-range")
+        resp = await self._client.get(f"/api/v2/vehicle-status/{vin_path(vin)}/driving-range")
         resp.raise_for_status()
         return DrivingRangeResponse.model_validate(resp.json())
 
     async def get_vehicle_status(self, vin: str) -> VehicleStatusResponse:
-        resp = await self._client.get(f"/api/v2/vehicle-status/{vin}")
+        resp = await self._client.get(f"/api/v2/vehicle-status/{vin_path(vin)}")
         resp.raise_for_status()
         return VehicleStatusResponse.model_validate(resp.json())
 
     async def get_air_conditioning(self, vin: str) -> AirConditioningResponse:
-        resp = await self._client.get(f"/api/v2/air-conditioning/{vin}")
+        resp = await self._client.get(f"/api/v2/air-conditioning/{vin_path(vin)}")
         resp.raise_for_status()
         return AirConditioningResponse.model_validate(resp.json())
 
@@ -71,33 +73,33 @@ class SkodaAPIClient:
         return PositionResponse.model_validate(resp.json())
 
     async def get_maintenance(self, vin: str) -> MaintenanceResponse:
-        resp = await self._client.get(f"/api/v3/vehicle-maintenance/vehicles/{vin}/report")
+        resp = await self._client.get(f"/api/v3/vehicle-maintenance/vehicles/{vin_path(vin)}/report")
         resp.raise_for_status()
         return MaintenanceResponse.model_validate(resp.json())
 
     async def get_connection_status(self, vin: str) -> ConnectionStatusResponse:
-        resp = await self._client.get(f"/api/v2/connection-status/{vin}/readiness")
+        resp = await self._client.get(f"/api/v2/connection-status/{vin_path(vin)}/readiness")
         resp.raise_for_status()
         return ConnectionStatusResponse.model_validate(resp.json())
 
     async def get_single_trips(self, vin: str) -> dict:
         """MyŠkoda server-side trip history (journeys with stops, ~60 days). Read-only."""
-        resp = await self._client.get(f"/api/v1/trip-statistics/{vin}/single-trips")
+        resp = await self._client.get(f"/api/v1/trip-statistics/{vin_path(vin)}/single-trips")
         resp.raise_for_status()
         return resp.json()
 
     async def get_warning_lights(self, vin: str) -> dict:
-        resp = await self._client.get(f"/api/v1/vehicle-health-report/warning-lights/{vin}")
+        resp = await self._client.get(f"/api/v1/vehicle-health-report/warning-lights/{vin_path(vin)}")
         resp.raise_for_status()
         return resp.json()
 
     async def get_garage_vehicle(self, vin: str) -> dict:
-        resp = await self._client.get(f"/api/v2/garage/vehicles/{vin}")
+        resp = await self._client.get(f"/api/v2/garage/vehicles/{vin_path(vin)}")
         resp.raise_for_status()
         return resp.json()
 
     async def get_vehicle_renders(self, vin: str) -> dict:
-        resp = await self._client.get(f"/api/v1/vehicle-information/{vin}/renders")
+        resp = await self._client.get(f"/api/v1/vehicle-information/{vin_path(vin)}/renders")
         resp.raise_for_status()
         return resp.json()
 

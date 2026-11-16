@@ -6,25 +6,20 @@ import asyncio
 from contextvars import ContextVar
 import json
 import logging
-import os
 import re
 import uuid
-from datetime import datetime
-from typing import Literal
 
-import httpx
 
 from sqlalchemy import text
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_db, get_current_user
-from app.services.ai_embeddings import generate_embedding, search_similar
+from app.api.v1.dependencies import get_db, get_current_active_user
+from app.services.ai_embeddings import search_similar
 from app.services.llm_providers import LLMError, complete, provider_order
-from app.services.valkey_client import get_valkey, get_session_flag, set_session_flag
 from app.services.ai_glossary import find_term_misreadings, glossary_block, scrub_raw_terms
 from app.services.ai_presentation import extract_followups, normalize_presentation
 
@@ -45,7 +40,7 @@ _BUDGET: ContextVar[float] = ContextVar("chat_budget_s", default=REQUEST_BUDGET_
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     vehicle_id: str | None = None
-    session_id: str | None = None
+    session_id: uuid.UUID | None = None
     provider: str = Field("auto", pattern=r"^[a-z0-9_-]{1,32}$")  # kept for API compatibility; the tier config (admin) decides the provider
 
 
@@ -157,6 +152,7 @@ async def _ensure_chat_tables(db: AsyncSession | None = None) -> None:
 async def _get_or_create_session(db: AsyncSession, user_id: str, session_id: str | None) -> str:
     """Return existing session_id or create a new one. Returns session_id string."""
     await _ensure_chat_tables(db)
+    session_id = str(session_id) if session_id else None
     if session_id:
         # Verify session belongs to user
         result = await db.execute(
@@ -165,8 +161,10 @@ async def _get_or_create_session(db: AsyncSession, user_id: str, session_id: str
         )
         if result.fetchone():
             return session_id
-        # Session not found or wrong user — create new
-    new_id = session_id or str(uuid.uuid4())
+        # Unknown id, or another user's session: never adopt the id the client sent (it would
+        # let a guessed id read or extend someone else's conversation). Start a fresh one.
+        logger.info("chat session %s is not owned by user %s; starting a new session", session_id, user_id)
+    new_id = str(uuid.uuid4())
     try:
         await db.execute(
             text("INSERT INTO chat_sessions (id, user_id) VALUES (:id, :uid) ON CONFLICT DO NOTHING"),
@@ -189,18 +187,21 @@ async def _get_or_create_session(db: AsyncSession, user_id: str, session_id: str
     return new_id
 
 
-async def _load_session_history(db: AsyncSession, session_id: str) -> list[dict]:
-    """Load conversation history for a session, most recent last."""
+async def _load_session_history(db: AsyncSession, session_id: str, user_id: str | None = None) -> list[dict]:
+    """Load conversation history for a session, most recent last. With ``user_id`` the rows come
+    back only when the session belongs to that user."""
     try:
+        owner_clause = "AND s.user_id = :uid" if user_id else ""
         result = await db.execute(
-            text("""
-                SELECT role, content, sources_json, created_at
-                FROM chat_messages
-                WHERE session_id = :sid
-                ORDER BY created_at ASC
+            text(f"""
+                SELECT m.role, m.content, m.sources_json, m.created_at
+                FROM chat_messages m
+                JOIN chat_sessions s ON s.id = m.session_id
+                WHERE m.session_id = :sid {owner_clause}
+                ORDER BY m.created_at ASC
                 LIMIT 20
             """),
-            {"sid": session_id},
+            {"sid": session_id, "uid": user_id} if user_id else {"sid": session_id},
         )
         rows = result.fetchall()
         history = []
@@ -409,7 +410,7 @@ async def direct_db_search(
     - charging_sessions.user_vehicle_id → user_vehicles.id
     """
     try:
-        vehicle_filter = f"AND t.user_vehicle_id = :vehicle_id" if vehicle_id else ""
+        vehicle_filter = "AND t.user_vehicle_id = :vehicle_id" if vehicle_id else ""
         # Get trip stats
         result = await db.execute(
             text(f"""
@@ -450,7 +451,7 @@ async def direct_db_search(
             })
 
         # Get charging sessions
-        charge_filter = f"AND c.user_vehicle_id = :vehicle_id" if vehicle_id else ""
+        charge_filter = "AND c.user_vehicle_id = :vehicle_id" if vehicle_id else ""
         result2 = await db.execute(
             text(f"""
                 SELECT
@@ -562,14 +563,6 @@ def extract_date_range(query: str):
     return None, None
 
 
-def is_aggregate_query(query: str) -> bool:
-    q = query.lower()
-    for p in AGGREGATE_PATTERNS + ARITHMETIC_PATTERNS:
-        if _re.search(p, q):
-            return True
-    return False
-
-
 def is_temporal_query(query: str) -> bool:
     q = query.lower()
     for p in TEMPORAL_PATTERNS:
@@ -592,13 +585,13 @@ async def aggregate_db_search(
     """
     q = query.lower()
     vid_subq = "(SELECT id FROM user_vehicles WHERE user_id = :uid)"
-    vid_filter = f"AND t.user_vehicle_id = :vid" if vehicle_id else ""
-    cid_filter = f"AND c.user_vehicle_id = :vid" if vehicle_id else ""
+    vid_filter = "AND t.user_vehicle_id = :vid" if vehicle_id else ""
+    cid_filter = "AND c.user_vehicle_id = :vid" if vehicle_id else ""
 
     from_date, to_date = extract_date_range(query)
     # Half-open, tz-aware UTC ranges: >= from_dt AND < to_dt (exclusive upper bound). 0-8.
-    date_filter_t = f"AND t.start_date >= :from_dt AND t.start_date < :to_dt" if from_date else ""
-    date_filter_c = f"AND c.session_start >= :from_dt AND c.session_start < :to_dt" if from_date else ""
+    date_filter_t = "AND t.start_date >= :from_dt AND t.start_date < :to_dt" if from_date else ""
+    date_filter_c = "AND c.session_start >= :from_dt AND c.session_start < :to_dt" if from_date else ""
 
     def _utc_range_bounds(fd: str, td: str):
         """Return (from_dt, to_dt) tz-aware UTC datetimes for a half-open [from, to) range.
@@ -656,7 +649,7 @@ async def aggregate_db_search(
     is_overview_query = any(k in q for k in ["overview", "summary", "tell me about", "status"])
     if is_overview_query and vehicle_id:
         # All-time trip stats
-        rows = await _run(text(f"""
+        rows = await _run(text("""
             SELECT
                 COUNT(*)::int AS trip_count,
                 COALESCE(SUM(t.distance_km), 0)::float AS total_km,
@@ -679,7 +672,7 @@ async def aggregate_db_search(
             })
 
         # All-time charging stats
-        rows2 = await _run(text(f"""
+        rows2 = await _run(text("""
             SELECT
                 COUNT(*)::int AS charge_count,
                 COALESCE(SUM(c.energy_kwh), 0)::float AS total_kwh,
@@ -845,7 +838,7 @@ async def aggregate_db_search(
         if is_follow_up_cost:
             logger.info(f"is_follow_up_cost=True, hist_vehicle={hist_vehicle}")
             # Build filter for specific vehicle if detected from history
-            vid_filter = f"AND v.display_name ILIKE :hveh" if hist_vehicle else ""
+            vid_filter = "AND v.display_name ILIKE :hveh" if hist_vehicle else ""
             lookup_params = {"uid": str(user_id)}
             if hist_vehicle:
                 lookup_params["hveh"] = f"%{hist_vehicle}%"
@@ -1000,7 +993,7 @@ async def aggregate_db_search(
 @router.post("", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1009,7 +1002,6 @@ async def chat(
     Supports conversation sessions: pass session_id to continue a conversation.
     """
     from sqlalchemy import text
-    import httpx
     from app.services.chat_tools import route_intent_via_llm, dispatch_tool_call_extended
     from app.services.ai_gate import check_ai_access, log_ai_usage
 
@@ -1046,7 +1038,7 @@ async def chat(
 
     # Step 0: Session management — get or create session, load history
     session_id = await _get_or_create_session(db, str(user_id), req.session_id)
-    history = await _load_session_history(db, session_id)
+    history = await _load_session_history(db, session_id, str(user_id))
     logger.info(f"chat session {session_id}: {len(history)} history messages")
 
     # Step 1: Get user's vehicle IDs and display names for vehicle-name detection
@@ -1416,7 +1408,7 @@ def _sse(payload: dict) -> str:
 @router.post("/stream")
 async def chat_stream(
     req: ChatRequest,
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """SSE streaming variant of POST /chat.
@@ -1492,7 +1484,7 @@ async def chat_stream(
 
 @router.get("/sessions", response_model=list[dict])
 async def list_sessions(
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all chat sessions for current user, newest first.
@@ -1539,7 +1531,7 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=dict)
 async def get_session(
     session_id: str,
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all messages in a session."""
@@ -1570,7 +1562,7 @@ async def get_session(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a specific session and all its messages."""
@@ -1588,7 +1580,7 @@ async def delete_session(
 
 @router.delete("/sessions")
 async def delete_all_sessions(
-    user=Depends(get_current_user),
+    user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete all chat sessions for current user."""

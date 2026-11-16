@@ -37,8 +37,9 @@ const nextConfig = {
     //   img-src 'self' data: blob: + maps tiles + Skoda Azure blob renders — CARTO basemap tiles + Leaflet marker icons (unpkg) +
     //                                              Skoda vehicle render images served from Azure blob
     //                                              storage (URLs come from the Skoda API at runtime, e.g.
-    //                                              https://iprenders.blob.core.windows.net/...). Wildcard on
-    //                                              blob.core.windows.net covers all of Skoda's containers
+    //                                              https://iprenders.blob.core.windows.net/...). Exact host,
+    //                                              not *.blob.core.windows.net: a wildcard would let any
+    //                                              Azure Storage account act as an image beacon for exfiltration
     //                                              without opening any general CDN wildcard.
     //   font-src 'self' data: + gstatic             — Inter font files
     //   connect-src 'self' + analytics host         — API calls via Next.js rewrites;
@@ -67,7 +68,7 @@ const nextConfig = {
       `default-src 'self'`,
       `script-src ${scriptSrc}`,
       `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-      `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com https://*.blob.core.windows.net`,
+      `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://unpkg.com https://iprenders.blob.core.windows.net`,
       `font-src 'self' data: https://fonts.gstatic.com`,
       `connect-src ${connectSrc}`,
       `frame-ancestors 'self'`,
