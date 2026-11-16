@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
 from app.models.telemetry import BatteryHealthAnalytics
 from app.models.user import User
@@ -39,7 +39,7 @@ async def get_battery_health_analytics(
     lookback_days: int = Query(365, ge=30, le=730),
     force_recompute: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Battery health analytics for one vehicle. Cache-first; live-compute on miss.
 
@@ -76,7 +76,7 @@ async def recompute_battery_health_analytics(
     vehicle_id: UUID,
     lookback_days: int = Query(365, ge=30, le=730),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Force recompute + persist (vehicle owner can re-trigger)."""
     veh = await _get_owned_vehicle(db, vehicle_id, user)

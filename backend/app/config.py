@@ -5,6 +5,14 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 
+_PLACEHOLDER_SECRETS = {"changeme", "change_me", "secret", "password", "jwt_secret", "dev", "test"}
+
+
+def _is_placeholder_secret(value: str) -> bool:
+    v = value.strip()
+    return len(v) < 32 or v.upper().startswith("CHANGE_ME") or v.lower() in _PLACEHOLDER_SECRETS
+
+
 class Settings(BaseSettings):
     # Required — must be provided via environment or .env file
     database_url: str | None = None
@@ -78,7 +86,6 @@ class Settings(BaseSettings):
     sleep_wake_probe_every_n: int = 4
     collector_debug: bool = False
     collect_raw_data: bool = False
-    skoda_client_debug: bool = False
 
     # Embedding worker — drains ai_embeddings_queue and stores into ai_embeddings.
     # Runs inside the collector container. Incremental: only processes pending items.
@@ -89,6 +96,11 @@ class Settings(BaseSettings):
 
     # Registration mode — non-credential, safe to have default
     service_registration: str = "invite_only"  # open / invite_only
+    # v1.4.0: /docs, /redoc and /openapi.json are off unless explicitly enabled (self-hosters debugging).
+    api_docs_enabled: bool = False
+    # v1.4.0: tokens are set as HttpOnly cookies only. A non-browser client that reads them from
+    # the login JSON body can switch this on; the browser never needs it.
+    auth_tokens_in_body: bool = False
 
     # SMTP — overridable via env
     smtp_host: str | None = None
@@ -119,11 +131,17 @@ class Settings(BaseSettings):
         """Validate all required configuration on startup. Fail fast with clear messages."""
         missing: list[str] = []
 
-        # Core secrets
+        # Core secrets: present, not the .env.example placeholders, and long enough to be secrets.
         if not self.jwt_secret_key:
             missing.append("JWT_SECRET_KEY")
+        elif _is_placeholder_secret(self.jwt_secret_key):
+            missing.append("JWT_SECRET_KEY (still the placeholder or shorter than 32 characters; "
+                           "generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
         if not self.encryption_key:
             missing.append("ENCRYPTION_KEY")
+        elif _is_placeholder_secret(self.encryption_key):
+            missing.append("ENCRYPTION_KEY (still the placeholder or shorter than 32 characters; "
+                           "generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
 
         # Database & cache
         if not self.database_url:

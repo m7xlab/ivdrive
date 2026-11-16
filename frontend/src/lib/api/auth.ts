@@ -1,4 +1,5 @@
 import { apiFetch, setAuthFlag, clearAuthFlag } from "./core";
+import { clearGeoCache } from "./geo";
 
 // Define the type if needed, though we can just use any for now or inline it.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,6 +136,7 @@ export const authApi = {
   async deleteAccount() {
     await apiFetch("/api/v1/auth/me", { method: "DELETE" });
     clearAuthFlag();
+    clearGeoCache();
   },
 
   async logout() {
@@ -146,5 +148,6 @@ export const authApi = {
       console.error("Logout failed:", e);
     }
     clearAuthFlag();
+    clearGeoCache();
   },
 };

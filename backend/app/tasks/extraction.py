@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from app.services.export import ExportService
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.services.storage import StorageProvider
+from app.services.crypto import encrypt_field
 from app.database import async_session
 import logging
 from sqlalchemy import update, select
@@ -54,7 +55,7 @@ async def process_data_extraction(user_id: uuid.UUID, job_id: uuid.UUID, use_gcs
                     .values(
                         status=ExtractionJobStatus.COMPLETED, 
                         file_url=blob_name,
-                        password=password,
+                        password=encrypt_field(password),  # v1.4.0: the archive password is not stored in clear
                         expires_at=expires_at
                     )
                 )

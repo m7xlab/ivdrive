@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
-from app.security import JWTError, decode_token
+from app.security import JWTError, decode_token, token_matches_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -41,6 +41,9 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if not token_matches_user(payload, user.token_version):
+        # Password changed, reset, or "log out everywhere" since this token was issued.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired, please log in again")
     return user
 
 async def get_current_active_user(user: User = Depends(get_current_user)) -> User:

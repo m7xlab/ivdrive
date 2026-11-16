@@ -60,18 +60,31 @@ def create_2fa_token(subject: str) -> str:
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(subject: str, extra: dict | None = None) -> str:
+def create_access_token(subject: str, extra: dict | None = None, token_version: int = 1) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
-    to_encode = {"sub": subject, "exp": expire, "type": "access"}
+    to_encode = {"sub": subject, "exp": expire, "type": "access", "tv": int(token_version)}
     if extra:
         to_encode.update(extra)
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: str, token_version: int = 1) -> str:
     expire = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
-    to_encode = {"sub": subject, "exp": expire, "type": "refresh"}
+    to_encode = {"sub": subject, "exp": expire, "type": "refresh", "tv": int(token_version)}
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def token_matches_user(payload: dict, user_token_version: int) -> bool:
+    """A session token is only good while its ``tv`` claim equals the user's token_version.
+    Tokens from before v1.4.0 carry no ``tv`` and are refused: the user logs in once."""
+    return payload.get("tv") == int(user_token_version)
+
+
+MAX_PASSWORD_BYTES = 72  # bcrypt's input limit; bcrypt 5 raises above it instead of truncating
+
+
+def password_fits(password: str) -> bool:
+    return len(password.encode("utf-8")) <= MAX_PASSWORD_BYTES
 
 
 def decode_token(token: str) -> dict:

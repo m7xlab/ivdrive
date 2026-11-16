@@ -3,17 +3,16 @@ from collections import OrderedDict
 from datetime import datetime, date, timedelta, timezone
 from uuid import UUID
 from typing import Any
-import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, text, desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_active_user
 from app.constants.calibration import effective_vehicle_calibration as _calibration
 from app.database import get_db
-from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState, OutsideTemperature, BatteryTemperature, WeconnectError, BatteryHealthAnalytics
+from app.models.telemetry import Trip, ChargingSession, VehiclePosition, ChargingState, VehicleState, ConnectionState, BatteryHealth, PowerUsage, ChargingCurve, ChargingPower, ClimatizationState, BatteryTemperature, WeconnectError, BatteryHealthAnalytics
 from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import ChargingSessionCreate, PulseResponse
@@ -62,7 +61,7 @@ async def get_user_vehicle(user_id: UUID, vehicle_id: UUID, db: AsyncSession) ->
 async def get_efficiency_curve(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Returns average consumption mapped by temperature to visualize the 'Winter Penalty'."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -104,7 +103,7 @@ async def get_efficiency_curve(
 async def get_charging_sessions(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     limit: int = Query(default=20, ge=1, le=10000)
 ):
     """List recent charging sessions for the UI."""
@@ -147,7 +146,7 @@ async def create_charging_session(
     vehicle_id: UUID,
     payload: ChargingSessionCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Manually record a charge that was not captured automatically (missed or forgotten session)."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -187,7 +186,7 @@ async def delete_charging_session(
     vehicle_id: UUID,
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Remove a charging session (glitch rows, duplicate starts, manual cleanup)."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -211,7 +210,7 @@ async def update_charging_session(
     session_id: int,
     payload: ChargingSessionUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Allow users to manually override the automated charging session deltas with exact receipt data."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -270,7 +269,7 @@ async def suggest_charging_session_cost(
     plan_id: UUID | None = Query(default=None),
     energy_kwh: float | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Suggest a session cost from a charging plan (explicit picker or GPS geofence match)."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -324,7 +323,7 @@ class ChargingPlanUsageResponse(BaseModel):
 async def get_charging_plan_usage(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     as_of: date | None = None,
 ):
     """Current-period subscription usage (user-wide allotment, hidden when no subscriptions)."""
@@ -337,7 +336,7 @@ async def get_charging_plan_usage(
 async def get_live_pulse(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Returns the live state of the car, combining charging, position, and weather."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -399,7 +398,7 @@ async def get_live_pulse(
 async def get_battery_health(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=10000),
@@ -503,7 +502,7 @@ async def get_battery_health(
 async def get_power_usage(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return detailed power consumption breakdown over time."""
@@ -534,7 +533,7 @@ async def get_power_usage(
 async def get_charging_curves(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     limit: int = Query(default=100, ge=1, le=10000)
 ):
     """Return charging curve points (power/voltage vs SoC)."""
@@ -567,7 +566,7 @@ async def get_charging_curves(
 async def get_legacy_charging_power_curve(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     limit: int = Query(default=500, ge=1, le=10000)
 ):
     """Query 41 & 51: Real-time charging power curve."""
@@ -594,7 +593,7 @@ async def get_legacy_charging_power_curve(
 async def get_legacy_power_vs_battery_temp(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Query 29: Charging power Min/Avg/Max grouped by Battery Temperature."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -631,7 +630,7 @@ async def get_legacy_power_vs_battery_temp(
 async def get_legacy_weconnect_errors(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Query 48: Connection Errors over time."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -657,7 +656,7 @@ async def get_legacy_weconnect_errors(
 async def get_legacy_climatization(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Query 58: Climatization states over time."""
     await get_user_vehicle(user.id, vehicle_id, db)
@@ -686,7 +685,7 @@ async def get_movement_stats(
     from_date: datetime | None = Query(default=None),
     to_date: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Returns accurate time-budget breakdown using real vehicle_states and charging_states.
     
@@ -775,7 +774,7 @@ async def get_movement_stats(
 async def get_time_budget(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     All-time time budget, aggregated from validated movement states only.
@@ -824,7 +823,7 @@ async def get_charging_curve_integrals(
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Plot Charging Power (kW) over SoC (%) and calculate the "wasted time"
@@ -947,7 +946,7 @@ async def get_charging_curve_integrals(
 async def get_advanced_analytics_overview(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Returns a summarized overview of advanced analytics:
@@ -1062,7 +1061,7 @@ async def get_hvac_isolation(
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Analyzes trips with similar speeds to isolate the kWh cost of heating/cooling.
@@ -1175,7 +1174,6 @@ async def get_hvac_isolation(
     }
 
 
-
 # =============================================================================
 # TASK 2: HVAC / Auxiliary Power Isolation (temperature band group)
 # =============================================================================
@@ -1183,7 +1181,7 @@ async def get_hvac_isolation(
 async def get_hvac_cost(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     limit: int = Query(default=100, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),
 ):
@@ -1315,7 +1313,7 @@ async def get_climate_penalty(
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Per-vehicle heating and cooling penalty (kWh/100km above the OFF baseline).
@@ -1332,7 +1330,7 @@ async def get_climate_penalty(
     """
     await get_user_vehicle(user.id, vehicle_id, db)
 
-    from sqlalchemy import table, column, func
+    from sqlalchemy import table, column
     v = table("v_climate_penalty_breakdown",
         column("user_vehicle_id"),
         column("temperature"),
@@ -1425,7 +1423,6 @@ async def get_climate_penalty(
     }
 
 
-
 # =============================================================================
 # TASK 1: Charging Curve Integrals (v2 using charging_curves table)
 # =============================================================================
@@ -1436,7 +1433,7 @@ async def get_charging_curve_integrals_v2(
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Plot Charging Power (kW) over SoC (%) and calculate the 'wasted time'
@@ -1679,7 +1676,7 @@ async def _get_nearest_elevation(lat: float, lon: float, vehicle_id: UUID, db: A
 async def get_elevation_penalty(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
 ):
@@ -1793,7 +1790,7 @@ async def get_speed_temp_matrix(
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Speed × Temperature → avg kWh/100km matrix.
 
@@ -1906,7 +1903,7 @@ async def get_speed_temp_matrix(
 async def get_vampire_drain(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
 ):
     """Hour-weighted SoC loss between trips while parked, as kWh and EUR.
 
@@ -2008,7 +2005,7 @@ class ChargingEconomicsResponse(BaseModel):
 async def get_charging_economics(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: date | None = None,
     to_date: date | None = None,
 ):
@@ -2196,7 +2193,7 @@ async def get_charging_economics(
 async def get_ice_tco(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
 ):
@@ -2293,21 +2290,6 @@ async def get_ice_tco(
 # =============================================================================
 # TASK 8: Route-Specific Efficiency Profiling
 # =============================================================================
-async def _reverse_geocode(lat: float, lon: float, db: AsyncSession) -> str:
-    """Look up a location name from geocoded_locations cache, or return a coords fallback."""
-    from decimal import Decimal
-    from sqlalchemy import text
-    # Round to 5 decimal places for consistent cache key
-    lat_r = Decimal(str(lat)).quantize(Decimal("1.00000"))
-    lon_r = Decimal(str(lon)).quantize(Decimal("1.00000"))
-    stmt = text(
-        "SELECT display_name FROM geocoded_locations WHERE latitude = :lat AND longitude = :lon LIMIT 1"
-    )
-    row = (await db.execute(stmt, {"lat": lat_r, "lon": lon_r})).fetchone()
-    if row and row[0]:
-        return row[0]
-    return f"{lat:.5f}, {lon:.5f}"
-
 
 def _geohash(lat: float, lon: float, precision: int = 4) -> str:
     """Simple geohash: rounded lat/lon."""
@@ -2318,7 +2300,7 @@ def _geohash(lat: float, lon: float, precision: int = 4) -> str:
 async def get_route_efficiency(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
 ):
@@ -2447,7 +2429,7 @@ async def get_route_efficiency(
 async def get_predictive_soc(
     vehicle_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     from_date: datetime | None = None,
     to_date: datetime | None = None,
 ):
