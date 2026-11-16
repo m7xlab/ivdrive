@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -16,85 +15,15 @@ logger = logging.getLogger(__name__)
 # The primary control is the ivdrive_ai_readonly role's grants + RLS (see migration
 # a1b2c3d4e5f7, which REVOKED users/ai_embeddings), but this rejects out-of-scope
 # queries early with a clear message instead of a raw permission-denied error.
-_AI_SQL_ALLOWED_TABLES = {
-    "user_vehicles", "trips", "charging_sessions", "charging_states",
-    "vehicle_states", "battery_health", "vehicle_positions", "charging_curves",
-    "drives", "drive_consumptions", "drive_ranges", "odometer_readings",
-    "outside_temperatures", "connection_states", "climatization_states",
-    # curated analytical views
-    "v_trip_analytics", "v_advanced_trip_stats", "v_charging_sessions_analytics",
-    "v_climate_penalty_breakdown", "v_winter_penalty_stats", "v_phantom_drain_stats",
-    "v_vehicle_state_durations", "v_place_stay_durations",
-}
-# A relation name after FROM/JOIN: unquoted, "quoted", or schema-qualified. Quoted names are
-# captured so that `FROM "users"` is judged like `FROM users` instead of slipping past the check.
-_FROM_JOIN_RE = re.compile(
-    r"\b(?:from|join)\s+((?:\"[^\"]+\"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:\"[^\"]+\"|[a-zA-Z_][a-zA-Z0-9_]*))*)",
-    re.IGNORECASE,
-)
+# The SQL guard lives in app/services/ai_sql_guard.py (parser-based, default-deny). These names stay
+# importable from here for the callers and tests that already use them.
+from app.services.ai_sql_guard import ALLOWED_TABLES as _AI_SQL_ALLOWED_TABLES  # noqa: E402,F401
+from app.services.ai_sql_guard import check_ai_sql  # noqa: E402,F401
 
-# Constructs the analytical tool never needs. Each one is a way out of the per-user fence:
-# set_config/current_setting rewrite the user id the row-security policies read; pg_* and
-# information_schema expose other sessions and the catalogue; comments, dollar quoting and
-# backslashes hide tokens from this check; pg_sleep/generate_series are one-line denial of service.
-_SQL_FORBIDDEN_RE = re.compile(
-    r"(?:\bset_config\b|\bcurrent_setting\b|\bpg_[a-z_]*|\binformation_schema\b|\bpg_sleep\b|"
-    r"\bgenerate_series\b|\bdblink\b|\blo_[a-z_]*\(|\bcopy\b|\bdo\b\s*\$|--|/\*|\$\$|\\)",
-    re.IGNORECASE,
-)
-# Statement-level keywords that never belong in a read query (word-bounded; `update` inside
-# `updated_at` or `created` inside a column name no longer trips it).
-_SQL_WRITE_RE = re.compile(
-    r"\b(?:insert|update|delete|drop|create|alter|truncate|grant|revoke|commit|rollback|"
-    r"set|reset|call|execute|prepare|deallocate|listen|notify|vacuum|analyze|refresh|lock|security)\b",
-    re.IGNORECASE,
-)
 AI_SQL_STATEMENT_TIMEOUT_MS = 5000
 AI_SQL_WORK_MEM = "16MB"
 AI_SQL_ROW_CAP = 50
 
-
-_CTE_NAME_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s+as\s*\(", re.IGNORECASE)
-
-
-def _ai_sql_tables_allowed(sql_query: str) -> tuple[bool, str]:
-    """Return (ok, disallowed_csv). Rejects any relation after FROM/JOIN not on the allow-list.
-    Names the query defines itself (`WITH x AS (...)`) are relations of its own making and pass."""
-    referenced = {
-        m.group(1).split(".")[-1].strip('"').lower()
-        for m in _FROM_JOIN_RE.finditer(sql_query)
-    }
-    own_names = {m.group(1).lower() for m in _CTE_NAME_RE.finditer(sql_query)}
-    disallowed = referenced - _AI_SQL_ALLOWED_TABLES - own_names
-    if disallowed:
-        return False, ", ".join(sorted(disallowed))
-    return True, ""
-
-
-def check_ai_sql(sql_query: str) -> str | None:
-    """Static guard for model-written SQL. Returns the SQL_ERROR text to hand back to the model,
-    or None when the query may run. The database role, row-security policies, statement timeout
-    and the LIMIT wrapper in execute_read_only_sql are the real fence; this keeps obviously
-    out-of-scope queries from reaching them and gives the model a message it can act on."""
-    lower_sql = sql_query.lower()
-    if not (lower_sql.startswith("select") or lower_sql.startswith("with")):
-        return "SQL_ERROR: Only SELECT/WITH queries are allowed."
-    if ";" in sql_query:
-        return "SQL_ERROR: Only a single read-only SELECT query is allowed."
-    if _SQL_WRITE_RE.search(sql_query):
-        return "SQL_ERROR: Only single read-only SELECT queries are allowed."
-    if _SQL_FORBIDDEN_RE.search(sql_query):
-        return ("SQL_ERROR: The query uses a construct this tool does not support (settings functions, "
-                "pg_* catalogue objects, comments, dollar quoting or series generators). Rewrite it as a plain SELECT.")
-    if '"' in sql_query:
-        # Quoted identifiers are not needed for any curated table or column; refusing them keeps
-        # the relation check above exact and stops `"users"`-style name smuggling.
-        return "SQL_ERROR: Do not quote identifiers; write table and column names without double quotes."
-    ok, disallowed = _ai_sql_tables_allowed(sql_query)
-    if not ok:
-        return (f"SQL_ERROR: Access to table(s) not permitted: {disallowed}. "
-                "Only the analytical tables in the schema may be queried.")
-    return None
 
 LLM_TOOLS = [
     {
