@@ -60,7 +60,7 @@ ALLOWED_FUNCTIONS = frozenset({
     "jsonb_extract_path_text", "jsonb_array_elements", "jsonb_array_elements_text", "jsonb_each",
     "jsonb_each_text", "jsonb_typeof", "jsonb_array_length",
     # dates and times (extract() parses as pg_catalog.extract / date_part)
-    "date_trunc", "date_part", "extract", "age", "now", "make_interval", "make_date",
+    "date_trunc", "date_part", "extract", "date", "age", "now", "make_interval", "make_date",
     "make_timestamp", "make_timestamptz", "timezone", "to_timestamp", "to_date", "date_bin",
     "justify_days", "justify_hours", "justify_interval", "isfinite",
 })
@@ -76,6 +76,33 @@ _SENSITIVE_RELATIONS = frozenset({
     "chat_messages", "alembic_version", "extraction_jobs", "invite_requests",
 })
 _SENSITIVE_PREFIXES = ("pg_", "ai_", "chat_", "battery_soh_", "information_")
+
+
+# What models trained on SQLite or MySQL reach for, and the PostgreSQL way to say it. Shown to the
+# model when it calls one of them so that it can correct itself instead of giving up.
+_POSTGRES_HINTS = {
+    "strftime": "PostgreSQL has no strftime: use to_char(ts, 'YYYY-MM') or to_char(ts, 'HH24'), EXTRACT(HOUR FROM ts) or date_trunc('month', ts).",
+    "datetime": "PostgreSQL has no datetime(): use now(), timestamps directly, or ts::date.",
+    "julianday": "PostgreSQL has no julianday(): use EXTRACT(EPOCH FROM ts) / 86400.",
+    "ifnull": "PostgreSQL has no ifnull(): use coalesce(a, b).",
+    "isnull": "PostgreSQL has no isnull(): use coalesce(a, b) or IS NULL.",
+    "group_concat": "PostgreSQL has no group_concat(): use string_agg(expr, ', ').",
+    "date_format": "PostgreSQL has no date_format(): use to_char(ts, 'YYYY-MM').",
+    "now_utc": "use now().",
+    "curdate": "use current_date.",
+    "year": "use EXTRACT(YEAR FROM ts).",
+    "month": "use EXTRACT(MONTH FROM ts).",
+    "day": "use EXTRACT(DAY FROM ts).",
+    "hour": "use EXTRACT(HOUR FROM ts).",
+}
+
+
+def _function_refusal(name: str) -> str:
+    hint = _POSTGRES_HINTS.get(name)
+    if hint:
+        return f"Function {name}() does not exist in PostgreSQL. {hint}"
+    return (f"Function {name}() is not available to the assistant. Use plain aggregates, window functions and the usual "
+            "date (date_trunc, to_char, EXTRACT), math and string functions.")
 
 
 @lru_cache(maxsize=1)
@@ -124,7 +151,7 @@ class _Check(Visitor):
             return
         name = parts[-1].lower()
         if name not in ALLOWED_FUNCTIONS:
-            self.problems.append(f"Function {name}() is not available to the assistant.")
+            self.problems.append(_function_refusal(name))
 
     def visit_SQLValueFunction(self, ancestors, node):
         op = getattr(node.op, "name", str(node.op))
