@@ -40,8 +40,9 @@ This guide is for running the full iVDrive stack (API, collector, frontend, data
    ```
 
 5. **Register & Promote Admin User**
-   - Go to http://localhost:3035 (or your chosen host/port) and **Register** your account.
-   - Once registered, promote yourself to superuser to access the admin panel:
+   - Registration is `invite_only` by default and invites are created by an administrator, so for the first account set `SERVICE_REGISTRATION=open` in `.env` and run `docker compose up -d`.
+   - Go to http://localhost:3000 (the port published by `docker-compose.yml`, or your chosen host/port) and **Register** your account.
+   - Once registered, promote yourself to superuser to access the admin panel (then set `SERVICE_REGISTRATION=invite_only` again unless you want public sign-up):
      ```bash
      docker compose exec ivdrive-api env PYTHONPATH=/app python -m app.scripts.promote_user --email your@email.com
      ```
@@ -54,7 +55,7 @@ This guide is for running the full iVDrive stack (API, collector, frontend, data
 
 | Service | Purpose |
 |---------|---------|
-| **ivdrive-web** | Next.js frontend (port 3000 inside container; map to 3035 or your choice). |
+| **ivdrive-web** | Next.js frontend (port 3000 inside the container; `docker-compose.yml` publishes it as 3000, map it to any port you like). |
 | **ivdrive-api** | FastAPI backend (port 8000). |
 | **ivdrive-collector** | Background worker that polls the Škoda API and stores telemetry. |
 | **postgres** | PostgreSQL database. |
@@ -85,3 +86,14 @@ Then in iVDrive: **Settings → Integrations — ABRP**, save the API key once, 
 - Back up the PostgreSQL data volume (`pgdata`) and your `.env` (especially `JWT_SECRET_KEY` and `ENCRYPTION_KEY`). Restore with the same keys so existing tokens and encrypted credentials remain valid.
 
 For architecture and code layout, see [Project overview](project_overview.md).
+
+## Upgrading
+
+1. Read the release notes: some releases need an extra step, and v1.4.0 logs everyone out once.
+2. Back up the database.
+3. Run `docker compose exec ivdrive-api env PYTHONPATH=/app alembic upgrade head`, **then** start the new containers. (The API and collector repair a few additive schema changes by themselves if the migration is late, but the migration is the supported path.)
+
+## Assistant database role
+
+The assistant's custom-SQL tool runs as a restricted database role (`ivdrive_ai_readonly`) that can read only the analytical tables, with row-level security that limits every row to the signed-in user. That role and its policies are created by Alembic migrations. The fresh-install route above (`init_db`, then `alembic stamp head`) records the migrations as applied **without running them**, so a fresh self-hosted install has no such role: the assistant's other tools work, and the custom-SQL tool is unavailable (it fails closed rather than falling back to broader access). An installation that has run the migrations, such as an upgraded one, has the role.
+
