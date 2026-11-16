@@ -1,0 +1,36 @@
+# Dependabot: weekly, grouped, one PR per ecosystem. Security updates open as they appear.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly, day: sunday }
+    groups:
+      python: { patterns: ["*"] }
+    open-pull-requests-limit: 3
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: sunday }
+    groups:
+      frontend: { patterns: ["*"] }
+    ignore:
+      # React 19 is a planned upgrade (PLAN-frontend-version-upgrade-v1.md), not a dependabot bump
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 3
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly, day: sunday }
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule: { interval: weekly, day: sunday }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: sunday }
+    groups:
+      actions: { patterns: ["*"] }

@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 # react-leaflet@5 peers React 19; we are still on React 18. Drop this flag in the
 # React 19 upgrade (PLAN-frontend-version-upgrade-v1.md Phase 2). Not Tremor.
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
 FROM base AS builder
 # NEXT_PUBLIC_* env vars must be inlined by `next build` at build time, not
