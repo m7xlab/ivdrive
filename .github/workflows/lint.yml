@@ -28,7 +28,6 @@ jobs:
   eslint:
     name: eslint + tsc — frontend (informational)
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -40,5 +39,7 @@ jobs:
         working-directory: frontend
       - run: npx tsc --noEmit
         working-directory: frontend
-      - run: npm run lint
+      # ESLint still reports about 185 older problems (mostly no-explicit-any and set-state-in-effect).
+      # They are shown as a warning, not a red check, until they are paid down; type errors above do fail.
+      - run: npm run lint || echo "::warning title=ESLint::frontend lint problems remain (informational, see the log)"
         working-directory: frontend
