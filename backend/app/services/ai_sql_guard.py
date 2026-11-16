@@ -153,6 +153,10 @@ def check_ai_sql(sql_query: str) -> str | None:
     check = _Check()
     check(statements)
     problems = list(dict.fromkeys(check.problems))
+    # cte_names is collected over the whole query, not per WITH scope. That cannot expose anything: a
+    # WITH name is refused when it equals an allow-listed, sensitive or application table name, and a
+    # table with any other name is unreadable to the database role (least privilege, migration
+    # f4a7c2d9e1b3), so a name that "borrows" one reaches nothing.
     for schema, relname in check.relations:
         if schema not in (None, "public"):
             problems.append(f"Schema {schema} is not available; use the table names from get_database_schema.")

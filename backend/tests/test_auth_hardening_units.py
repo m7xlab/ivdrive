@@ -152,3 +152,37 @@ def test_password_byte_limit_matches_bcrypt():
     assert security.password_fits("a" * 72)
     assert not security.password_fits("a" * 73)
     assert not security.password_fits("ä" * 40)   # 80 bytes
+
+
+def test_a_public_peer_means_no_proxy_of_ours_so_the_header_is_ignored():
+    assert auth_guard.client_address(_Req("93.184.216.34", "8.8.4.4")) == "93.184.216.34"
+
+
+def test_only_globally_routable_addresses_count_as_a_client():
+    assert auth_guard.client_address(_Req("172.18.0.7", "224.0.0.1")) == "172.18.0.7"      # multicast
+    assert auth_guard.client_address(_Req("172.18.0.7", "0.0.0.0")) == "172.18.0.7"        # unspecified
+    assert auth_guard.client_address(_Req("172.18.0.7", "8.8.4.4, 224.0.0.1")) == "8.8.4.4"
+
+
+@pytest.mark.asyncio
+async def test_the_valkey_counter_opens_its_window_and_counts_in_one_transaction(monkeypatch):
+    calls = []
+
+    class Pipe:
+        def __init__(self): self.ops = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        def set(self, key, value, ex=None, nx=False): self.ops.append(("set", key, ex, nx))
+        def incr(self, key): self.ops.append(("incr", key))
+        async def execute(self):
+            calls.append(list(self.ops))
+            return [True, 7]
+
+    class KV:
+        def pipeline(self, transaction=True):
+            assert transaction is True
+            return Pipe()
+
+    monkeypatch.setattr(auth_guard, "_kv", lambda: KV())
+    assert await auth_guard._incr("k") == 7
+    assert calls == [[("set", "k", auth_guard.WINDOW_S, True), ("incr", "k")]]

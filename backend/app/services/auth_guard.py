@@ -38,20 +38,37 @@ ADDRESS_LIMIT = 100
 _mem: dict[str, tuple[int, float]] = {}
 
 
+def _routable(ip) -> bool:
+    """A real client address: globally routable and not multicast, reserved or unspecified (Python's
+    is_global alone accepts multicast such as 224.0.0.1)."""
+    return ip.is_global and not (ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
 def client_address(request: Request) -> str:
     """The caller's address. The web app proxies /api through Next.js, so the socket peer is the web
-    container for every browser; the real address arrives in X-Forwarded-For. Entries are read from
-    the right, skipping private and loopback hops (our own containers and proxies), and the first
-    public one is used. Anything a client puts at the left of the header is never reached, so it
-    cannot be spoofed to dodge or to pile onto someone else's counter."""
+    container for every browser; the real address arrives in X-Forwarded-For.
+
+    * A peer that is itself a public address reached the API directly (no proxy of ours in between),
+      so the header is not ours and is ignored.
+    * Otherwise entries are read from the right, skipping hops that are not globally routable (our own
+      containers and proxies), and the first globally routable one is used. Anything a client puts at
+      the left of the header is never reached.
+    Accepted limit: someone already inside a private network (LAN or VPN) who reaches the web
+    container can spoof a left-hand entry for their own counter; they can already reach the host."""
+    peer = request.client.host if request.client else "unknown"
+    try:
+        if _routable(ipaddress.ip_address(peer)):
+            return peer
+    except ValueError:
+        pass
     for hop in reversed([h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]):
         try:
             ip = ipaddress.ip_address(hop)
         except ValueError:
             continue
-        if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+        if _routable(ip):
             return str(ip)
-    return request.client.host if request.client else "unknown"
+    return peer
 
 
 def _keys(scope: str, account: str | None, address: str) -> list[tuple[str, int]]:
@@ -68,8 +85,13 @@ async def _incr(key: str) -> int:
     kv = _kv()
     if kv is not None:
         try:
-            await kv.set(key, 0, ex=WINDOW_S, nx=True)   # opens the window; no-op while one is open
-            return int(await kv.incr(key))
+            # One MULTI/EXEC: opening the window and counting cannot be separated by the key expiring,
+            # which would recreate it with no expiry and lock the counter forever.
+            async with kv.pipeline(transaction=True) as pipe:
+                pipe.set(key, 0, ex=WINDOW_S, nx=True)
+                pipe.incr(key)
+                results = await pipe.execute()
+            return int(results[1])
         except Exception:  # noqa: BLE001
             logger.warning("auth guard: Valkey unavailable, using process memory")
     now = time.time()
