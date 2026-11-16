@@ -1,4 +1,5 @@
 import base64
+from functools import lru_cache
 import io
 import secrets
 import string
@@ -48,6 +49,7 @@ from app.security import (
     verify_password,
 )
 from app.services import auth_guard
+from app.services.cache import invalidate_user_cache
 from app.services.email import send_password_reset_email
 from app.services.fx import is_supported, rate_for
 from app.services.crypto import decrypt_field, encrypt_field, hash_field
@@ -89,6 +91,13 @@ def _recovery_code_matches(candidate: str, stored: str) -> bool:
     if stored.startswith("v2:"):
         return hmac.compare_digest(_hash_recovery_code(candidate), stored)
     return hmac.compare_digest(hash_field(candidate.strip().upper()), stored)
+
+
+@lru_cache(maxsize=1)
+def _dummy_hash() -> str:
+    """A bcrypt hash of nothing in particular, verified when the email is unknown so that an unknown
+    account takes as long to refuse as a known one."""
+    return get_password_hash("not-a-real-password")
 
 
 def _issue_tokens(response: Response, user: User) -> tuple[str, str]:
@@ -267,17 +276,23 @@ async def request_invite(body: InviteRequestCreate, db: AsyncSession = Depends(g
 
 @router.post("/login", response_model=LoginResponse)
 async def login(request: Request, response: Response, body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    await auth_guard.check("login", body.email, request)
+    await auth_guard.begin("login", body.email, request)
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
-    if user is None or not password_fits(body.password) or not verify_password(body.password, user.password_hash):
-        await auth_guard.failed("login", body.email, request)
+    if user is None or not password_fits(body.password):
+        if user is None and password_fits(body.password):
+            verify_password(body.password, _dummy_hash())   # same work as a real account: no timing oracle
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    await auth_guard.succeeded("login", body.email)
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    await auth_guard.succeeded("login", body.email, request)
 
     if not user.is_active:
         raise HTTPException(
@@ -304,12 +319,12 @@ async def verify_2fa_login(request: Request, response: Response, body: TwoFactor
     try:
         payload = decode_token(body.tfa_token)
     except JWTError:
-        await auth_guard.failed("2fa", None, request)
+        await auth_guard.begin("2fa", None, request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired 2FA token",
         )
-    await auth_guard.check("2fa", payload.get("sub"), request)
+    await auth_guard.begin("2fa", str(payload.get("sub")), request)
 
     if payload.get("type") != "2fa":
         raise HTTPException(
@@ -338,12 +353,11 @@ async def verify_2fa_login(request: Request, response: Response, body: TwoFactor
     secret = decrypt_field(user.totp_secret_enc)
     totp = pyotp.TOTP(secret)
     if not totp.verify(body.code, valid_window=1):
-        await auth_guard.failed("2fa", str(user.id), request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid 2FA code. Please try again.",
         )
-    await auth_guard.succeeded("2fa", str(user.id))
+    await auth_guard.succeeded("2fa", str(user.id), request)
 
     # Record the consumed window so the same code cannot be reused.
     user.last_totp_at = _totp_counter()
@@ -362,12 +376,12 @@ async def verify_recovery_code_login(request: Request, response: Response, body:
     try:
         payload = decode_token(body.tfa_token)
     except JWTError:
-        await auth_guard.failed("2fa", None, request)
+        await auth_guard.begin("2fa", None, request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired 2FA token",
         )
-    await auth_guard.check("2fa", payload.get("sub"), request)
+    await auth_guard.begin("2fa", str(payload.get("sub")), request)
 
     if payload.get("type") != "2fa":
         raise HTTPException(
@@ -394,14 +408,18 @@ async def verify_recovery_code_login(request: Request, response: Response, body:
             detail="No recovery codes available for this account",
         )
 
-    matched = next((h for h in stored_codes if _recovery_code_matches(body.recovery_code, h)), None)
+    # Every stored code is compared, with no early exit, so response time does not reveal which
+    # position matched.
+    matched = None
+    for stored in stored_codes:
+        if _recovery_code_matches(body.recovery_code, stored) and matched is None:
+            matched = stored
     if matched is None:
-        await auth_guard.failed("2fa", str(user.id), request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid recovery code",
         )
-    await auth_guard.succeeded("2fa", str(user.id))
+    await auth_guard.succeeded("2fa", str(user.id), request)
 
     # Consume the code — it must never be usable again.
     updated_codes = [h for h in stored_codes if h != matched]
@@ -505,6 +523,7 @@ async def logout_everywhere(
     """Invalidate every session of this account (all devices), then clear this browser's cookies."""
     user.token_version = (user.token_version or 1) + 1
     await db.commit()
+    await invalidate_user_cache(str(user.id))
     return await logout(response, request)
 
 
@@ -521,8 +540,7 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Asy
     import logging
     logger = logging.getLogger(__name__)
 
-    await auth_guard.check("forgot", body.email, request)
-    await auth_guard.failed("forgot", body.email, request)  # every request counts: this is a mail sender
+    await auth_guard.begin("forgot", body.email, request)   # every request counts: this endpoint sends mail
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -572,6 +590,7 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     user.password_hash = get_password_hash(body.new_password)
     user.token_version = (user.token_version or 1) + 1  # every existing session ends
     await db.commit()
+    await invalidate_user_cache(str(user.id))
     return {"detail": "Password has been reset successfully. You can now log in with your new password."}
 
 
@@ -631,22 +650,26 @@ async def delete_me(
 
 @router.put("/me/password", status_code=status.HTTP_200_OK)
 async def change_password(
+    request: Request,
     body: PasswordChangeRequest,
     response: Response,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verify_password(body.old_password, user.password_hash):
+    await auth_guard.begin("password", str(user.id), request)
+    if not password_fits(body.old_password) or not verify_password(body.old_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password",
         )
+    await auth_guard.succeeded("password", str(user.id), request)
 
     _password_or_422(body.new_password)
     user.password_hash = get_password_hash(body.new_password)
     # Other devices and any stolen refresh token stop working; this browser gets a fresh pair.
     user.token_version = (user.token_version or 1) + 1
-    await db.flush()
+    await db.commit()
+    await invalidate_user_cache(str(user.id))   # entries cached for the old sessions go too
     _issue_tokens(response, user)
     return {"detail": "Password updated successfully"}
 
@@ -731,6 +754,7 @@ async def enable_2fa(
 
 @router.post("/2fa/disable", status_code=status.HTTP_200_OK)
 async def disable_2fa(
+    request: Request,
     body: TwoFactorDisableRequest,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -739,11 +763,13 @@ async def disable_2fa(
     if not user.is_totp_enabled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is not enabled")
 
-    if not verify_password(body.password, user.password_hash):
+    await auth_guard.begin("password", str(user.id), request)
+    if not password_fits(body.password) or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect password",
         )
+    await auth_guard.succeeded("password", str(user.id), request)
 
     user.is_totp_enabled = False
     user.totp_secret_enc = None

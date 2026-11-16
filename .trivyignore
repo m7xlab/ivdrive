@@ -1,0 +1,7 @@
+# Trivy finds "setuptools 70.3.0" (CVE-2025-47273, path traversal in setuptools.package_index) in the
+# API image. It is not installed: `pip list` shows setuptools 84.2.1 and no file in the image carries
+# that version. The entry comes from pip's own bundled SBOM (site-packages/pip/_vendor/bom.cdx.json),
+# which records the pkg_resources copy that pip vendors. pip vendors pkg_resources only, not
+# package_index, so the vulnerable code is not present; pip 26.3 (the newest, installed by the
+# Dockerfile) still ships that SBOM. Re-check when a newer pip is released.
+CVE-2025-47273 exp:2027-02-16

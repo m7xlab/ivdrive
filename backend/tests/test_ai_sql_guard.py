@@ -1,12 +1,14 @@
-"""The static guard in front of the AI assistant's SQL tool (v1.4.0 security release).
+"""The parser-based guard in front of the AI assistant's SQL tool (v1.4.0).
 
-The database role, row-security policies, statement timeout and LIMIT wrapper are the real
-fence (tests/replay/test_ai_sql_fence.py). This guard turns the obvious escapes into a message
-the model can act on before anything reaches the database."""
+Default-deny: one plain SELECT, allow-listed relations, allow-listed functions. The database role,
+row-level security, READ ONLY transaction, timeout and LIMIT are tested in
+tests/replay/test_ai_sql_fence.py; this file tests what reaches them."""
 
 import pytest
 
-from app.services.chat_tools import check_ai_sql, AI_SQL_ROW_CAP
+from app.services.chat_tools import AI_SQL_ROW_CAP, check_ai_sql
+
+VICTIM = "00000000-0000-0000-0000-000000000001"
 
 
 @pytest.mark.parametrize("sql", [
@@ -16,41 +18,78 @@ from app.services.chat_tools import check_ai_sql, AI_SQL_ROW_CAP
     "SELECT * FROM (SELECT * FROM trips) q",
     "WITH t AS (SELECT * FROM trips) SELECT * FROM t",
     "WITH a AS (SELECT 1 AS x), b AS (SELECT * FROM charging_sessions) SELECT * FROM a, b",
-    "SELECT updated_at, created_at FROM charging_sessions",   # column names that contain keywords
+    "WITH a(x) AS (SELECT 1) SELECT x FROM a",
+    "SELECT updated_at, created_at FROM charging_sessions",
     "SELECT * FROM v_trip_analytics ORDER BY start_date DESC LIMIT 5",
     "SELECT * FROM trips t JOIN (SELECT id FROM user_vehicles) v ON v.id = t.user_vehicle_id",
+    # things the old pattern guard refused although they are plain analytics
+    "SELECT EXTRACT(HOUR FROM start_date) AS h, count(*) FROM trips GROUP BY 1",
+    "SELECT date_trunc('day', start_date) AS d, sum(distance_km) AS \"Total km\" FROM trips GROUP BY 1",
+    "SELECT * FROM trips WHERE start_soc IS DISTINCT FROM end_soc",
+    "SELECT * FROM user_vehicles WHERE display_name ILIKE '%set%' OR display_name = 'a -- b'",
+    "SELECT d::date, count(*) FROM generate_series(now() - interval '30 days', now(), interval '1 day') d GROUP BY 1",
+    "SELECT round(avg(kwh_consumed / NULLIF(distance_km, 0) * 100)::numeric, 1) FROM trips",
+    "SELECT lag(start_soc) OVER (ORDER BY start_date) FROM trips",
 ])
 def test_ordinary_analytical_queries_pass(sql):
-    assert check_ai_sql(sql) is None
+    assert check_ai_sql(sql) is None, check_ai_sql(sql)
 
 
 @pytest.mark.parametrize("sql, fragment", [
-    # quoted relation names used to slip past the unquoted-only allow-list
-    ('SELECT * FROM "users"', "quote"),
-    ('select * from public."ai_missed_intents"', "quote"),
-    ('SELECT * FROM "trips"', "quote"),
-    # out-of-scope relations, quoted or not
+    # relations the parser sees in every position
     ("SELECT * FROM users", "users"),
+    ('SELECT * FROM "users"', "users"),
+    ('select * from public."ai_missed_intents"', "ai_missed_intents"),
+    ("SELECT * FROM trips, geocoded_locations", "geocoded_locations"),
+    ("SELECT * FROM trips CROSS JOIN geocoded_locations", "geocoded_locations"),
+    ("SELECT * FROM (geocoded_locations CROSS JOIN trips) x", "geocoded_locations"),
+    ("SELECT * FROM (TABLE geocoded_locations) g", "geocoded_locations"),
+    ("TABLE geocoded_locations", "geocoded_locations"),
     ("SELECT * FROM (SELECT * FROM users) q", "users"),
+    ("SELECT * FROM trips WHERE id IN (SELECT id FROM users)", "users"),
     ("WITH t AS (SELECT * FROM trips) SELECT * FROM users", "users"),
-    ("SELECT * FROM ai_missed_intents", "ai_missed_intents"),
-    # rewriting the user id the row-security policies read
-    ("WITH s AS (SELECT set_config('app.current_user_id', 'x', true)) SELECT * FROM trips, s", "construct"),
-    ("SELECT current_setting('app.current_user_id')", "construct"),
-    # catalogue, other sessions, denial of service
-    ("SELECT * FROM pg_stat_activity", "construct"),
-    ("SELECT * FROM information_schema.tables", "construct"),
-    ("SELECT pg_sleep(600)", "construct"),
-    ("SELECT * FROM generate_series(1, 100000000)", "construct"),
-    # hiding tokens
-    ("SELECT * FROM trips -- comment", "construct"),
-    ("SELECT /* x */ * FROM trips", "construct"),
-    ("SELECT $$x$$", "construct"),
-    # not a read
-    ("DELETE FROM trips", "SELECT/WITH"),
+    ("SELECT * FROM pg_catalog.pg_authid", "pg_catalog"),
+    ("SELECT * FROM information_schema.tables", "information_schema"),
+    ("SELECT * FROM pg_stat_activity", "pg_stat_activity"),
+    # a WITH name may not borrow a real table's name, in one scope or another
+    ("WITH geocoded_locations AS (SELECT 1) SELECT * FROM geocoded_locations", "reuse a table name"),
+    ("WITH users AS (SELECT 1) SELECT * FROM users", "reuse a table name"),
+    ("SELECT * FROM (WITH vignettes AS (SELECT 1) SELECT * FROM vignettes) a, vignettes", "reuse a table name"),
+    # functions that run a string as SQL, in any spelling
+    ("SELECT query_to_xml('select 1', true, false, '')", "query_to_xml"),
+    ("SELECT table_to_xml('users', true, false, '')", "table_to_xml"),
+    ("SELECT cursor_to_xml('c', 1, true, false, '')", "cursor_to_xml"),
+    ("SELECT ts_stat('select 1')", "ts_stat"),
+    # the user id rewrite, plain and hidden
+    ("SELECT set_config('app.current_user_id', '" + VICTIM + "', true)", "set_config"),
+    ("SELECT SET_CONFIG('app.current_user_id', 'x', true)", "set_config"),
+    ("SELECT pg_catalog.set_config('app.current_user_id', 'x', true)", "set_config"),
+    ("SELECT current_setting('app.current_user_id')", "current_setting"),
+    ("WITH s AS (SELECT query_to_xml('select set_'||'config(''app.current_user_id'',''" + VICTIM + "'',true)', true, false, '')) "
+     "SELECT count(*) FROM s, vehicle_positions", "query_to_xml"),
+    ("SELECT count(*) FROM (SELECT query_to_xml('select set_'||'config(''app.current_user_id'',''" + VICTIM + "'',true)', true, false, '') AS x OFFSET 0) s, vehicle_positions", "query_to_xml"),
+    # denial of service, server access
+    ("SELECT pg_sleep(600)", "pg_sleep"),
+    ("SELECT pg_read_file('/etc/passwd')", "pg_read_file"),
+    ("SELECT lo_import('/etc/passwd')", "lo_import"),
+    ("SELECT nextval('trips_id_seq')", "nextval"),
+    ("SELECT dblink('host=x', 'select 1')", "dblink"),
+    ("SELECT current_user", "Connection information"),
+    ("SELECT session_user", "Connection information"),
+    # not a single plain read
+    ("DELETE FROM trips", "SELECT"),
+    ("INSERT INTO trips DEFAULT VALUES", "SELECT"),
+    ("COPY trips TO '/tmp/x'", "SELECT"),
+    ("DO $$ BEGIN PERFORM 1; END $$", "SELECT"),
+    ("SET ROLE postgres", "SELECT"),
+    ("SELECT * INTO newtable FROM trips", "INTO"),
+    ("SELECT * FROM trips FOR UPDATE", "locking"),
+    ("WITH d AS (DELETE FROM trips RETURNING *) SELECT * FROM d", "only contain SELECT"),
+    ("SELECT 1; SELECT 2", "single"),
     ("SELECT * FROM trips; DROP TABLE trips", "single"),
-    ("SELECT 1 UNION SELECT 1; SET ROLE ivdrive", "single"),
-    ("SELECT * FROM trips WHERE 1=1 AND (SELECT 1 FROM trips FOR UPDATE) = 1", "read-only"),
+    ("SELECT $1", "parameters"),
+    ("SELECT FROM FROM", "syntax"),
+    ("SELECT '" + "x" * 5000 + "'", "longer than"),
 ])
 def test_escapes_are_refused_with_an_actionable_message(sql, fragment):
     msg = check_ai_sql(sql)

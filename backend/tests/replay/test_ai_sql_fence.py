@@ -18,20 +18,24 @@ from app.services.chat_tools import execute_read_only_sql, AI_SQL_ROW_CAP
 
 pytestmark = pytest.mark.asyncio
 
-_MIGRATION = "app/migrations/versions/c1a4e0b7d2f9_ai_role_fence_v1_4_0.py"
+_MIGRATIONS = [
+    "app/migrations/versions/c1a4e0b7d2f9_ai_role_fence_v1_4_0.py",
+    "app/migrations/versions/f4a7c2d9e1b3_ai_role_least_privilege_v1_4_0.py",
+]
 _USER_ID = "(current_setting('app.current_user_id'::text, true))::uuid"
 
 
 def _run_migration_upgrade(sync_conn) -> None:
-    """Run the revision's upgrade() through a bare Alembic Operations object on this connection."""
+    """Run each revision's upgrade() through a bare Alembic Operations object on this connection."""
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
 
-    spec = importlib.util.spec_from_file_location("ai_role_fence", _MIGRATION)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod.op = Operations(MigrationContext.configure(sync_conn))
-    mod.upgrade()
+    for n, path in enumerate(_MIGRATIONS):
+        spec = importlib.util.spec_from_file_location(f"ai_role_fence_{n}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.op = Operations(MigrationContext.configure(sync_conn))
+        mod.upgrade()
 
 
 @pytest_asyncio.fixture
@@ -58,8 +62,13 @@ async def fenced_db(replay_sessionmaker):
             f"(user_vehicle_id IN (SELECT id FROM user_vehicles WHERE user_id = {_USER_ID}))"))
         await s.execute(text("ALTER TABLE trips ENABLE ROW LEVEL SECURITY"))
         await s.execute(text("GRANT SELECT ON trips TO ivdrive_ai_readonly"))
-        # Before the migration, mimic production: this table is granted but has no policy.
+        # Before the migration, mimic production: these tables are granted but have no policy.
         await s.execute(text("GRANT SELECT ON weconnect_errors TO ivdrive_ai_readonly"))
+        # A table that exists only through migrations in production, with cross-user data, granted by
+        # an old migration and missed by the first revoke list (cached addresses and coordinates).
+        await s.execute(text("CREATE TABLE geocoded_locations (id serial PRIMARY KEY, label text)"))
+        await s.execute(text("INSERT INTO geocoded_locations (label) VALUES ('someone''s home address')"))
+        await s.execute(text("GRANT SELECT ON geocoded_locations TO ivdrive_ai_readonly"))
         conn = await s.connection()
         await conn.run_sync(_run_migration_upgrade)
 
@@ -122,10 +131,10 @@ async def test_the_user_id_cannot_be_rewritten_from_inside_the_query(fenced_db):
     assert rows[0]["n"] == 3
 
 
-async def test_quoted_relation_name_is_refused_before_the_database(fenced_db):
+async def test_quoted_relation_name_is_judged_like_an_unquoted_one(fenced_db):
     s, users, _ = fenced_db
     out = await execute_read_only_sql(s, users[1], 'SELECT count(*) FROM "weconnect_errors"')
-    assert out.startswith("SQL_ERROR") and "quote" in out.lower()
+    assert out.startswith("SQL_ERROR") and "not permitted" in out.lower()
 
 
 async def test_row_cap_is_enforced_by_the_database_with_a_note(fenced_db):
@@ -156,3 +165,46 @@ async def test_the_transaction_is_read_only_even_if_the_guard_were_bypassed(fenc
     assert out.startswith("SQL_ERROR"), out
     rows = await _rows(await execute_read_only_sql(s, users[0], "SELECT count(*) AS n FROM trips"))
     assert rows[0]["n"] == 1
+
+
+async def test_the_role_can_read_only_the_allow_listed_relations_after_the_migrations(fenced_db):
+    s, _, _ = fenced_db
+    from app.services.ai_sql_guard import ALLOWED_TABLES
+    import re as _re
+    migration_list = set(_re.findall(r'"([a-z_]+)"', open(_MIGRATIONS[1]).read().split("ALLOWED = [")[1].split("]")[0]))
+    assert migration_list == set(ALLOWED_TABLES), "migration ALLOWED and ai_sql_guard.ALLOWED_TABLES drifted"
+    rows = (await s.execute(text(
+        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'public' AND c.relkind IN ('r','v','m','p') "
+        "AND has_table_privilege('ivdrive_ai_readonly', c.oid, 'SELECT')"))).scalars().all()
+    assert set(rows) <= set(ALLOWED_TABLES), sorted(set(rows) - set(ALLOWED_TABLES))
+    assert "geocoded_locations" not in rows and "weconnect_errors" not in rows
+
+
+async def test_the_obfuscated_user_id_rewrite_and_the_comma_join_are_refused(fenced_db):
+    """Regression for the review of the first v1.4.0 merge: a user id rewrite hidden inside a
+    function that executes a string returned another user's rows."""
+    s, users, _ = fenced_db
+    victim, attacker = users
+    inner = "select set_'||'config(''app.current_user_id'',''%s'',true)" % victim
+    for sql in (
+        "SELECT count(*) AS n FROM (SELECT query_to_xml('%s', true, false, '') AS x OFFSET 0) s, vehicle_positions" % inner,
+        "WITH s AS (SELECT query_to_xml('%s', true, false, '')) SELECT count(*) AS n FROM s, vehicle_positions" % inner,
+        "SELECT count(*) AS n FROM trips, geocoded_locations",
+        "SELECT table_to_xml('geocoded_locations', true, false, '')",
+    ):
+        out = await execute_read_only_sql(s, attacker, sql)
+        assert out.startswith("SQL_ERROR"), (sql, out)
+    rows = await _rows(await execute_read_only_sql(s, attacker, "SELECT count(*) AS n FROM vehicle_positions"))
+    assert rows[0]["n"] == 3     # the attacker still sees only their own 3, not the victim's 60
+
+
+async def test_the_database_alone_refuses_the_rewrite_when_the_guard_is_bypassed(fenced_db, monkeypatch):
+    """Second fence: even with the static guard disabled, the role cannot read geocoded_locations
+    and a plain user-id rewrite leaves the other user's rows unreadable only because of the guard,
+    so this documents that the guard is required for that part (see ai_sql_guard docstring)."""
+    from app.services import chat_tools
+    monkeypatch.setattr(chat_tools, "check_ai_sql", lambda sql: None)
+    s, users, _ = fenced_db
+    out = await execute_read_only_sql(s, users[1], "SELECT count(*) AS n FROM geocoded_locations")
+    assert out.startswith("SQL_ERROR") and "not available" in out, out

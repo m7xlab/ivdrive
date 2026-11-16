@@ -1,4 +1,5 @@
 import json
+import warnings
 from typing import Annotated
 
 from pydantic import field_validator, model_validator
@@ -9,8 +10,16 @@ _PLACEHOLDER_SECRETS = {"changeme", "change_me", "secret", "password", "jwt_secr
 
 
 def _is_placeholder_secret(value: str) -> bool:
+    """A value copied from .env.example or an obvious stand-in: refuse to start with it."""
     v = value.strip()
-    return len(v) < 32 or v.upper().startswith("CHANGE_ME") or v.lower() in _PLACEHOLDER_SECRETS
+    return v.upper().startswith("CHANGE_ME") or v.lower() in _PLACEHOLDER_SECRETS
+
+
+def _is_short_secret(value: str) -> bool:
+    """Under 32 characters. Not refused: an install that already runs on a short key (ENCRYPTION_KEY
+    decrypts stored data and cannot simply be replaced) must still start after an upgrade; it gets a
+    warning instead."""
+    return len(value.strip()) < 32
 
 
 class Settings(BaseSettings):
@@ -135,13 +144,18 @@ class Settings(BaseSettings):
         if not self.jwt_secret_key:
             missing.append("JWT_SECRET_KEY")
         elif _is_placeholder_secret(self.jwt_secret_key):
-            missing.append("JWT_SECRET_KEY (still the placeholder or shorter than 32 characters; "
+            missing.append("JWT_SECRET_KEY (still a placeholder; "
                            "generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
         if not self.encryption_key:
             missing.append("ENCRYPTION_KEY")
         elif _is_placeholder_secret(self.encryption_key):
-            missing.append("ENCRYPTION_KEY (still the placeholder or shorter than 32 characters; "
+            missing.append("ENCRYPTION_KEY (still a placeholder; "
                            "generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
+        for name, value in (("JWT_SECRET_KEY", self.jwt_secret_key), ("ENCRYPTION_KEY", self.encryption_key)):
+            if value and not _is_placeholder_secret(value) and _is_short_secret(value):
+                warnings.warn(f"{name} is shorter than 32 characters. It still works, but a longer random value is "
+                              "stronger; replacing JWT_SECRET_KEY logs everyone out, and ENCRYPTION_KEY cannot be "
+                              "replaced without re-encrypting stored data.")
 
         # Database & cache
         if not self.database_url:

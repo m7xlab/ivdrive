@@ -42,7 +42,10 @@ class CacheMiddleware(BaseHTTPMiddleware):
                         payload = decode_token(token)
                         if payload.get("type") == "access":
                             user_id = payload.get("sub")
-                            if not user_id:
+                            token_version = payload.get("tv")
+                            # A token without a version is a pre-v1.4.0 session that the auth dependency
+                            # will refuse; it must not be served from the cache either.
+                            if not user_id or token_version is None:
                                 return await call_next(request)
                         else:
                             return await call_next(request)
@@ -50,7 +53,9 @@ class CacheMiddleware(BaseHTTPMiddleware):
                         return await call_next(request)
                             
                     accept_header = request.headers.get("accept", "application/json")
-                    cache_key = f"ivdrive:api:cache:{user_id}:{path}:{accept_header}"
+                    # The token version is part of the key: a session started after a password change
+                    # never reads what an older session cached, and revocation purges the old entries.
+                    cache_key = f"ivdrive:api:cache:{user_id}:v{token_version}:{path}:{accept_header}"
                     if request.url.query:
                         cache_key += f"?{request.url.query}"
 
