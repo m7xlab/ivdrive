@@ -23,7 +23,6 @@ import os
 from typing import Optional
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.services.embedding_builders import CONTENT_TYPES, parse_queue_content_id

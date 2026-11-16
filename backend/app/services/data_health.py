@@ -16,7 +16,6 @@ from app.services.ai_glossary import describe_data_health
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

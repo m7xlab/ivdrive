@@ -102,51 +102,6 @@ def snapshot_from_public(
     return snap
 
 
-def snapshot_from_legacy(
-    *,
-    now: datetime,
-    vin: str | None = None,
-    soc: float | None = None,
-    charge_power_kw: float | None = None,
-    charge_state: str | None = None,
-    charge_type: str | None = None,
-    target_soc: float | None = None,
-    remaining_range_m: float | None = None,
-    range_km: float | None = None,
-    odometer_km: float | None = None,
-    lat: float | None = None,
-    lon: float | None = None,
-    is_moving: bool | None = None,
-    is_online: bool | None = None,
-    is_parked: bool | None = None,
-    outside_temp_c: float | None = None,
-    hvac_state: str | None = None,
-    hvac_setpoint_c: float | None = None,
-) -> NormalizedSnapshot:
-    """Build a snapshot from already-fetched legacy (myskoda) values."""
-    return NormalizedSnapshot(
-        captured_at=now,
-        source="legacy",
-        vin=vin,
-        soc=soc,
-        charge_power_kw=charge_power_kw,
-        charge_state=charge_state,
-        charge_type=charge_type,
-        target_soc=target_soc,
-        remaining_range_m=remaining_range_m,
-        range_km=range_km,
-        odometer_km=odometer_km,
-        lat=lat,
-        lon=lon,
-        is_moving=is_moving,
-        is_online=is_online,
-        is_parked=is_parked,
-        outside_temp_c=outside_temp_c,
-        hvac_state=hvac_state,
-        hvac_setpoint_c=hvac_setpoint_c,
-    )
-
-
 def snapshot_from_bff(
     *,
     charging: dict,

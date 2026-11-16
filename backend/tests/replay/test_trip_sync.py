@@ -2,7 +2,6 @@
 
 import pytest
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from .replay import t, trips
 from app.models.telemetry import Trip
 from app.services.trip_sync import parse_legs, sync_legs

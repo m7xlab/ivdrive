@@ -47,7 +47,6 @@ ever changes to UUID, the tests will need to drop the prefix and pass a raw
 ``uuid.uuid4()`` instead.
 """
 
-import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator

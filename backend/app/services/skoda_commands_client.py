@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from app.services.skoda_bff_api import SkodaBFFClient
-from app.services.skoda_commands import CommandError, CommandUnsupported, run_command
+from app.services.skoda_commands import CommandUnsupported, run_command
 from app.services.skoda_public_api import SkodaPublicAPIClient
 
 logger = logging.getLogger(__name__)

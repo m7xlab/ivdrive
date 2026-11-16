@@ -4,7 +4,6 @@ import asyncio
 import pytest
 from sqlalchemy import select, text
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from app.models.telemetry import Trip
 from app.services.schema_ensure import ensure_trip_edit_schema
 

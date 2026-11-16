@@ -20,11 +20,9 @@ from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from app.database import async_session
-from app.models.vehicle import UserVehicle
 from app.services.battery_health_v2 import compute_full_analytics, persist_analytics
 from app.services.battery_soh import (
     compute_and_store_estimate,

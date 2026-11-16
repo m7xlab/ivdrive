@@ -1,0 +1,21 @@
+# v1.4.0: the checks CodeQL kept reporting as notes, enforced in CI (see .github/workflows/lint.yml).
+# Style rules are deliberately not enabled; this is a correctness gate, not a formatter.
+# F841 (unused local) is left out of the gate: 18 remaining sites assign results of calls that
+# may have side effects; clean them up with a human eye, not a CI failure.
+target-version = "py312"
+line-length = 140
+extend-exclude = ["app/migrations/versions", ".venv"]
+
+[lint]
+select = [
+    "F401",  # unused import
+    "F403", "F405",  # star imports
+    "F541",  # f-string without placeholders
+    "F811",  # redefinition of unused name
+    "F821",  # undefined name
+    "E722",  # bare except
+    "B006",  # mutable default argument
+]
+[lint.per-file-ignores]
+"app/models/*.py" = ["F821"]   # relationship("Name") string targets are resolved by SQLAlchemy
+"__init__.py" = ["F401"]        # re-exports

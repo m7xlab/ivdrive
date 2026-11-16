@@ -1,6 +1,5 @@
 """Deep-sleep polling policy tests (no network / no DB)."""
 
-from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.services.analytics import is_actively_charging, is_plugged_in

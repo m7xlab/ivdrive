@@ -90,16 +90,16 @@ OTHER_TERMS: dict[str, str] = {
 PRODUCT_FACTS: list[str] = [
     "A battery state of health of exactly 95.0 % is a placeholder Škoda's API returns, not a measurement.",
     "A charging session's energy (energy_kwh) is estimated from the change in charge level and the "
-    "battery's nominal capacity; it is not metered by the charger.",
+    + "battery's nominal capacity; it is not metered by the charger.",
     "Remaining range is the car's own estimate from recent consumption; cold weather makes it optimistic.",
     "Zero-kilometre 'phantom' trips are entries without distance (the car woke without moving); "
-    "they inflate trip counts, not distance.",
+    + "they inflate trip counts, not distance.",
     "Deleting a vehicle in iVDrive deletes its recorded data; there is no archive. The app warns before it does so.",
     "Re-authentication with Škoda is offered on the vehicle card only when Škoda rejected the stored login; "
-    "there is no re-authenticate option in Settings and nothing to re-authenticate when the login still works.",
+    + "there is no re-authenticate option in Settings and nothing to re-authenticate when the login still works.",
     "'Sync enabled' means iVDrive polls the car on the configured intervals; 'Incognito' means positions are not stored.",
     "iVDrive can only receive what Škoda's servers hand out; a car that is asleep or out of coverage yields "
-    "nothing until it wakes, which a manual refresh can trigger.",
+    + "nothing until it wakes, which a manual refresh can trigger.",
 ]
 
 # Tokens the model must never echo, and the phrase that replaces each one.

@@ -66,39 +66,6 @@ export function useVehicleStatus(vehicleId: string | null) {
   });
 }
 
-/** Forces an immediate collector cycle for this vehicle. */
-export function useManualRefresh() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vehicleId: string) => api.refreshVehicle(vehicleId),
-    onSuccess: () => {
-      // After the collector cycle, vehicle list will reflect new auth state.
-      // Refetch in 3s to give the collector time to process the queue.
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["vehicles"] }), 3_000);
-    },
-  });
-}
-
-/** Toggles secure_mode for a single vehicle. */
-export function useToggleSecureMode() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ vehicleId, secureMode }: { vehicleId: string; secureMode: boolean }) =>
-      api.updateVehicle(vehicleId, { secure_mode: secureMode }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["vehicles"] }),
-  });
-}
-
-/** Toggles collection_enabled for a vehicle. */
-export function useToggleCollection() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ vehicleId, enabled }: { vehicleId: string; enabled: boolean }) =>
-      api.updateVehicle(vehicleId, { collection_enabled: enabled }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["vehicles"] }),
-  });
-}
-
 /** Deletes a vehicle. */
 export function useDeleteVehicle() {
   const qc = useQueryClient();

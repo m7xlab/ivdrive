@@ -84,7 +84,7 @@ export function ThemeSection() {
 
       <p className="text-xs text-iv-muted">
 
-        System mode automatically adapts the theme to your device's operating system preferences.
+        System mode automatically adapts the theme to your device&apos;s operating system preferences.
 
       </p>
 

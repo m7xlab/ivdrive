@@ -244,30 +244,6 @@ def _covers(trip: Trip, leg: Leg, now: datetime) -> bool:
     return overlap >= 0.5 * shorter
 
 
-def _enrich(trip: Trip, leg: Leg, capacity: float, now: datetime, apply: bool) -> bool:
-    """Fill NULL energy/SoC/coordinates on a trip that this leg fully accounts for."""
-    t_start = trip.start_date.astimezone(timezone.utc)
-    t_end = (trip.end_date or now).astimezone(timezone.utc)
-    dur = max((t_end - t_start).total_seconds(), 60.0)
-    if (min(t_end, leg.end) - max(t_start, leg.start)).total_seconds() < 0.8 * dur:
-        return False  # trip spans more than this leg: ambiguous, leave it
-    changes: dict = {}
-    if trip.start_soc is None and leg.start_soc is not None:
-        changes["start_soc"] = leg.start_soc
-    if trip.end_soc is None and leg.end_soc is not None:
-        changes["end_soc"] = leg.end_soc
-    if trip.kwh_consumed is None and leg.start_soc is not None and leg.end_soc is not None and leg.start_soc > leg.end_soc:
-        changes["kwh_consumed"] = (leg.start_soc - leg.end_soc) / 100.0 * capacity
-    for attr, val in (("start_lat", leg.start_lat), ("start_lon", leg.start_lon), ("end_lat", leg.end_lat), ("end_lon", leg.end_lon)):
-        if getattr(trip, attr) is None and val is not None:
-            changes[attr] = val
-    if changes and apply:
-        for k, v in changes.items():
-            setattr(trip, k, v)
-    return bool(changes)
-
-
-@dataclass
 class SyncResult:
     inserted: int = 0
     rewritten: int = 0       # merged / fragmented recorded trips replaced by Škoda's legs
@@ -371,8 +347,8 @@ def _rewrite(t: Trip, leg: Leg, capacity: float) -> None:
 
 
 def _km_apart(lat1, lon1, lat2, lon2) -> float:
-    from math import cos, radians, sqrt
-    return 111.0 * sqrt((lat2 - lat1) ** 2 + ((lon2 - lon1) * cos(radians(lat1))) ** 2)
+    from math import cos, hypot, radians
+    return 111.0 * hypot(lat2 - lat1, (lon2 - lon1) * cos(radians(lat1)))
 
 
 def _refresh_row(row: Trip, leg: Leg, capacity: float, taken: set, apply: bool, t_start: datetime, t_end: datetime) -> str | None:
@@ -782,8 +758,8 @@ async def run_trip_sync(only_vehicle: UUID | None = None, *, apply: bool = True,
                     try:
                         cfg = json.loads(decrypt_field(v.connector_config_encrypted))
                         username, password = cfg.get("username"), cfg.get("password")
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("vehicle %s: connector config unreadable (%s); history sync runs without a login", v.id, exc.__class__.__name__)
                 try:
                     # The history sync never logs in by itself: with a dead session it skips the vehicle.
                     token = await SkodaTokenLifecycle(s).ensure_valid_token(cs, username, password, allow_login=False)

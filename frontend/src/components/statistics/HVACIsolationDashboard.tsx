@@ -147,7 +147,7 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
                 </div>
               </div>
               <div className="mt-4 pt-4 border-t border-iv-border/50">
-                <p className="text-xs text-iv-text-muted italic mb-2">"{m.message}"</p>
+                <p className="text-xs text-iv-text-muted italic mb-2">&ldquo;{m.message}&rdquo;</p>
                 <p className="text-[10px] text-iv-text-muted/50 uppercase tracking-wider">
                   Sample Size: {m.cold_trips} Cold / {m.optimal_trips} Optimal Trips
                 </p>

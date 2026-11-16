@@ -54,6 +54,7 @@ class ChartErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 }
 
 import { useLocale } from "@/lib/locale";
+import type { DateRangeValue } from "@/components/ui/DateRangePicker";
 
 export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: DateRangeValue }) {
   const [data, setData] = useState<SpeedTempMatrixResponse | null>(null);

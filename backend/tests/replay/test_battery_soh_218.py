@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from app.api.v1 import analytics as analytics_api
 from app.api.v1.battery_health import _cache_is_fresh
 from app.models.telemetry import (BatteryHealth, BatteryHealthAnalytics, ChargingCurve, ChargingSession,

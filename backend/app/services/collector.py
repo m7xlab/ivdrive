@@ -8,27 +8,25 @@ import logging
 import asyncio
 from datetime import UTC, datetime, timedelta
 import httpx
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update
 from app.database import async_session
 from app.models.telemetry import (
-    Trip, ChargingSession, VehiclePosition, ChargingState, ConnectionState,
+    ChargingSession, VehiclePosition, ChargingState, ConnectionState,
     VehicleState, AirConditioningState, MaintenanceReport, OdometerReading,
     DriveLevel, DriveRange, Drive, BatteryHealth, PowerUsage, ChargingCurve,
     ChargingPower, DriveRangeEstimatedFull, DriveConsumption, ClimatizationState,
-    OutsideTemperature, BatteryTemperature, WeconnectError, CollectorRawResponse
+    OutsideTemperature, BatteryTemperature, CollectorRawResponse
 )
 
 from app.models.vehicle import ConnectorSession, UserVehicle
-from app.models.user import User
 from app.services.abrp_sync import AbrpSnapshot, flush_outbox, push_vehicle_tlm
 from app.services.crypto import decrypt_field, encrypt_field
 from app.services.skoda_normalize import NormalizedSnapshot
 from app.services.skoda_public_api import SkodaPublicAPIClient, parse_expires_at
 from app.services.events import CHANNEL_VEHICLE_EVENTS, get_valkey_pubsub_client, get_valkey_client
-from app.services.analytics import is_actively_charging, is_plugged_in, process_completed_trips_and_charges
-from app.services.external_apis import fetch_weather_and_elevation, fetch_nordpool_price
+from app.services.analytics import is_actively_charging, process_completed_trips_and_charges
+from app.services.external_apis import fetch_weather_and_elevation
 from app.services.skoda_api import SkodaAPIClient
-from app.services.skoda_auth import SkodaAuthClient
 
 logger = logging.getLogger(__name__)
 
@@ -673,8 +671,8 @@ class DataCollector:
                     config = json.loads(decrypt_field(vehicle.connector_config_encrypted))
                     username = config.get("username")
                     password = config.get("password")
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("vehicle %s: connector config unreadable (%s); polling continues without login credentials", vehicle.id, exc.__class__.__name__)
 
             from app.services.skoda_lifecycle import SkodaTokenLifecycle, AuthRequiredError, LoginDeferred
             lifecycle = SkodaTokenLifecycle(session)
@@ -707,7 +705,7 @@ class DataCollector:
                 await session.commit()
                 logger.info("Login deferred for vehicle %s: %s", user_vehicle_id, e)
                 return
-            except Exception as e:
+            except Exception:
                 logger.exception("Unknown token refresh error for vehicle %s", user_vehicle_id)
                 return
 

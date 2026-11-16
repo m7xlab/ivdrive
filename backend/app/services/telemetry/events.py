@@ -7,8 +7,8 @@ to SQLAlchemy ORM models for persistence.
 
 from datetime import datetime, UTC
 from enum import Enum
-from typing import Annotated, Any
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any
+from pydantic import BaseModel, Field, model_validator
 
 
 class EventSource(str, Enum):

@@ -1,14 +1,12 @@
 import json
 import uuid
 import zipfile
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.telemetry import (
     Drive, ChargingSession, Trip, VehiclePosition, 
@@ -18,7 +16,6 @@ from app.models.telemetry import (
     BatteryTemperature
 )
 from app.models.vehicle import UserVehicle
-from app.models.user import User
 
 class ExportService:
     """Service to handle user data extraction for data sovereignty."""

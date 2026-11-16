@@ -5,7 +5,6 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from .replay import trips
 from app.api.v1.vehicles import delete_trip, edit_trip
 from app.models.telemetry import DeletedTrip, OdometerReading, Trip
@@ -13,7 +12,6 @@ from app.models.user import User
 from app.models.vehicle import UserVehicle
 from app.schemas.telemetry import TripEdit
 from app.services.trip_reconcile import find_phantom_trips, find_uncovered_gaps, reconcile_zero_distance_trips
-from app.services.trip_sync import parse_legs, sync_legs
 
 from .test_trip_sync import _drive, _payload, _sync, _tr
 
