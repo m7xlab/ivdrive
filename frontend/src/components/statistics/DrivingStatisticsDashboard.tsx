@@ -5,7 +5,6 @@ import { format, parseISO } from "date-fns";
 import { Loader2, Route, Zap, BatteryCharging, Timer, Calendar, History } from "lucide-react";
 import { api } from "@/lib/api";
 import type { TimelineRange } from "./StatisticsShell";
-import { formatSmartDuration } from "@/lib/format";
 import { calculateStatisticsLimit } from "@/lib/periodLimit";
 import { useLocale } from "@/lib/locale";
 

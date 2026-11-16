@@ -30,11 +30,8 @@ import {
 
   Car,
 
-  Timer,
 
-  Wifi,
 
-  WifiOff,
 
   Download,
 
@@ -44,7 +41,6 @@ import {
 
   Sliders,
 
-  Gauge,
 
   Monitor,
 
@@ -65,7 +61,6 @@ import { api } from "@/lib/api";
 
 import { ThemeSection } from "./theme-section";
 import { AbrpSection } from "./abrp-section";
-import { SkodaPublicSection } from "./skoda-public-section";
 import { VehicleListRow } from "./vehicle-list-row";
 import { PasswordInput } from "@/components/password-input";
 
@@ -73,7 +68,7 @@ import { ECB_CURRENCIES } from "@/lib/currency";
 
 import { useLocale } from "@/lib/locale";
 
-import { cToF, distanceLabel, fToC, kmhToMph, mphToKmh, parseUnitSystem, speedLabel, tempLabel, usesFahrenheit, usesMiles, type UnitSystem } from "@/lib/units";
+import { cToF, distanceLabel, fToC, kmhToMph, mphToKmh, parseUnitSystem, usesFahrenheit, usesMiles, type UnitSystem } from "@/lib/units";
 
 
 
@@ -319,29 +314,6 @@ const btnPrimaryClasses = "rounded-lg bg-iv-green/15 px-5 py-2.5 text-sm font-me
 
 
 
-function ConnectorStatusBadge({ status }: { status: string | null }) {
-
-  if (!status) return null;
-
-  const map: Record<string, { color: string; label: string }> = {
-
-    active: { color: "bg-iv-green/15 text-iv-green border-iv-green/20", label: "Active" },
-
-    pending: { color: "bg-iv-warning/15 text-iv-warning border-iv-warning/20", label: "Pending" },
-
-    auth_failed: { color: "bg-iv-danger/15 text-iv-danger border-iv-danger/20", label: "Auth Failed" },
-
-    token_error: { color: "bg-iv-danger/15 text-iv-danger border-iv-danger/20", label: "Token Error" },
-    degraded: { color: "bg-iv-warning/15 text-iv-warning border-iv-warning/20", label: "Connection Issues" },
-    paused: { color: "bg-iv-surface text-iv-muted border-iv-border", label: "Sync Off" },
-  };
-
-  const cfg = map[status] || { color: "bg-iv-surface text-iv-muted border-iv-border", label: status };
-
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.color}`}>{cfg.label}</span>;
-
-}
-
 /** Derives a user-facing connection-health alert from the vehicle's connector health fields. */
 function vehicleConnectionAlert(v: SettingsVehicle): { level: "auth" | "degraded"; title: string; detail: string } | null {
   // Sync intentionally paused — no reconnect/degraded prompts apply.
@@ -398,7 +370,7 @@ export default function SettingsPage() {
 
   const { user, logout, refreshUser } = useAuth();
 
-  const { currency, unitSystem, fxRate, fxAsOf, fromEur, toEur, formatMoneyFromEur, formatDistance, kmToDisplay, displayToKm } = useLocale();
+  const { currency, unitSystem, fxRate, fxAsOf, fromEur, toEur, formatMoneyFromEur, displayToKm } = useLocale();
 
   const [toast, setToast] = useState<{ status: "success" | "error"; message: string } | null>(null);
   const [category, setCategory] = useState<SettingsCategory>("account");
@@ -434,7 +406,7 @@ export default function SettingsPage() {
 
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
 
-  const [vehicleDeleting, setVehicleDeleting] = useState<string | null>(null);
+  const [, setVehicleDeleting] = useState<string | null>(null);
 
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
 
@@ -518,7 +490,9 @@ export default function SettingsPage() {
 
     const [exporting, setExporting] = useState(false);
 
-  const [exportJobs, setExportJobs] = useState<any[]>([]);
+  const [exportJobs, setExportJobs] = useState<
+    Array<{ job_id: string; status: string; created_at: string; [key: string]: unknown }>
+  >([]);
 
   const [exportEnabled, setExportEnabled] = useState(false);
 
@@ -573,7 +547,7 @@ export default function SettingsPage() {
     }
     if (legacy !== null) localStorage.removeItem("ivdrive_show_commands");
     setShowCommands(Boolean(user.show_commands));
-  }, [user]);
+  }, [user, refreshUser]);
 
 
 
@@ -633,7 +607,7 @@ export default function SettingsPage() {
 
       }
 
-    } catch (e) {}
+    } catch {}
 
   }, []);
 
@@ -1042,7 +1016,8 @@ export default function SettingsPage() {
 
       await api.deleteAccount();
 
-      window.location.href = "/";
+      // A full page load on purpose: it drops every cached client-side state of the deleted account.
+      window.location.assign("/"); // eslint-disable-line @next/next/no-location-assign-relative-destination
 
     } catch (err) {
 

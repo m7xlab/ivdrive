@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Loader2, Car, TrendingDown } from "lucide-react";
+import { Loader2, Car } from "lucide-react";
 import {
   LineChart,
   Line,

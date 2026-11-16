@@ -2,7 +2,7 @@
 
 
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Plus, Car, X, Loader2, AlertCircle, Timer } from "lucide-react";
 
@@ -20,7 +20,6 @@ import {
   useVehicleStatus,
   useDeleteVehicle,
   type Vehicle,
-  type VehicleStatus,
 } from "@/lib/hooks/use-vehicles";
 
 import { AuthReauthBanner, AuthMethodPill, ConnectorErrorPill } from "@/components/auth-banner";

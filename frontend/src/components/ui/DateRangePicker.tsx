@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 
 import { DayPicker, type DateRange } from "react-day-picker";
 
@@ -11,6 +11,7 @@ import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, startO
 import { Calendar } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 
 
@@ -65,9 +66,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
 
   // formatting dates with new Date() which differs between server and client time.
 
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
 
 

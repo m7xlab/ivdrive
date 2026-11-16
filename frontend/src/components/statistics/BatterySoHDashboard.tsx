@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, ReferenceLine, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from "recharts";
 import { api } from '../../lib/api';
 import { TimelineRange } from "./StatisticsShell";
 import { useLocale } from "@/lib/locale";
@@ -13,7 +13,9 @@ interface MethodResult {
   estimated_kwh: number | null;
   sample_count: number;
   confidence: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped vendor JSON, read defensively
   inputs: Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped vendor JSON, read defensively
   extra: Record<string, any>;
 }
 
@@ -52,7 +54,6 @@ const TOOLTIP_STYLE = {
 
 export function BatterySoHDashboard({
   vehicleId,
-  dateRange,
 }: {
   vehicleId: string;
   dateRange?: TimelineRange;
@@ -71,8 +72,8 @@ export function BatterySoHDashboard({
         setError(null);
         const result = await api.getBatteryHealthAnalytics(vehicleId);
         if (!cancelled) setData(result);
-      } catch (err: any) {
-        if (!cancelled) setError(err.message || 'Failed to load battery health analytics');
+      } catch (err) {
+        if (!cancelled) setError((err instanceof Error && err.message) || 'Failed to load battery health analytics');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -107,10 +108,8 @@ export function BatterySoHDashboard({
   const methods = data.methods ?? [];
   const anomalies = data.anomalies ?? [];
   const methodByName = (name: string) => methods.find(m => m.method === name);
-  const tesla = methodByName('tesla_capacity');
   const taper = methodByName('charging_curve_taper');
   const cellImb = methodByName('cell_imbalance');
-  const throughput = methodByName('throughput');
   const rangeDrift = methodByName('range_drift_over_time');
   const fleet = methodByName('fleet_benchmark');
 

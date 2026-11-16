@@ -30,7 +30,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<any>;
+  login: (email: string, password: string) => Promise<Awaited<ReturnType<typeof api.login>> | void>;
   verify2FA: (token2FA: string, code: string) => Promise<void>;
   verifyRecoveryCode: (token2FA: string, code: string) => Promise<void>;
   register: (

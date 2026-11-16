@@ -43,12 +43,14 @@ interface CCIResponse {
 export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehicleId: string; dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<CCIResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const fromISO = dateRange?.from?.toISOString();
+  const toISO = dateRange?.to?.toISOString();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const opts = dateRange ? { fromDate: dateRange.from.toISOString(), toDate: dateRange.to.toISOString() } : undefined;
+        const opts = fromISO && toISO ? { fromDate: fromISO, toDate: toISO } : undefined;
         const res = await api.getChargingCurveIntegralsV2(vehicleId, opts);
         setData(res);
       } catch (err) {
@@ -58,7 +60,7 @@ export function ChargingCurveIntegralsDashboard({ vehicleId, dateRange }: { vehi
       }
     };
     fetchData();
-  }, [vehicleId, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+  }, [vehicleId, fromISO, toISO]);
 
   if (loading) {
     return (

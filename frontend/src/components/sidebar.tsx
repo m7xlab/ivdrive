@@ -47,6 +47,7 @@ import { useTheme } from "next-themes";
 import { useAuth } from "@/lib/auth-context";
 
 import { api } from "@/lib/api";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 
 
@@ -170,9 +171,9 @@ export function Sidebar() {
 
   const [collapsed, setCollapsed] = useState(false);
 
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
 
 
@@ -185,10 +186,6 @@ export function Sidebar() {
   const [modalAnn, setModalAnn] = useState<UserAnnouncement | null>(null);
 
   const bellRef = useRef<HTMLDivElement>(null);
-
-
-
-  useEffect(() => setMounted(true), []);
 
 
 

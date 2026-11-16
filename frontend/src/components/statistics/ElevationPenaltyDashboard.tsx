@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Loader2, TrendingUp, TrendingDown, Mountain } from "lucide-react";
+import { Loader2, Mountain } from "lucide-react";
 import {
   BarChart,
   Bar,

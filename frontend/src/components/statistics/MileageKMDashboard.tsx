@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { format, addDays, subDays } from "date-fns";
+import { format, addDays } from "date-fns";
 import { Gauge, Loader2, TrendingUp } from "lucide-react";
 import {
   LineChart,
@@ -15,7 +15,6 @@ import {
 import { api } from "@/lib/api";
 import { calculateStatisticsLimit } from "@/lib/periodLimit";
 import type { TimelineRange } from "./StatisticsShell";
-import { formatSmartDuration } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 
 export interface MileageKMDashboardProps {

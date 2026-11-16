@@ -50,14 +50,14 @@ export function ClimatePenaltyDashboard({
   const { formatConsumption, consumptionLabel, kwhPer100ToDisplay, usesFahrenheit } = useLocale();
   const [data, setData] = useState<ClimatePenaltyResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const fromISO = dateRange?.from?.toISOString();
+  const toISO = dateRange?.to?.toISOString();
 
   useEffect(() => {
     const fetchClimate = async () => {
       try {
         setLoading(true);
-        const opts = dateRange
-          ? { fromDate: dateRange.from.toISOString(), toDate: dateRange.to.toISOString() }
-          : undefined;
+        const opts = fromISO && toISO ? { fromDate: fromISO, toDate: toISO } : undefined;
         const res = await statisticsApi.getClimatePenalty(vehicleId, opts);
         setData(res);
       } catch (err) {
@@ -67,7 +67,7 @@ export function ClimatePenaltyDashboard({
       }
     };
     fetchClimate();
-  }, [vehicleId, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+  }, [vehicleId, fromISO, toISO]);
 
   if (loading) {
     return (

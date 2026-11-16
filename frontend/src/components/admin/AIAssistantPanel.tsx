@@ -1215,7 +1215,8 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 
 function Field({ label, value, onChange, type = "text", step, placeholder }: {
 
-  label: string; value: string | number; onChange: (v: any) => void;
+  label: string; value: string | number; /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- callers pass string or number setters */
+  onChange: (v: any) => void;
 
   type?: "text" | "number"; step?: string; placeholder?: string;
 

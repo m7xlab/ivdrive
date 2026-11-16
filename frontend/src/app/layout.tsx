@@ -29,12 +29,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* App Router layout: the pages-directory font rule does not apply; fonts are allowed by the CSP in next.config.ts */}
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
         />
         {analyticsUrl && analyticsKey && (
-          // eslint-disable-next-line @next/next/no-before-interactive-script-component
           <script
             defer
             src={analyticsUrl}

@@ -28,13 +28,6 @@ export interface SessionInfo {
   last_message_at: string | null;
 }
 
-// In-memory current session — never persisted to localStorage
-let _currentSessionId: string | null = null;
-
-function setCurrentSessionId(sid: string | null): void {
-  _currentSessionId = sid;
-}
-
 // ── Session management ────────────────────────────────────────────────────────
 
 export const chatApi = {
@@ -80,10 +73,6 @@ export const chatApi = {
     });
     const data = await res.json();
 
-    // Update in-memory current session
-    if (data.session_id) {
-      setCurrentSessionId(data.session_id);
-    }
 
     return data;
   },
@@ -149,7 +138,6 @@ export const chatApi = {
         if (evt.type === "delta" && evt.text) {
           handlers.onDelta(evt.text);
         } else if (evt.type === "done") {
-          if (evt.session_id) setCurrentSessionId(evt.session_id);
           handlers.onDone({ session_id: evt.session_id, sources: evt.sources });
         } else if (evt.type === "status") {
           handlers.onStatus?.();

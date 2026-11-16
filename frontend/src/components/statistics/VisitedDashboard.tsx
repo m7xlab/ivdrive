@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useTheme } from "next-themes";
 import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 export interface VisitedDashboardProps {
   vehicleId: string;
@@ -98,21 +99,19 @@ interface VisitedMapProps {
   locations: VisitedLocation[];
 }
 
+type ReactLeaflet = typeof import("react-leaflet");
+
 function VisitedMap({ locations }: VisitedMapProps) {
   const [MapComponents, setMapComponents] = useState<{
-    MapContainer: any;
-    TileLayer: any;
-    CircleMarker: any;
-    Popup: any;
-    ZoomControl: any;
+    MapContainer: ReactLeaflet["MapContainer"];
+    TileLayer: ReactLeaflet["TileLayer"];
+    CircleMarker: ReactLeaflet["CircleMarker"];
+    Popup: ReactLeaflet["Popup"];
+    ZoomControl: ReactLeaflet["ZoomControl"];
   } | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!mounted) return;

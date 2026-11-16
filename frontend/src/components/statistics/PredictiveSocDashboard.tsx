@@ -2,10 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Loader2, Battery, Target, Gauge } from "lucide-react";
+import { Loader2, Battery, Target } from "lucide-react";
 import {
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -84,11 +82,6 @@ export function PredictiveSocDashboard({ vehicleId, dateRange }: { vehicleId: st
     data.confidence_pct >= 70 ? "var(--iv-green)" :
     data.confidence_pct >= 45 ? "var(--iv-yellow)" :
     "var(--iv-red)";
-
-  const socData = [
-    { label: "Current SoC", value: data.current_soc_pct, color: "var(--iv-cyan)" },
-    { label: "Predicted Arrival", value: data.predicted_arrival_soc_pct, color: confidenceColor },
-  ];
 
   const tf = (c: number) => usesFahrenheit(unitSystem) ? `${Math.round(cToF(c))}°F` : `${c}°C`;
   const tempConsumptionData = [

@@ -107,7 +107,7 @@ export class ApiError extends Error {
 
 
 // Simple memory cache for GET requests
-const requestCache = new Map<string, { data: any; timestamp: number }>();
+const requestCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL_MS = 60000; // 1 minute
 
 // Periodically clean up stale cache entries to prevent Map memory leaks over long sessions

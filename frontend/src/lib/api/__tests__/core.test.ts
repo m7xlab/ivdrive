@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiFetch, ApiError, setAuthFlag, clearAuthFlag, hasAuthFlag, clearApiCache, getAccessTokenExpiry } from '../core';
+import { apiFetch, ApiError, clearApiCache, getAccessTokenExpiry } from '../core';
 
 describe('apiFetch core functionality', () => {
   beforeEach(() => {
@@ -23,7 +23,7 @@ describe('apiFetch core functionality', () => {
       status: 200,
       clone: () => ({ json: async () => mockResponse }),
       json: async () => mockResponse
-    } as any);
+    } as unknown as Response);
 
     const result = await apiFetch('/test');
     expect(result.ok).toBe(true);
@@ -47,7 +47,7 @@ describe('apiFetch core functionality', () => {
       clone: () => ({ json: async () => mockErrorData, text: async () => JSON.stringify(mockErrorData) }),
       body: { cancel: vi.fn() },
       json: async () => mockErrorData
-    } as any);
+    } as unknown as Response);
 
     await expect(apiFetch('/error')).rejects.toThrow(ApiError);
     await expect(apiFetch('/error')).rejects.toThrow('Not found');
@@ -63,13 +63,13 @@ describe('apiFetch core functionality', () => {
       clone: () => ({ json: async () => mockErrorData }),
       body: { cancel: vi.fn() },
       json: async () => mockErrorData
-    } as any);
+    } as unknown as Response);
     
     // Refresh token call succeeds
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       status: 200,
-    } as any);
+    } as unknown as Response);
     
     // Retry call succeeds
     vi.mocked(fetch).mockResolvedValueOnce({
@@ -77,7 +77,7 @@ describe('apiFetch core functionality', () => {
       status: 200,
       clone: () => ({ json: async () => ({}) }),
       json: async () => ({})
-    } as any);
+    } as unknown as Response);
 
     const result = await apiFetch('/protected');
     expect(result.ok).toBe(true);

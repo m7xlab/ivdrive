@@ -30,7 +30,6 @@ import {
 
   ChevronDown,
 
-  AlertTriangle,
 
   Crown,
 
@@ -42,7 +41,6 @@ import {
 
   Copy,
 
-  Check,
 
   Trash2,
 
@@ -57,11 +55,9 @@ import {
 
   RefreshCw,
 
-  BarChart4,
 
   Activity,
 
-  Globe2,
 
   Car,
 

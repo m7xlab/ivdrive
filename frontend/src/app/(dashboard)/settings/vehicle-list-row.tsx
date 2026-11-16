@@ -34,12 +34,6 @@ export type VehicleRow = {
   api_key_expires_in_days?: number | null;
 };
 
-function intervalLabel(s: number) {
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
 function statusDot(v: VehicleRow) {
   if (!v.collection_enabled) return { label: "Paused", color: "bg-iv-muted" };
   if (v.connector_status === "auth_failed" || v.connector_status === "token_error")
