@@ -1,5 +1,5 @@
 # Two stages: wheels are built with the compiler in `builder`; the runtime image
-# carries no gcc, no -dev headers and installs from the hash-pinned requirements.lock.
+# carries no gcc, no -dev headers and installs only wheels built from the hash-pinned requirements.lock.
 # Regenerate the lock after editing requirements.txt:
 #   docker run --rm -v "$PWD":/w -w /w python:3.12-slim sh -c \
 #     "pip install -q pip-tools && pip-compile --generate-hashes --strip-extras -o requirements.lock requirements.txt"
@@ -22,10 +22,12 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
+# Every wheel here was downloaded with --require-hashes in the builder (or compiled from a
+# hash-verified sdist, whose local wheel necessarily has a different digest), so the runtime
+# installs the wheel files directly instead of re-checking them against requirements.lock.
 COPY --from=builder /wheels /wheels
-COPY requirements.lock .
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools && \
-    pip install --no-cache-dir --no-index --find-links=/wheels --require-hashes -r requirements.lock && \
+    pip install --no-cache-dir --no-index --find-links=/wheels /wheels/*.whl && \
     rm -rf /wheels
 
 COPY . .
