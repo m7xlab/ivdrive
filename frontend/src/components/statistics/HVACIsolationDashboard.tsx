@@ -37,12 +37,14 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
   const { formatConsumption, consumptionLabel, kwhPer100ToDisplay, unitSystem } = useLocale();
   const [data, setData] = useState<HVACResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const fromISO = dateRange?.from?.toISOString();
+  const toISO = dateRange?.to?.toISOString();
 
   useEffect(() => {
     const fetchHVAC = async () => {
       try {
         setLoading(true);
-        const opts = dateRange ? { fromDate: dateRange.from.toISOString(), toDate: dateRange.to.toISOString() } : undefined;
+        const opts = fromISO && toISO ? { fromDate: fromISO, toDate: toISO } : undefined;
         const res = await api.getHVACIsolation(vehicleId, opts);
         setData(res);
       } catch (err) {
@@ -52,7 +54,7 @@ export function HVACIsolationDashboard({ vehicleId, dateRange }: { vehicleId: st
       }
     };
     fetchHVAC();
-  }, [vehicleId, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+  }, [vehicleId, fromISO, toISO]);
 
   if (loading) {
     return (

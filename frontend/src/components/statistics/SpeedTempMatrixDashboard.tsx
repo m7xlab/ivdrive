@@ -10,7 +10,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   Cell,
 } from "recharts";
@@ -168,7 +167,7 @@ export function SpeedTempMatrixDashboard({ vehicleId, dateRange }: { vehicleId: 
                 <Tooltip
                   contentStyle={{ backgroundColor: "var(--iv-charcoal)", border: "1px solid var(--iv-border)", borderRadius: "8px" }}
                   itemStyle={{ color: "var(--iv-text)" }}
-                  formatter={(value: number, name: string, props: any) => [`${value} ${consumptionLabel} (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
+                  formatter={(value: number, name: string, props: { payload?: { trip_count?: number } }) => [`${value} ${consumptionLabel} (${props.payload?.trip_count ?? 0} trips)`, "Efficiency"]}
                 />
                 <Bar dataKey="avg_kwh_100km" name={consumptionLabel} radius={[4, 4, 0, 0]}>
                   {chartData.map((entry, index) => (

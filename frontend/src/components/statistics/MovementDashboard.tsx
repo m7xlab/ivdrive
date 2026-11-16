@@ -8,6 +8,7 @@ import { useTheme } from "next-themes";
 import { formatSmartDuration } from "@/lib/format";
 import { getCartoTileUrl } from "@/lib/map-utils";
 import type { TimelineRange } from "./StatisticsShell";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 export interface MovementDashboardProps {
   vehicleId: string;
@@ -179,7 +180,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   const [timeBudget, setTimeBudget] = useState<TimeBudget | null>(null);
   const [topPlacesApi, setTopPlacesApi] = useState<Array<{ place_name: string; latitude: number; longitude: number; total_seconds: number; stay_count: number; geofence_id: string | null }>>([]);
   const [loadingBudget, setLoadingBudget] = useState(true);
-  const [loadingPeriod, setLoadingPeriod] = useState(true);
+  const [, setLoadingPeriod] = useState(true);
 
   const fromISO = dateRange.from.toISOString();
   const toISO = dateRange.to.toISOString();
@@ -209,7 +210,7 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
     } finally {
       setLoadingPeriod(false);
     }
-  }, [vehicleId]);
+  }, [vehicleId, fromISO, toISO]);
 
   useEffect(() => { fetchPeriodData(); }, [fetchPeriodData]);
 
@@ -381,13 +382,13 @@ export function MovementDashboard({ vehicleId, dateRange }: MovementDashboardPro
   );
 }
 
+type MapParts = Pick<typeof import("react-leaflet"), "MapContainer" | "TileLayer" | "CircleMarker" | "Popup" | "ZoomControl">;
+
 function MovementMap({ locations, stayEvents }: { locations: VisitedLocation[]; stayEvents: StayEvent[] }) {
-  const [MapComponents, setMapComponents] = useState<any>(null);
-  const [mounted, setMounted] = useState(false);
+  const [MapComponents, setMapComponents] = useState<MapParts | null>(null);
+  const mounted = useMounted();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-
-  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!mounted) return;

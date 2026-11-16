@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 import { format, parseISO, getYear, getMonth } from "date-fns";
 
-import { Loader2, Car, Clock, Calendar, ChevronRight } from "lucide-react";
+import { Loader2, Car, Calendar, ChevronRight } from "lucide-react";
 
 import { api } from "@/lib/api";
 
@@ -20,7 +20,6 @@ import { getCartoTileUrl } from "@/lib/map-utils";
 
 import "leaflet/dist/leaflet.css";
 
-import { formatSmartDuration } from "@/lib/format";
 
 import { useLocale } from "@/lib/locale";
 
@@ -258,8 +257,12 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
 
 
+  // Latest locations for async work that must not re-run when they change. Updated after commit; the
+  // reader below runs in a later effect, so it always sees the current value.
   const locationsRef = useRef(locations);
-  locationsRef.current = locations;
+  useEffect(() => {
+    locationsRef.current = locations;
+  }, [locations]);
 
   const getLocationName = (lat: number | null | undefined, lon: number | null | undefined) => {
 
@@ -275,6 +278,9 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
   // Initial load
 
+  const fromStr = dateRange?.from?.toISOString();
+  const toStr = dateRange?.to?.toISOString();
+  const hasRange = dateRange !== undefined;
   useEffect(() => {
 
     const fetchData = async () => {
@@ -282,10 +288,6 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
       setLoading(true);
 
       try {
-
-        const fromStr = dateRange?.from?.toISOString();
-
-        const toStr = dateRange?.to?.toISOString();
 
         // Summary cards are computed from this list, so it must cover the whole period (backend max).
         const limit = 10000;
@@ -296,7 +298,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
         
 
-        if (!dateRange && list && list.length > 0) {
+        if (!hasRange && list && list.length > 0) {
 
           const latest = list[0];
 
@@ -322,7 +324,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
     fetchData();
 
-  }, [vehicleId, dateRange?.from, dateRange?.to, reloadKey]);
+  }, [vehicleId, fromStr, toStr, hasRange, reloadKey]);
 
 
 

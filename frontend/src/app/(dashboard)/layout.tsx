@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Sidebar, BottomNav } from "@/components/sidebar";
 import { IVDriveAIWidget } from "@/components/chat/IVDriveAIWidget";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 function LoadingScreen() {
   return (
@@ -24,9 +25,7 @@ export default function DashboardLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   useEffect(() => {
     if (!mounted) return;

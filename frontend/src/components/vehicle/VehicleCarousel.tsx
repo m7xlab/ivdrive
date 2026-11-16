@@ -187,7 +187,6 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
             <div className="relative w-full h-full">
 
               {/* eslint-disable-next-line @next/next/no-img-element */}
-
               <img
 
                 src={render.url}
@@ -351,7 +350,6 @@ export function VehicleCarousel({ renders }: VehicleCarouselProps) {
                   <div className="relative w-full h-full">
 
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-
                     <img
 
                       src={render.url}

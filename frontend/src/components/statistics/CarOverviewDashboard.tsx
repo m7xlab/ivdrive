@@ -22,13 +22,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceArea,
-  ReferenceLine,
   CartesianGrid,
   ComposedChart,
   Legend,
 } from "recharts";
 import { api } from "@/lib/api";
-import { Battery, Zap as ZapIcon, Maximize, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
+import { Battery, Clock, ThermometerSnowflake, Bolt, MapPin, Cloud } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { TimelineRange } from "./StatisticsShell";
 import { formatSmartDuration } from "@/lib/format";
@@ -158,7 +157,7 @@ function toISO(d: Date) {
 }
 
 
-function StatTable({ data, dataKeys }: { data: any[], dataKeys: { key: string, label: string, color: string, unit: string, decimals?: number, convert?: (n: number) => number }[] }) {
+function StatTable({ data, dataKeys }: { data: Array<Record<string, number | string | null | undefined>>, dataKeys: { key: string, label: string, color: string, unit: string, decimals?: number, convert?: (n: number) => number }[] }) {
   if (!data || data.length === 0) return null;
   return (
     <div className="w-full mt-4 bg-iv-charcoal/50 rounded border border-iv-border text-[11px] font-mono">

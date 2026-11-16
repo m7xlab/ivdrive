@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, ZoomControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useTheme } from "next-themes";
 import { getCartoTileUrl } from "@/lib/map-utils";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 // Fix for default Leaflet markers in Next.js/Webpack
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -22,11 +22,7 @@ interface MapProps {
 
 export default function LocationMap({ latitude, longitude }: MapProps) {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   if (!mounted) return <div className="w-full h-full bg-iv-surface/20 animate-pulse" />;
 

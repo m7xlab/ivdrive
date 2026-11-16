@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Plug, Zap, Banknote, Edit, Plus, Trash2, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -91,6 +91,22 @@ function humanError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** One row of /vehicles/{id}/charging/sessions as this dashboard reads it. */
+interface SessionRow {
+  id: string;
+  session_start: string;
+  session_end: string | null;
+  start_level: number | null;
+  end_level: number | null;
+  energy_kwh: number | null;
+  actual_cost_eur: number | null;
+  plan_cost_eur?: number | null;
+  base_cost_eur?: number | null;
+  cost_label?: string | null;
+  provider_name: string | null;
+  charging_plan_id?: string | null;
+}
+
 export function ChargingSessionsDashboard({
   vehicleId,
   onChanged,
@@ -100,19 +116,19 @@ export function ChargingSessionsDashboard({
 }) {
   const { currency, fromEur, toEur, formatMoneyFromEur } = useLocale();
   const toast = useToast();
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [plans, setPlans] = useState<ChargingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
-  const [editingSession, setEditingSession] = useState<any>(null);
+  const [editingSession, setEditingSession] = useState<SessionRow | null>(null);
   const editingIdRef = useRef<string | number | null>(null);
   const [editForm, setEditForm] = useState<FormFields>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [suggestion, setSuggestion] = useState<SuggestCost | null>(null);
 
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const data = await api.getAnalyticsChargingSessions(vehicleId, 10);
       setSessions(data);
@@ -121,11 +137,11 @@ export function ChargingSessionsDashboard({
     } finally {
       setLoading(false);
     }
-  };
+  }, [vehicleId]);
 
   useEffect(() => {
     fetchSessions();
-  }, [vehicleId]);
+  }, [fetchSessions]);
 
   useEffect(() => {
     api.getChargingPlans().then(setPlans).catch(() => setPlans([]));
@@ -148,7 +164,7 @@ export function ChargingSessionsDashboard({
     setFormMode("create");
   };
 
-  const applySuggestion = (s: SuggestCost, session: any, overwriteCost: boolean) => {
+  const applySuggestion = (s: SuggestCost, session: SessionRow, overwriteCost: boolean) => {
     setSuggestion(s);
     const leaveUnpaid =
       s.reason === "within_allotment" ||
@@ -166,7 +182,7 @@ export function ChargingSessionsDashboard({
     }));
   };
 
-  const openEditor = async (session: any) => {
+  const openEditor = async (session: SessionRow) => {
     const sessionId = session.id;
     editingIdRef.current = sessionId;
     setEditingSession(session);
@@ -290,7 +306,7 @@ export function ChargingSessionsDashboard({
     }
   };
 
-  const endCharge = async (session: any) => {
+  const endCharge = async (session: SessionRow) => {
     const body: Record<string, unknown> = { session_end: new Date().toISOString() };
     if (session.end_level != null) body.end_level = session.end_level;
     try {

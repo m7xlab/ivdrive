@@ -21,7 +21,7 @@ describe('authApi', () => {
       status: 200,
       clone: () => ({ json: async () => mockRes }),
       json: async () => mockRes
-    } as any);
+    } as unknown as Response);
 
     const result = await authApi.login('test@test.com', 'password123');
     expect(result).toEqual(mockRes);
@@ -38,7 +38,7 @@ describe('authApi', () => {
       status: 200,
       clone: () => ({ json: async () => ({}) }),
       json: async () => ({})
-    } as any);
+    } as unknown as Response);
 
     await authApi.logout();
     expect(core.clearAuthFlag).toHaveBeenCalledTimes(1);

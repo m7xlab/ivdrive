@@ -2,9 +2,9 @@
 
 
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 
-import { X, Send, Bot, Loader2, MessageSquare, Trash2, Plus, Sparkles } from "lucide-react";
+import { X, Send, Bot, Loader2, MessageSquare, Trash2, Plus } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
 
@@ -18,7 +18,6 @@ import { useAuth } from "@/lib/auth-context";
 
 
 
-const MAX_SESSIONS = 15;
 
 const MAX_MESSAGES = 50;
 
@@ -697,6 +696,8 @@ export function IVDriveAIWidget() {
                           // prompt-injected beacon (any URL fetched = the conversation leaked), so
                           // images are dropped and only their alt text stays.
                           img: ({ alt }) => (alt ? <span>{alt}</span> : null),
+                          // `node` is destructured only so it does not reach the DOM through ...props
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
                           a: ({ node, href, children, ...props }) => {
                             const safe =
                               typeof href === "string" &&

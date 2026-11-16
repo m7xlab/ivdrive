@@ -17,7 +17,7 @@ interface TripElevationCardProps {
   distanceKm: number;
 }
 
-export function TripElevationCard({ vehicleId, tripId, distanceKm }: TripElevationCardProps) {
+export function TripElevationCard({ vehicleId, tripId }: TripElevationCardProps) {
   const [stats, setStats] = useState<ElevationStats | null>(null);
   const [loading, setLoading] = useState(true);
 

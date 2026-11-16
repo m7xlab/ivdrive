@@ -1,6 +1,5 @@
-# Lint gate added in v1.4.0. Backend ruff is blocking (the rule set in backend/ruff.toml is
-# correctness only). Frontend ESLint is reported, not blocking, until the pre-existing
-# no-explicit-any / set-state-in-effect debt is paid down.
+# Lint gate. Backend ruff (the rule set in backend/ruff.toml is correctness only) and frontend
+# type-check + ESLint errors are blocking.
 name: Lint
 
 on:
@@ -26,7 +25,7 @@ jobs:
         working-directory: backend
 
   eslint:
-    name: eslint + tsc — frontend (informational)
+    name: eslint + tsc — frontend
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -39,7 +38,7 @@ jobs:
         working-directory: frontend
       - run: npx tsc --noEmit
         working-directory: frontend
-      # ESLint still reports about 185 older problems (mostly no-explicit-any and set-state-in-effect).
-      # They are shown as a warning, not a red check, until they are paid down; type errors above do fail.
-      - run: npm run lint || echo "::warning title=ESLint::frontend lint problems remain (informational, see the log)"
+      # Errors fail the build. The remaining react-hooks/set-state-in-effect warnings (see
+      # frontend/eslint.config.mjs) are reported but do not.
+      - run: npm run lint
         working-directory: frontend

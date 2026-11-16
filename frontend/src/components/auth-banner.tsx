@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, KeyRound, Loader2, X } from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Vehicle } from "@/lib/hooks/use-vehicles";
 import { PasswordInput } from "@/components/password-input";
@@ -45,8 +45,8 @@ export function AuthReauthBanner({ vehicle }: { vehicle: Vehicle }) {
       setOpen(false);
       setPassword("");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-    } catch (e: any) {
-      setErr(e?.message || "Failed to reauthenticate");
+    } catch (e) {
+      setErr((e instanceof Error && e.message) || "Failed to reauthenticate");
     } finally {
       setSubmitting(false);
     }

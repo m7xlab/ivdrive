@@ -13,7 +13,6 @@ import {
 
   ArrowLeft,
 
-  ArrowRight,
 
   Battery,
 
@@ -107,13 +106,9 @@ import {
 
   ResponsiveContainer,
 
-  BarChart,
 
-  Bar,
 
-  LineChart,
 
-  Line,
 
   ReferenceLine,
 
@@ -123,7 +118,7 @@ import { api } from "@/lib/api";
 
 import { useLocale } from "@/lib/locale";
 
-import { DateRangePicker, type DateRangeValue } from "@/components/ui/DateRangePicker";
+import { type DateRangeValue } from "@/components/ui/DateRangePicker";
 
 import { subDays, startOfDay, endOfDay } from "date-fns";
 
@@ -131,19 +126,13 @@ import dynamic from "next/dynamic";
 
 
 
-import { CarOverviewDashboard } from "@/components/statistics/CarOverviewDashboard";
 
 import { VehicleChargingPanel } from "@/components/statistics/VehicleChargingPanel";
 
-import { ChargingStatisticsDashboard } from "@/components/statistics/ChargingStatisticsDashboard";
 
-import { DrivingStatisticsDashboard } from "@/components/statistics/DrivingStatisticsDashboard";
 
-import { LocationsDashboard } from "@/components/statistics/LocationsDashboard";
 
-import { VisitedDashboard } from "@/components/statistics/VisitedDashboard";
 
-import { MileageKMDashboard } from "@/components/statistics/MileageKMDashboard";
 
 import { TripsDashboard } from "@/components/statistics/TripsDashboard";
 
@@ -152,6 +141,7 @@ import { HVACCostCard } from "@/components/statistics/HVACCostCard";
 import { VehicleCarousel } from "@/components/vehicle/VehicleCarousel";
 
 import { CommandsPanel } from "@/components/vehicle/CommandsPanel";
+import { useMounted } from "@/lib/hooks/use-mounted";
 
 
 
@@ -203,10 +193,12 @@ interface Vehicle {
 
   software_version: string | null;
 
-  capabilities: Array<{ id: string; statuses: any[] }> | null;
+  capabilities: Array<{ id: string; statuses: unknown[] }> | null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped vendor JSON, read defensively
   warning_lights: Array<{ category: string; defects: any[] }> | null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped vendor JSON, read defensively
   specifications: Record<string, any> | null;
 
   connector_status: string | null;
@@ -321,15 +313,6 @@ interface MaintenanceItem {
 
 interface OdometerItem { captured_at: string; mileage_in_km: number }
 
-interface StatItem {
-
-  period: string; drives_count: number; total_distance_km: number;
-
-  charging_sessions_count: number; total_energy_kwh: number;
-
-  avg_energy_per_session_kwh: number;
-
-}
 
 interface AdvancedAnalytics {
 
@@ -548,6 +531,7 @@ function StatusPill({ label, value, icon: Icon, accent = "green" }: {
 
 
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped vendor JSON, read defensively
 function WarningLightPill({ category, defects }: { category: string; defects: any[] }) {
 
   const isOk = !defects || defects.length === 0;
@@ -714,7 +698,6 @@ export default function VehicleDetailPage() {
     consumptionLabel,
     per100Label,
     distanceLabel,
-    tempLabel,
     usesFahrenheit,
   } = useLocale();
 
@@ -724,8 +707,7 @@ export default function VehicleDetailPage() {
   // Gate for `new Date()` inside tab IIFEs — dates must not be computed
   // during SSR or they drift between server and client render (#418).
   // Mirrors the same pattern used in DashboardLayout.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   // Single client-side "now" used by the statistics tab IIFE so it never
   // calls `new Date()` inside JSX. Initialised in useEffect to keep SSR safe.
@@ -750,13 +732,11 @@ export default function VehicleDetailPage() {
 
   const [odometer, setOdometer] = useState<OdometerItem[]>([]);
 
-  const [stats, setStats] = useState<StatItem[]>([]);
-
   const [advancedAnalytics, setAdvancedAnalytics] = useState<AdvancedAnalytics | null>(null);
 
-  const [statPeriod, setStatPeriod] = useState<"day" | "week" | "month" | "year">("day");
+  const [statPeriod] = useState<"day" | "week" | "month" | "year">("day");
 
-  const [maintenanceDateRange, setMaintenanceDateRange] = useState<DateRangeValue | null>(null);
+  const [, setMaintenanceDateRange] = useState<DateRangeValue | null>(null);
   useEffect(() => {
     setMaintenanceDateRange({
       from: startOfDay(subDays(new Date(), 90)),
@@ -1325,6 +1305,7 @@ export default function VehicleDetailPage() {
 
               {imgSrc ? (
 
+                // eslint-disable-next-line @next/next/no-img-element -- Škoda render images from a fixed host; the image optimizer is off on purpose (see next.config.ts)
                 <img src={imgSrc} alt={vehicle.display_name} className="max-h-60 object-contain drop-shadow-2xl" />
 
               ) : (
@@ -1847,7 +1828,7 @@ export default function VehicleDetailPage() {
 
 
 
-        const totalKm = recentTrips.reduce((acc, t) => acc + ((t as any).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0)), 0);
+        const totalKm = recentTrips.reduce((acc, t) => acc + ((t as { distance_km?: number | null }).distance_km ?? (t.end_odometer && t.start_odometer ? t.end_odometer - t.start_odometer : 0)), 0);
 
         const totalChargedKwh = recentSessions.reduce((acc, s) => acc + (s.energy_kwh || 0), 0);
 
@@ -1862,12 +1843,6 @@ export default function VehicleDetailPage() {
         const acPercent = totalSessionsCount > 0 ? Math.round((acCount / totalSessionsCount) * 100) : 0;
 
         const dcPercent = totalSessionsCount > 0 ? 100 - acPercent : 0;
-
-
-
-        const totalActualCost = recentSessions.reduce((acc, s) => acc + ((s as any).actual_cost_eur || 0), 0);
-
-        const finalCostPerKwh = totalChargedKwh > 0 ? totalActualCost / totalChargedKwh : 0.25;
 
 
 
@@ -2499,7 +2474,7 @@ export default function VehicleDetailPage() {
 
                        if (data.length > 0 && dueTime < data[0].time) {
 
-                          data.unshift({ time: dueTime, km: null as any });
+                          data.unshift({ time: dueTime, km: null as unknown as number });
 
                        }
 

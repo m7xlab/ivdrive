@@ -166,7 +166,13 @@ export function StatisticsDashboard() {
   );
 }
 
-function StatCard({ title, value, subtitle, icon: Icon, color }: any) {
+function StatCard({ title, value, subtitle, icon: Icon, color }: {
+  title: string;
+  value: React.ReactNode;
+  subtitle?: React.ReactNode;
+  icon: React.ElementType;
+  color?: string;
+}) {
   return (
     <div className="glass rounded-xl border border-iv-border p-5 flex flex-col justify-between">
       <div className="flex justify-between items-start mb-4">

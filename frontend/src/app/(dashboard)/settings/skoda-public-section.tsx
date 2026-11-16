@@ -272,10 +272,6 @@ export function SkodaPublicSection() {
     }
   };
 
-  const expires = settings?.key_expires_at
-    ? new Date(settings.key_expires_at).toLocaleDateString()
-    : null;
-
   return (
     <div className="space-y-4">
       {toast && (

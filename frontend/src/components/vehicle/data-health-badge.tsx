@@ -220,11 +220,11 @@ export function DataHealthBadge({
 
         setState({ health: data, loading: false, error: null });
 
-      } catch (e: any) {
+      } catch (e) {
 
         if (cancelled) return;
 
-        setState((s) => ({ ...s, loading: false, error: e?.message ?? "Failed to load data health" }));
+        setState((s) => ({ ...s, loading: false, error: (e instanceof Error ? e.message : undefined) ?? "Failed to load data health" }));
 
       }
 
@@ -262,9 +262,9 @@ export function DataHealthBadge({
 
       );
 
-    } catch (e: any) {
+    } catch (e) {
 
-      setState((s) => ({ ...s, error: e?.message ?? "Refresh failed" }));
+      setState((s) => ({ ...s, error: (e instanceof Error ? e.message : undefined) ?? "Refresh failed" }));
 
     } finally {
 

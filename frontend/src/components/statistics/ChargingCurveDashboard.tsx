@@ -27,20 +27,23 @@ export function ChargingCurveDashboard({ vehicleId, dateRange }: { vehicleId: st
   const [data, setData] = useState<ChargingCurveData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fromISO = dateRange?.from?.toISOString();
+  const toISO = dateRange?.to?.toISOString();
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const json = await statisticsApi.getChargingCurveIntegralsV2(vehicleId, {
-        fromDate: dateRange?.from?.toISOString(),
-        toDate: dateRange?.to?.toISOString(),
+        fromDate: fromISO,
+        toDate: toISO,
       });
       setData(json);
-    } catch (err: any) {
+    } catch {
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [vehicleId, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
+  }, [vehicleId, fromISO, toISO]);
 
   useEffect(() => {
     fetchData();
