@@ -31,10 +31,12 @@ def _admin_dsn() -> tuple[dict, str]:
 @pytest_asyncio.fixture
 async def replay_sessionmaker():
     creds, scratch_url = _admin_dsn()
+    admin = None
     try:
         admin = await asyncpg.connect(database="postgres", **creds)
     except Exception as exc:  # pragma: no cover - environment dependent
         pytest.skip(f"Postgres not reachable for replay tests: {exc}")
+    assert admin is not None
     await admin.execute(f'DROP DATABASE IF EXISTS "{SCRATCH_DB}" WITH (FORCE)')
     await admin.execute(f'CREATE DATABASE "{SCRATCH_DB}"')
     await admin.close()

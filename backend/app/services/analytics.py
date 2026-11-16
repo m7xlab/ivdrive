@@ -1,9 +1,8 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
@@ -12,7 +11,6 @@ from app.models.telemetry import (
     ChargingState,
     OdometerReading,
     VehiclePosition,
-    DriveRange,
     Trip,
     ChargingSession,
 )

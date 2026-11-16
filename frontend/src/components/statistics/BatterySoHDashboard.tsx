@@ -166,7 +166,7 @@ export function BatterySoHDashboard({
           </div>
           <div className="text-3xl font-bold text-iv-muted">N/A</div>
           <div className="text-xs text-iv-muted mt-1">
-            Skoda API doesn't expose this field
+            Skoda API doesn&apos;t expose this field
           </div>
         </div>
       </div>
@@ -289,7 +289,7 @@ export function BatterySoHDashboard({
             🛣️ Range vs New
           </div>
           <div className="text-xs text-iv-muted mb-4">
-            The single number you actually care about — "how far can I really go?"
+            The single number you actually care about — &ldquo;how far can I really go?&rdquo;
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -321,7 +321,7 @@ export function BatterySoHDashboard({
             🏁 Fleet Benchmark
           </div>
           <div className="text-xs text-iv-muted mb-4">
-            Are you above or below average for your car's age?
+            Are you above or below average for your car&apos;s age?
           </div>
           <div className="flex items-baseline gap-4 flex-wrap">
             <div>

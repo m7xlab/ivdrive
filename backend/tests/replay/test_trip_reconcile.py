@@ -2,7 +2,6 @@
 
 import pytest
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from .replay import Poll, replay, t, trips
 from app.services.trip_reconcile import (
     create_reconstructed_trips, find_uncovered_gaps, reconcile_zero_distance_trips,
@@ -29,7 +28,6 @@ async def test_live_pass_attributes_late_odometer_to_trip(replay_sessionmaker, v
 @pytest.mark.asyncio
 async def test_backfill_dry_run_does_not_write_and_apply_is_idempotent(replay_sessionmaker, vehicle_id):
     from app.models.telemetry import Trip
-    from datetime import timedelta
     async with replay_sessionmaker() as s:
         from app.models.telemetry import OdometerReading
         s.add(Trip(user_vehicle_id=vehicle_id, start_date=t("08:05"), end_date=t("08:10"),
@@ -68,7 +66,7 @@ async def test_following_trip_that_double_counted_is_trimmed(replay_sessionmaker
 
 @pytest.mark.asyncio
 async def test_uncovered_gap_report_and_reconstruction(replay_sessionmaker, vehicle_id):
-    from app.models.telemetry import OdometerReading, Trip
+    from app.models.telemetry import OdometerReading
     async with replay_sessionmaker() as s:
         for hh, odo in (("07:00", 100), ("07:30", 100), ("08:00", 125), ("08:30", 125)):
             s.add(OdometerReading(user_vehicle_id=vehicle_id, captured_at=t(hh), mileage_in_km=odo))

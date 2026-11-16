@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig = {
   output: "standalone",
   eslint: { ignore: true },
-  typescript: { ignoreBuildErrors: true },
+  typescript: { ignoreBuildErrors: false },
   images: {
     unoptimized: true,
   },

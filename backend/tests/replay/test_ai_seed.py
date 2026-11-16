@@ -1,11 +1,9 @@
 """#203 - init_db + `alembic stamp head` must leave a usable AI gate."""
 
-import uuid
 
 import pytest
 from sqlalchemy import text
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from app.services.ai_seed import ensure_ai_defaults
 
 

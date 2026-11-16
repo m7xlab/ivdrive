@@ -4,7 +4,6 @@ import httpx
 import re
 import uuid
 from datetime import datetime
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from app.database import async_session
 from app.models.fuel_price import FuelPrice, PriceBreakdown, CountryEconomics, Vignette

@@ -6,14 +6,12 @@ Provider dispatch:
   - deterministic         (fallback) — hash-based, 384 dims, free
   - bge-m3                (stub)     — local, for future deployment
 """
-import asyncio
 import hashlib
 import json
 import logging
 import os
 import re
 import uuid
-from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -366,34 +364,6 @@ async def generate_embedding(
     return text_to_deterministic_embedding(text), "deterministic@768"
 
 
-async def generate_batch_embeddings(texts: list[str], provider: str = None) -> list[Optional[list[float]]]:
-    """
-    Batch dispatch. Uses Gemini batch endpoint when available (up to 100/call).
-    """
-    if not texts:
-        return []
-    provider = (provider or EMBEDDING_PROVIDER).lower()
-
-    if provider in ("gemini", "gemini-embedding-001", "gemini-embedding"):
-        result = await batch_gemini_embeddings(texts, dim=EMBEDDING_DIM)
-        if any(r is not None for r in result):
-            # backfill None entries with deterministic so caller never sees gaps
-            return [
-                r if r is not None else text_to_deterministic_embedding(t)
-                for r, t in zip(result, texts)
-            ]
-
-    if provider in ("openai", "ollama"):
-        result = []
-        for i in range(0, len(texts), BATCH_SIZE):
-            result += await batch_openai_compat_embeddings(texts[i:i + BATCH_SIZE], provider, EMBEDDING_DIM)
-        return [r if r is not None else text_to_deterministic_embedding(t) for r, t in zip(result, texts)]
-
-    # Fallback / deterministic
-    return [text_to_deterministic_embedding(t) for t in texts]
-
-
-# ─── Text chunking ────────────────────────────────────────────────────────────
 def chunk_text(text: str, max_chars: int = MAX_CHUNK_CHARS, overlap: int = 50) -> list[str]:
     if len(text) <= max_chars:
         return [text] if text.strip() else []

@@ -396,8 +396,8 @@ export function CarOverviewDashboard({
       }
       return prefix;
     };
-    const outsideTempMap = buildTempMap(outsideTemp, (x) => (x as { outside_temp_celsius: number }).outside_temp_celsius);
-    const batteryTempMap = buildTempMap(batteryTemp, (x) => (x as { battery_temperature: number }).battery_temperature);
+    const outsideTempMap = buildTempMap(outsideTemp, (x) => (x as unknown as { outside_temp_celsius: number }).outside_temp_celsius);
+    const batteryTempMap = buildTempMap(batteryTemp, (x) => (x as unknown as { battery_temperature: number }).battery_temperature);
 
     return Array.from(timeSet).filter(Boolean)
       .sort()

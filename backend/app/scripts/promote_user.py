@@ -15,10 +15,6 @@ async def promote_user(email: str):
     try:
         async with async_session() as session:
             # Import models to ensure they are registered
-            import app.models.user
-            import app.models.vehicle
-            import app.models.telemetry
-            import app.models.invite
             
             try:
                 result = await session.execute(select(User).where(User.email == email))

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +36,7 @@ from app.services.abrp_sync import (
     upsert_token_fields,
     upsert_user_api_key,
 )
-from app.services.crypto import encrypt_field
+from app.services.crypto import decrypt_field, encrypt_field
 
 router = APIRouter()
 
@@ -336,7 +336,6 @@ async def connect_skoda_login(
         BFFAuthInvalidCredentials,
         login_with_password,
     )
-    from app.services.skoda_bff_api import SkodaBFFClient
 
     try:
         tokens = await login_with_password(body.email.strip(), body.password)

@@ -4,8 +4,6 @@ Pure-Python tests for the helper functions (no DB required).
 Integration tests against real charging data live in _local_docs/verify_soh.py.
 """
 
-import statistics
-from datetime import datetime, timezone
 
 import pytest
 

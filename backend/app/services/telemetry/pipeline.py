@@ -13,11 +13,10 @@ Designed to be called by:
 
 import asyncio
 import logging
-from datetime import datetime, UTC
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import async_session
@@ -25,15 +24,11 @@ from app.models.telemetry import (
     VehiclePosition,
     ConnectionState,
     ChargingState,
-    VehicleState,
     AirConditioningState,
     BatteryHealth,
-    PowerUsage,
-    ChargingCurve,
     Trip,
     ChargingSession,
 )
-from app.models.vehicle import UserVehicle
 from app.services.telemetry.events import (
     LocationEvent,
     SpeedEvent,

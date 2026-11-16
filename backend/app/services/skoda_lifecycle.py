@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, UTC
-from uuid import UUID
 import logging
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,7 +124,7 @@ class SkodaTokenLifecycle:
                     raise
                 else:
                     raise
-            except httpx.TimeoutException as e:
+            except httpx.TimeoutException:
                 await self._record_event(cs, "refresh_timeout")
                 raise
             finally:

@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import delete, select
 
-from .conftest import *  # noqa: F401,F403  (fixtures)
 from app.models.telemetry import Trip
 from app.services.trip_sync import _flush_start_moves, parse_legs, sync_legs
 

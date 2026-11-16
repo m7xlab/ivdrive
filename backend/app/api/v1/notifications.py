@@ -27,7 +27,7 @@ async def get_active_announcements(
     # Fetch all non-expired announcements
     result = await db.execute(
         select(Announcement).where(
-            (Announcement.expires_at == None) | (Announcement.expires_at > now)  # noqa: E711
+            (Announcement.expires_at.is_(None)) | (Announcement.expires_at > now)
         )
     )
     all_active = result.scalars().all()

@@ -30,7 +30,6 @@ from email.mime.text import MIMEText
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session
@@ -519,7 +518,7 @@ async def send_passport_email_legacy(vehicle_id: str, subject: str, html_body: s
 import asyncio
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 
 def _chart_png(monthly: list[dict[str, Any]], width: int = 900, height: int = 280) -> bytes:

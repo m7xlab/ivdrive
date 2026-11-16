@@ -41,7 +41,6 @@ inputs_json snapshot for auditability. Aggregate row also written.
 from __future__ import annotations
 
 import json
-import statistics
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -50,7 +49,6 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.telemetry import BatteryHealth
 
 
 # ---------------------------------------------------------------------------

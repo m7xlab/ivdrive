@@ -720,7 +720,7 @@ export function TripsDashboard({ vehicleId, dateRange, summarySubtitle }: TripsD
 
                       }}
 
-                      onClick={() => setActiveTripId(trip.trip_id)}
+                      eventHandlers={{ click: () => setActiveTripId(trip.trip_id) }}
 
                     />
 

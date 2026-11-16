@@ -1,8 +1,8 @@
 import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select, update, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
