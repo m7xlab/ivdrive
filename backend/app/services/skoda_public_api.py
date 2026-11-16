@@ -16,6 +16,8 @@ from typing import Any
 
 import httpx
 
+from app.services.vin import vin_path
+
 from app.schemas.skoda_public import VehicleResponse
 
 logger = logging.getLogger(__name__)
@@ -218,7 +220,7 @@ class SkodaPublicAPIClient:
         if include:
             params["include"] = ",".join(include)
         try:
-            resp = await self._client.get(f"/api/v1/vehicles/{vin}", params=params or None)
+            resp = await self._client.get(f"/api/v1/vehicles/{vin_path(vin)}", params=params or None)
         except httpx.TimeoutException as exc:
             raise SkodaPublicTimeoutError(str(exc)) from exc
         payload = self._raise_for_status(resp)
@@ -229,10 +231,10 @@ class SkodaPublicAPIClient:
         return await self.get_vehicle(vin, include=DEFAULT_INCLUDE)
 
     async def start_charging(self, vin: str) -> PublicResponseMeta:
-        return await self._post(f"/api/v1/vehicles/{vin}/charging/start")
+        return await self._post(f"/api/v1/vehicles/{vin_path(vin)}/charging/start")
 
     async def stop_charging(self, vin: str) -> PublicResponseMeta:
-        return await self._post(f"/api/v1/vehicles/{vin}/charging/stop")
+        return await self._post(f"/api/v1/vehicles/{vin_path(vin)}/charging/stop")
 
     async def start_air_conditioning(
         self, vin: str, temperature: float, unit: str = "CELSIUS"
@@ -241,22 +243,22 @@ class SkodaPublicAPIClient:
             "targetTemperature": {"value": temperature, "unit": unit},
             "airConditioningWithoutExternalPower": True,
         }
-        return await self._post(f"/api/v1/vehicles/{vin}/air-conditioning/start", body)
+        return await self._post(f"/api/v1/vehicles/{vin_path(vin)}/air-conditioning/start", body)
 
     async def stop_air_conditioning(self, vin: str) -> PublicResponseMeta:
-        return await self._post(f"/api/v1/vehicles/{vin}/air-conditioning/stop")
+        return await self._post(f"/api/v1/vehicles/{vin_path(vin)}/air-conditioning/stop")
 
     async def set_charge_limit(self, vin: str, percent: int) -> PublicResponseMeta:
         """PUT /charging/limit — body ChargingLimit.targetStateOfChargeInPercent."""
         return await self._put(
-            f"/api/v1/vehicles/{vin}/charging/limit",
+            f"/api/v1/vehicles/{vin_path(vin)}/charging/limit",
             {"targetStateOfChargeInPercent": int(percent)},
         )
 
     async def set_charge_mode(self, vin: str, mode: str) -> PublicResponseMeta:
         """PUT /charging/mode — body ChargeMode.chargeMode (MANUAL, TIMER, …)."""
         return await self._put(
-            f"/api/v1/vehicles/{vin}/charging/mode",
+            f"/api/v1/vehicles/{vin_path(vin)}/charging/mode",
             {"chargeMode": mode},
         )
 

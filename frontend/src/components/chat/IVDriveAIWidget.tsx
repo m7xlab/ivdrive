@@ -693,6 +693,10 @@ export function IVDriveAIWidget() {
                     <div className="[&_p]:m-0 [&_p+p]:mt-1 [&_strong]:font-semibold [&_strong]:text-iv-text [&_em]:italic [&_code]:bg-iv-surface [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_pre]:bg-iv-surface [&_pre]:p-3 [&_pre]:rounded-md [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre_code]:p-0 [&_pre_code]:bg-transparent [&_a]:text-blue-400 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-iv-muted [&_blockquote]:pl-2 [&_blockquote]:italic">
                       <ReactMarkdown
                         components={{
+                          // An answer never needs to load a remote image. One that tries is a
+                          // prompt-injected beacon (any URL fetched = the conversation leaked), so
+                          // images are dropped and only their alt text stays.
+                          img: ({ alt }) => (alt ? <span>{alt}</span> : null),
                           a: ({ node, href, children, ...props }) => {
                             const safe =
                               typeof href === "string" &&

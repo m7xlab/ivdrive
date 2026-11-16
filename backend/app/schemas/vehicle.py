@@ -1,11 +1,13 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.vin import normalize_vin
 
 
 class VehicleCreate(BaseModel):
-    vin: str
+    vin: str = Field(..., min_length=17, max_length=17, description="17-character VIN (no I, O, Q)")
     display_name: str | None = None
     # Legacy login (optional). If omitted, iVDrive uses the official MyŠkoda API key
     # saved under Settings → Škoda official API (telemetry_source=public).
@@ -19,6 +21,11 @@ class VehicleCreate(BaseModel):
     incognito_mode: bool = False
     wltp_range_km: float | None = Field(default=None, ge=1, le=2000)
     country_code: str | None = Field(default=None, max_length=2)
+
+    @field_validator("vin", mode="before")
+    @classmethod
+    def _vin_is_a_vin(cls, value: object) -> str:
+        return normalize_vin(str(value))
 
 
 class VehicleResponse(BaseModel):
