@@ -169,6 +169,7 @@ IMPORTANT RULES:
 2. You DO NOT need to filter by `user_id`. You DO NOT need to `JOIN user_vehicles` just to verify ownership.
 3. If the user mentions a vehicle by name (e.g., 'BlackMagic'), use exact matching: `JOIN user_vehicles v ON t.user_vehicle_id = v.id WHERE v.display_name = 'BlackMagic'`. Do not use ILIKE '%...%' because it will accidentally mix data from similar vehicle names (e.g. 'BlackMagic' vs 'BlackMagic80').
 4. Always use aggregate functions (SUM, AVG, COUNT) or LIMIT your queries to 50 rows max.
+5. This is PostgreSQL, NOT SQLite or MySQL. Dates: date_trunc('month', ts), to_char(ts, 'YYYY-MM'), to_char(ts, 'HH24'), EXTRACT(HOUR FROM ts), ts::date, now(), interval '30 days'. Never use strftime, datetime, julianday, ifnull or group_concat (use coalesce and string_agg). Use only plain SELECT with common aggregate, window, date, math and string functions.
 """
 
 async def execute_read_only_sql(db: AsyncSession, user_id: uuid.UUID, sql_query: str) -> str:

@@ -30,6 +30,8 @@ VICTIM = "00000000-0000-0000-0000-000000000001"
     "SELECT d::date, count(*) FROM generate_series(now() - interval '30 days', now(), interval '1 day') d GROUP BY 1",
     "SELECT round(avg(kwh_consumed / NULLIF(distance_km, 0) * 100)::numeric, 1) FROM trips",
     "SELECT lag(start_soc) OVER (ORDER BY start_date) FROM trips",
+    "SELECT DATE(start_date) AS d, count(*) FROM trips GROUP BY 1",
+    "SELECT to_char(start_date, 'YYYY-MM') AS m, round(avg(distance_km)::numeric, 1) FROM trips GROUP BY 1 ORDER BY 1",
 ])
 def test_ordinary_analytical_queries_pass(sql):
     assert check_ai_sql(sql) is None, check_ai_sql(sql)
@@ -99,3 +101,27 @@ def test_escapes_are_refused_with_an_actionable_message(sql, fragment):
 
 def test_row_cap_is_the_documented_fifty():
     assert AI_SQL_ROW_CAP == 50
+
+
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT strftime('%Y-%m', start_date) FROM trips", "to_char"),
+    ("SELECT STRFTIME('%H', start_date) AS h, count(*) FROM trips GROUP BY h", "EXTRACT(HOUR"),
+    ("SELECT ifnull(distance_km, 0) FROM trips", "coalesce"),
+    ("SELECT group_concat(display_name) FROM user_vehicles", "string_agg"),
+    ("SELECT julianday(end_date) - julianday(start_date) FROM trips", "EPOCH"),
+])
+def test_a_sqlite_function_gets_the_postgresql_equivalent_so_the_model_can_correct_itself(sql, expected):
+    msg = check_ai_sql(sql)
+    assert msg and "does not exist in PostgreSQL" in msg and expected in msg, msg
+
+
+def test_an_unknown_function_still_gets_a_useful_generic_hint():
+    msg = check_ai_sql("SELECT frobnicate(id) FROM trips")
+    assert "frobnicate() is not available" in msg and "date_trunc" in msg
+
+
+def test_the_schema_prompt_tells_the_model_this_is_postgresql():
+    import asyncio, uuid
+    from app.services.chat_tools import get_database_schema
+    text = asyncio.run(get_database_schema(None, uuid.uuid4()))
+    assert "PostgreSQL, NOT SQLite" in text and "strftime" in text
