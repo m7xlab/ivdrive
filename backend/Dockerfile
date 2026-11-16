@@ -3,7 +3,7 @@
 # Regenerate the lock after editing requirements.txt:
 #   docker run --rm -v "$PWD":/w -w /w python:3.12-slim sh -c \
 #     "pip install -q pip-tools && pip-compile --generate-hashes --strip-extras -o requirements.lock requirements.txt"
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && \
@@ -13,7 +13,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip setuptools && \
     pip wheel --no-cache-dir --require-hashes -r requirements.lock -w /wheels
 
 
-FROM python:3.12-slim AS base
+FROM python:3.15-slim AS base
 
 WORKDIR /app
 # apt-get upgrade picks up the Debian point-release fixes the base image lags behind;
