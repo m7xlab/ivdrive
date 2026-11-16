@@ -1,0 +1,39 @@
+# Weekly dependency audit (pip-audit on the locked backend set, npm audit on the
+# frontend's production dependencies). Informational: it never blocks a PR; a
+# failing run is the signal to open a Dependabot-style bump.
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'   # Mondays 04:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/requirements.lock'
+      - 'frontend/package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: pip-audit — backend/requirements.lock
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pip-audit
+      - run: pip-audit --progress-spinner off --strict -r backend/requirements.lock --require-hashes --disable-pip
+
+  npm-audit:
+    name: npm audit — frontend (production dependencies)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
