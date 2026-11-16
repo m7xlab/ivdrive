@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.logsafe import log_safe
 from app.api.v1.dependencies import get_current_active_user
 from app.database import get_db
 from app.models.user import User
@@ -53,12 +54,6 @@ def humanize_command_error(exc: Exception) -> str:
     if re.search(r"public fallback|http\s*[45]\d\d|bff post|_post", text):
         return "The car refused this command. Try again in a moment."
     return "Command failed. Try again."
-
-
-def _log_safe(value: object) -> str:
-    """One line of text for the log: Škoda's error bodies and anything that came from a request
-    are flattened so a value cannot forge extra log lines."""
-    return str(value).replace("\r", " ").replace("\n", " ")[:500]
 
 
 async def _get_user_vehicle(
@@ -149,22 +144,22 @@ async def _execute_command(
 
         return CommandResponse(status="completed", message="Command executed successfully")
     except CommandUnsupported as exc:
-        logger.info("Command %s unsupported for %s: %s", command_name, _log_safe(vehicle_id), _log_safe(exc))
+        logger.info("Command %s unsupported for %s: %s", command_name, log_safe(vehicle_id), log_safe(exc))
         return CommandResponse(status="failed", message=str(exc))
     except Exception as exc:
         # Real upstream error stays in server logs; UI gets a human sentence.
         logger.warning(
             "Command %s failed for vehicle %s: %s",
             command_name,
-            _log_safe(vehicle_id),
-            _log_safe(exc),
+            log_safe(vehicle_id),
+            log_safe(exc),
             exc_info=True,
         )
         # Škoda can answer an error and still do what was asked (#climate: BFF 400 and public 500 while
         # the car heated). Before telling the user it was refused, look at what the car is doing.
         state = await _observed_state(command_name, vin, access_token, public_api_key)
         if state is not None:
-            logger.info("Command %s for vehicle %s: Škoda errored but the car reports %s", command_name, _log_safe(vehicle_id), _log_safe(state))
+            logger.info("Command %s for vehicle %s: Škoda errored but the car reports %s", command_name, log_safe(vehicle_id), log_safe(state))
             try:
                 from app.services.events import publish_vehicle_refresh
                 await publish_vehicle_refresh(str(vehicle_id))

@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.logsafe import log_safe
 from app.api.v1.dependencies import get_db, get_current_active_user
 from app.services.ai_embeddings import search_similar
 from app.services.llm_providers import LLMError, complete, provider_order
@@ -163,7 +164,7 @@ async def _get_or_create_session(db: AsyncSession, user_id: str, session_id: str
             return session_id
         # Unknown id, or another user's session: never adopt the id the client sent (it would
         # let a guessed id read or extend someone else's conversation). Start a fresh one.
-        logger.info("chat session %s is not owned by user %s; starting a new session", session_id, user_id)
+        logger.info("chat session %s is not owned by user %s; starting a new session", log_safe(session_id), log_safe(user_id))
     new_id = str(uuid.uuid4())
     try:
         await db.execute(
@@ -1340,7 +1341,7 @@ async def chat(
     context_text = "\n".join(str(c.get("chunk") or "") for c in chunks)
     misreadings = find_term_misreadings(answer, context_text)
     if misreadings:
-        logger.warning(f"chat session {session_id}: glossary misreading in answer: {misreadings}")
+        logger.warning("chat session %s: glossary misreading in answer: %s", log_safe(session_id), log_safe(misreadings))
     answer = normalize_presentation(scrub_raw_terms(answer))
     followups = extract_followups(answer)
 
