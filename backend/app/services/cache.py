@@ -61,3 +61,19 @@ async def invalidate_vehicle_cache(vehicle_id: str) -> None:
                 break
     except Exception as e:
         logger.error(f"Valkey cache invalidation failed: {e}")
+
+
+async def invalidate_user_cache(user_id: str) -> None:
+    """Drop every cached API response of one user (called when their sessions are revoked)."""
+    if not valkey_client:
+        return
+    try:
+        cursor = '0'
+        while True:
+            cursor, keys = await valkey_client.scan(cursor=cursor, match=f"ivdrive:api:cache:{user_id}:*", count=200)
+            if keys:
+                await valkey_client.delete(*keys)
+            if cursor in (0, '0', b'0'):
+                break
+    except Exception as e:
+        logger.error(f"Valkey user cache invalidation failed: {e}")
