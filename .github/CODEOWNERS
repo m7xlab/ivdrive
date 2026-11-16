@@ -1,0 +1,13 @@
+# Code owners are asked to review changes to the paths below.
+# The repository is owned by the m7xlab organization, so owners are named as users.
+
+*                       @GedasKr @m7xlab-sys
+
+# Security-sensitive code and configuration
+/backend/app/security.py                @GedasKr @m7xlab-sys
+/backend/app/services/auth_guard.py     @GedasKr @m7xlab-sys
+/backend/app/services/ai_sql_guard.py   @GedasKr @m7xlab-sys
+/backend/app/services/chat_tools.py     @GedasKr @m7xlab-sys
+/backend/app/migrations/                @GedasKr @m7xlab-sys
+/.github/                               @GedasKr @m7xlab-sys
+/SECURITY.md                            @GedasKr @m7xlab-sys

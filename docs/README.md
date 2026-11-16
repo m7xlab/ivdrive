@@ -11,7 +11,12 @@ Documentation for using and running iVDrive.
 
 | Document | Description |
 |----------|-------------|
-| [Project overview](project_overview.md) | Architecture, technology stack, and directory layout. |
+| [Architecture](ARCHITECTURE.md) | Components, data flow, the security model, repository layout, and how a change reaches production. |
+| [Project overview](project_overview.md) | Technology stack and directory layout. |
+| [Smart polling](design/smart-polling.md) | How the collector watches a vehicle without hammering the Škoda API ([interactive blueprint](design/smart-polling-blueprint.html)). |
+| [Logo and brand guide](brand/logo-and-brand-guide.md) | Logo usage and brand identity. |
+| [Browser QA with Chrome DevTools MCP](development/chrome-devtools-qa-guide.md) | Setting up agent-driven browser testing against a local stack. |
+| [Acknowledgements](THANK-YOU.md) | The projects and communities iVDrive builds on. |
 | [Self-hosting guide](self-hosting.md) | Run iVDrive with Docker Compose on your own server or NAS. |
 | [Contributing](../CONTRIBUTING.md) | How to set up your environment and submit code or docs. |
 | [Changelog](../CHANGELOG.md) | Release history and notable changes. |
@@ -21,7 +26,3 @@ Documentation for using and running iVDrive.
 
 - **Issues and ideas:** [GitHub Issues](https://github.com/m7xlab/iVDrive/issues)
 - **Questions:** [GitHub Discussions](https://github.com/m7xlab/iVDrive/discussions)
-
-## For maintainers
-
-- **Sharing the project** — [Promotion checklist](promotion-checklist.md) with ideas for reaching EV and developer audiences.

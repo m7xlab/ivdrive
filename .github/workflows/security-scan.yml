@@ -16,6 +16,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Merge queue runs (see lint.yml). The required job here is Gitleaks; see its condition below.
+  merge_group:
   schedule:
     # Weekly deep scan on Sundays at 03:00 UTC (catches new CVEs in unchanged code)
     - cron: '0 3 * * 0'
@@ -173,7 +175,7 @@ jobs:
   # ─────────────────────────────────────────────
   codeql:
     name: CodeQL — Deep SAST
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -202,6 +204,9 @@ jobs:
   # ─────────────────────────────────────────────
   gitleaks:
     name: Gitleaks — Secrets
+    # gitleaks-action does not support the merge_group event. The scan already ran on the pull request
+    # itself; on a queue run this job is skipped, which satisfies the required check.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5

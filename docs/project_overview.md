@@ -15,7 +15,7 @@ This document describes the technical architecture of iVDrive for contributors a
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Frontend** | Next.js (React, App Router), Tailwind CSS, Recharts, React-Leaflet, Lucide React | Web UI, charts, maps |
-| **Backend** | Python 3.12+, FastAPI, SQLAlchemy (async), Alembic, Pydantic, NumPy, python-jose | REST API, auth, validation, JWT |
+| **Backend** | Python 3.12+, FastAPI, SQLAlchemy (async), Alembic, Pydantic, NumPy, PyJWT | REST API, auth, validation, JWT |
 | **Database** | PostgreSQL (asyncpg) | Users, vehicles, telemetry history |
 | **Cache** | Valkey (Redis-compatible) | State, cache, pub/sub |
 | **Infrastructure** | Docker & Docker Compose | Multi-container deployment |

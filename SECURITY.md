@@ -2,12 +2,20 @@
 
 ## Supported versions
 
-Security updates are provided for the current major release line.
+Security fixes go into the latest release; please upgrade to it before reporting.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.x     | Yes                |
+| 1.4.x (latest) | Yes         |
+| 1.3.x and earlier | No: upgrade to the latest 1.4.x |
 | < 1.0   | No                 |
+
+## What we do to keep iVDrive safe
+
+- **Every pull request and every week:** CodeQL (Python and TypeScript), Trivy (container image and filesystem), Gitleaks (secrets), `pip-audit` and `npm audit` on the locked dependencies, plus an automated code review.
+- **Repository protections:** GitHub secret scanning with push protection, Dependabot vulnerability alerts, and a protected `main` branch: changes arrive through reviewed pull requests that must pass lint, type checks and the security scans.
+- **Design:** the assistant can only read the signed-in user's data (parsed queries, a restricted database role, row-level security and a read-only transaction); sessions can be revoked; sign-in attempts are rate limited; secrets are encrypted at rest. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security-model).
+- **Release v1.4.0** was a dedicated hardening release; see the [changelog](CHANGELOG.md).
 
 ## Reporting a vulnerability
 
