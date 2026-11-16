@@ -61,20 +61,20 @@ jobs:
             echo "push_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: m7xlab
           password: ${{ secrets.DOCKERHUB_ACCESS_KEY }}
 
       - name: Build and push API image
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.services == 'all'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -87,7 +87,7 @@ jobs:
 
       - name: Build and push Collector image
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.services == 'all'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -112,7 +112,7 @@ jobs:
       # http://localhost:8000 makes production login hit the visitor's machine and
       # CSP connect-src 'self' blocks it. CARTO key is client-side by design.
       - name: Build and push Web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
