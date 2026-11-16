@@ -5,7 +5,7 @@ import pytest
 
 from app import security
 from app.config import _is_placeholder_secret, _is_short_secret, settings
-from app.services import auth_guard, login_guard
+from app.services import auth_guard
 
 
 class _Req:

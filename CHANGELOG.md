@@ -41,6 +41,8 @@
 
 ### Notes
 - Rebuild **api**, **collector** and **web** (the api image gains one dependency, the PostgreSQL parser `pglast`, in `requirements.lock`). Migrations `c1a4e0b7d2f9` (AI role fence), `d2b5f1c8e3a0` (`users.token_version`) and `f4a7c2d9e1b3` (AI role least privilege): run `alembic upgrade head`. The API also adds `token_version` itself at startup if the migration was skipped.
+- **Upgrade note, registration:** `docker-compose.yml` now defaults `SERVICE_REGISTRATION` to `invite_only` (it was `open`, contradicting `.env.example` and the docs). An install that never set the variable stops allowing public sign-up after this upgrade; set `SERVICE_REGISTRATION=open` in `.env` if you want it.
+- **Known and deferred to v1.4.1:** refresh tokens are re-issued but not retired on use (only a password change or `logout-all` ends them); `POST /auth/2fa/enable` does not ask for the password; recovery codes issued before v1.4.0 stay plain SHA-256 until regenerated.
 - Self-hosters: after editing `backend/requirements.txt`, regenerate the lock with the command at the top of `backend/Dockerfile`.
 
 ## [v1.3.16] - 2026-11-15

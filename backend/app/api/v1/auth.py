@@ -408,7 +408,12 @@ async def verify_recovery_code_login(request: Request, response: Response, body:
             detail="No recovery codes available for this account",
         )
 
-    matched = next((h for h in stored_codes if _recovery_code_matches(body.recovery_code, h)), None)
+    # Every stored code is compared, with no early exit, so response time does not reveal which
+    # position matched.
+    matched = None
+    for stored in stored_codes:
+        if _recovery_code_matches(body.recovery_code, stored) and matched is None:
+            matched = stored
     if matched is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
